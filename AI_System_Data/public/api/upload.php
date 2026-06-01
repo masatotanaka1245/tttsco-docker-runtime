@@ -238,6 +238,21 @@ function generateHorizontalSlices(string $sourcePath, string $destDir, string $p
     return [];
 }
 
+function resolvePdfTool(string $binaryName, array $candidatePaths = []): string {
+    $detectedPath = trim((string)@shell_exec('command -v ' . escapeshellarg($binaryName) . ' 2>&1'));
+    if ($detectedPath !== '' && is_file($detectedPath)) {
+        return $detectedPath;
+    }
+
+    foreach ($candidatePaths as $candidatePath) {
+        if (is_file($candidatePath)) {
+            return $candidatePath;
+        }
+    }
+
+    return '';
+}
+
 try {
     $projectId = filter_input(INPUT_POST, 'project_id', FILTER_VALIDATE_INT);
     $analysisMode = filter_input(INPUT_POST, 'analysis_mode', FILTER_SANITIZE_SPECIAL_CHARS) ?: 'tiles';
@@ -261,11 +276,19 @@ try {
         $projectName = $projRow['project_name'];
     }
 
-    $pdfinfoPath   = trim((string)shell_exec('command -v pdfinfo'));
-    $pdftotextPath = trim((string)shell_exec('command -v pdftotext'));
-    $pdftopngPath  = trim((string)shell_exec('command -v pdftoppm'));
+    $toolsDir = $basePath . DIRECTORY_SEPARATOR . 'tools';
+    $pdfinfoPath = resolvePdfTool('pdfinfo', [
+        $toolsDir . DIRECTORY_SEPARATOR . 'pdfinfo.exe',
+    ]);
+    $pdftotextPath = resolvePdfTool('pdftotext', [
+        $toolsDir . DIRECTORY_SEPARATOR . 'pdftotext.exe',
+    ]);
+    $pdftopngPath = resolvePdfTool('pdftoppm', [
+        $toolsDir . DIRECTORY_SEPARATOR . 'pdftoppm.exe',
+        $toolsDir . DIRECTORY_SEPARATOR . 'pdftopng.exe',
+    ]);
     if ($pdfinfoPath === '' || $pdftotextPath === '' || $pdftopngPath === '') {
-        throw new RuntimeException('PDF解析ツールが見つかりません。コンテナに poppler-utils が必要です。');
+        throw new RuntimeException('PDF解析ツールが見つかりません。本番Windowsでは tools フォルダに pdfinfo.exe / pdftotext.exe / pdftoppm.exe（または pdftopng.exe）を配置してください。');
     }
 
     $storageBase = $basePath . DIRECTORY_SEPARATOR . 'public' . DIRECTORY_SEPARATOR . '01_RAG_Documents';
@@ -275,7 +298,7 @@ try {
     $destPath = $projectDir . DIRECTORY_SEPARATOR . uniqid('doc_') . '.pdf';
     move_uploaded_file($uploadedFile['tmp_name'], $destPath);
 
-    $infoCmd = escapeshellcmd($pdfinfoPath) . ' ' . escapeshellarg($destPath) . ' 2>&1';
+    $infoCmd = escapeshellarg($pdfinfoPath) . ' ' . escapeshellarg($destPath) . ' 2>&1';
     $infoOutput = (string)shell_exec($infoCmd); 
     if (!preg_match('/Pages:\s+([0-9]+)/', $infoOutput, $matches)) throw new Exception("PDF解析失敗");
     $totalPages = (int)$matches[1];
@@ -292,7 +315,7 @@ try {
     // ★改善: ハードコード撤廃。セッションからOllamaのURLとモデルを動的に取得する
     // =========================================================================
     @session_start();
-    $ollamaHost = rtrim($_SESSION['ollama_host'] ?? (getenv('OLLAMA_HOST') ?: 'http://host.docker.internal:11434'), '/');
+    $ollamaHost = rtrim($_SESSION['ollama_host'] ?? (getenv('OLLAMA_HOST') ?: 'http://127.0.0.1:11434'), '/');
     $vlmModel   = $_SESSION['default_model'] ?? (getenv('OLLAMA_CHAT_MODEL') ?: 'gemma4:e4b'); 
     $textModel  = $_SESSION['sub_model'] ?? (getenv('OLLAMA_CHAT_MODEL') ?: 'gemma4:e4b'); // 重複排除と要約用
     session_write_close();
@@ -372,13 +395,14 @@ try {
 
         updateProgress('processing', 'extraction', $pageNum - 0.9, $totalPages, "P.{$pageNum} ネイティブテキスト確認中...");
 
-        $txtCmd = escapeshellcmd($pdftotextPath) . ' -f ' . $pageNum . ' -l ' . $pageNum . ' -enc UTF-8 ' . escapeshellarg($destPath) . ' - 2>&1';
+        $txtCmd = escapeshellarg($pdftotextPath) . ' -f ' . $pageNum . ' -l ' . $pageNum . ' -enc UTF-8 ' . escapeshellarg($destPath) . ' - 2>&1';
         $rawText = trim((string)shell_exec($txtCmd));
         $textCharCount = mb_strlen(preg_replace('/\s+/', '', $rawText));
 
         updateProgress('processing', 'extraction', $pageNum - 0.8, $totalPages, "P.{$pageNum} 高解像度画像への変換中...");
         $tmpBase = $projectDir . DIRECTORY_SEPARATOR . "tmp_{$docId}_{$pageNum}";
-        shell_exec(escapeshellcmd($pdftopngPath) . ' -png -r 300 -gray -f ' . $pageNum . ' -l ' . $pageNum . ' ' . escapeshellarg($destPath) . ' ' . escapeshellarg($tmpBase) . ' 2>&1');
+        $pngOption = stripos(basename($pdftopngPath), 'pdftopng') !== false ? '' : ' -png';
+        shell_exec(escapeshellarg($pdftopngPath) . $pngOption . ' -r 300 -gray -f ' . $pageNum . ' -l ' . $pageNum . ' ' . escapeshellarg($destPath) . ' ' . escapeshellarg($tmpBase) . ' 2>&1');
         $imageFiles = glob($tmpBase . '-*.png');
         
         $finalImageDesc = "";

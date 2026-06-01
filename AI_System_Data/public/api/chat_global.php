@@ -219,8 +219,8 @@ class GlobalChatRouteProcessor {
     private function processSqlAction(string $thought, string $action_input, int $iteration): void {
         $generated_sql = trim($action_input);
         
-        // JSON抽出構文の正規表現補正を T1.row_data->>"$.項目名" フォーマットに統一補正
-        $generated_sql = preg_replace("/row_data\s*->>\s*['\"]?\\$?\.?([^'\"]+)['\"]?/i", "row_data->>\"$.$1\"", $generated_sql);
+        // JSON抽出構文をMySQL 8.0で安定するJSON_EXTRACT形式に寄せる
+        $generated_sql = preg_replace("/((?:[a-zA-Z0-9_]+\.)?row_data)\s*->>\s*['\"]?\\$?\.?([^'\"]+)['\"]?/i", 'JSON_UNQUOTE(JSON_EXTRACT($1, \'$."$2"\'))', $generated_sql);
         
         $fence = str_repeat("\x60", 3);
         $generated_sql = preg_replace('/' . preg_quote($fence, '/') . 'sql|' . preg_quote($fence, '/') . '/i', '', $generated_sql);
@@ -285,7 +285,7 @@ class GlobalChatRouteProcessor {
                         . "自律調査ループで得られた以下の【これまでの調査履歴（検索結果）】をもとに、ユーザーの質問に対し、正確かつ分かりやすく回答してください。\n"
                         . "数値を集計した場合は結果の傾向を考察し、資料やコメントがヒットした場合は内容要約して提示してください。\n"
                         . "集められた情報の中に答えがない場合や、エラーで終わっている場合は、「データベースから該当する情報は見つかりませんでした」と正直に伝えてください。\n"
-                        . "集計結果を視覚的に表現できる場合は、Markdown形式のグラフ (" . $fence . "mermaid) も適宜活用してください。";
+                        . "集計結果を視覚的に表現できる場合は、Mermaidではなく " . $fence . "json:chart のChart.js用JSONブロックを使用してください。";
 
         $prompt_user = "【ユーザーの質問】\n{$this->originalMessage}\n\n【これまでの調査履歴（検索結果）】\n{$this->observationHistory}";
 
@@ -485,9 +485,9 @@ class GlobalChatRouteProcessor {
              . "- finish: 質問に答えるための十分な情報が集まった場合、またはこれ以上検索しても情報がないと判断した場合に選択します。\n\n"
              . "【SQL作成時の注意（ハルシネーション絶対禁止プロトコル）】\n"
              . "1. 提示された【INFORMATION_SCHEMAコンテキスト】に表記されている現実の実在物理カラムのみを100%信頼せよ。脳内ででっち上げた実在しない嘘のカラム名（架空のdocument_idやcontent等）は絶対に生成禁止とする。\n"
-             . "2. CSVの内部データを検索・集計する場合は `project_csv_rows` を対象とし、必ず 【 `T1.row_data->>\"$.項目名\"` 】 （パス全体をダブルクォーテーションで囲み、ドル記号とドットを付与する見事な固定フォーマット）のみを使用せよ。\n"
-             . "   - ❌ 絶対生成禁止: row_data->>?$.項目名 などの「->>?$」が含まれる一切の謎のでっち上げ演算子\n"
-             . "   - ⭕ これのみ許可（100%厳守）: T1.row_data->>\"$.項目名\"\n"
+             . "2. CSVの内部データを検索・集計する場合は `project_csv_rows` を対象とし、日本語キーは `JSON_UNQUOTE(JSON_EXTRACT(T1.row_data, '$.\"項目名\"'))` を使用せよ。\n"
+             . "   - 絶対生成禁止: row_data->>?$.項目名、row_data->>$.項目名、row_data->>$.'項目名' などの壊れたJSONパス\n"
+             . "   - `project_csv_rows` に `row_count` カラムは存在しない。CSV行数は `COUNT(T1.id)`、CSVファイルの登録行数は `project_csv_files.row_count` を使用せよ。\n"
              . "3. 資料テキスト検索は `doc_chunks` の実在する物理カラム `chunk_text` に対して LIKE検索（例: `chunk_text LIKE '%キーワード%'`）を利用せよ。\n"
              . "4. レコード件数のカウントは `COUNT(id)` 等の実在する物理カラムを使用せよ。\n"
              . "5. キャスト時に `COLLATE` 句は絶対に使用しないでください。";

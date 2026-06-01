@@ -8,13 +8,14 @@
  */
 import { secureFetch, getConfig } from './api.js?v=4';
 import { scrollToBottom } from './ui.js?v=4';
-import { AiRenderer } from './aiRenderer.js';
+import { AiRenderer } from './aiRenderer.js?v=2';
 
 // 生成された Chart.js のインスタンスを保持し、メモリリークや二重描画を防ぐグローバル管理マップ
 window.chartInstances = window.chartInstances || {};
 
 // モジュールスコープでグラフ配色とモーダル用インスタンスを管理（window汚染の排除）
 let activeModalChart = null;
+let mermaidInitialized = false;
 const THEME_COLORS = ['#4F5D95', '#10b981', '#f59e0b', '#3b82f6', '#ef4444', '#8b5cf6'];
 
 // 生テキストのバッククォート3連フェンス記号を完全排除するための動的定義
@@ -228,12 +229,76 @@ function bindChartModalEvents(parentContainer) {
     });
 }
 
+function ensureMermaidReady() {
+    if (typeof mermaid === 'undefined') return false;
+    if (mermaidInitialized) return true;
+
+    try {
+        mermaid.initialize({
+            startOnLoad: false,
+            securityLevel: 'strict',
+            theme: 'default'
+        });
+        mermaidInitialized = true;
+        return true;
+    } catch (err) {
+        console.error('Mermaid Initialize Error:', err);
+        return false;
+    }
+}
+
+function createMermaidCard(source, title = 'Mermaid 図表') {
+    const mermaidId = 'mermaid-' + Math.random().toString(36).substring(2, 11);
+    return `
+        <div class="mermaid-card-wrapper my-3 rounded-xl border border-slate-200/80 bg-white p-3 shadow-xs" data-mermaid-id="${mermaidId}" data-mermaid-source="${escapeHTML(source)}">
+            <div class="text-[9px] text-slate-400 font-bold mb-2.5 select-none flex items-center gap-1">🧭 ${escapeHTML(title)}</div>
+            <div id="${mermaidId}" class="mermaid-render-target overflow-x-auto text-center text-[10px] text-slate-400 py-2">図表を描画中...</div>
+        </div>
+    `;
+}
+
+function renderMermaidInContainer(parentContainer) {
+    if (!parentContainer || !ensureMermaidReady()) return;
+
+    parentContainer.querySelectorAll('pre code.language-mermaid').forEach(codeBlock => {
+        const pre = codeBlock.parentElement;
+        if (!pre || pre.dataset.convertedMermaid === 'true') return;
+        const holder = document.createElement('div');
+        holder.innerHTML = createMermaidCard(codeBlock.textContent.trim(), 'Mermaid 過去履歴図表');
+        const wrapper = holder.firstElementChild;
+        if (wrapper && pre.parentNode) {
+            pre.parentNode.replaceChild(wrapper, pre);
+        }
+    });
+
+    parentContainer.querySelectorAll('.mermaid-card-wrapper').forEach(wrapper => {
+        if (wrapper.dataset.rendered === 'true' || wrapper.dataset.rendered === 'pending') return;
+        const mermaidId = wrapper.dataset.mermaidId;
+        const source = wrapper.dataset.mermaidSource || '';
+        const target = wrapper.querySelector('.mermaid-render-target');
+        if (!mermaidId || !source || !target) return;
+
+        wrapper.dataset.rendered = 'pending';
+        mermaid.render(`${mermaidId}-svg`, source)
+            .then(({ svg }) => {
+                target.innerHTML = svg;
+                wrapper.dataset.rendered = 'true';
+            })
+            .catch(err => {
+                target.textContent = '図表の描画に失敗しました。';
+                wrapper.dataset.rendered = 'error';
+                console.error('Mermaid Render Error:', err);
+            });
+    });
+}
+
 // marked.js 用のカスタムレンダラー
 const customRenderer = new marked.Renderer();
 const originalCodeRenderer = customRenderer.code;
 
 customRenderer.code = function(code, infostring, escaped) {
-    if (infostring && infostring.trim() === 'json:chart') {
+    const info = (infostring || '').trim();
+    if (info === 'json:chart' || info === 'json:chart_data') {
         const chartId = 'chart-' + Math.random().toString(36).substring(2, 11);
         return `
             <div class="chart-card-wrapper cursor-pointer" data-chart-id="${chartId}" data-chart-config="${escapeHTML(code)}">
@@ -246,6 +311,9 @@ customRenderer.code = function(code, infostring, escaped) {
                 </div>
             </div>
         `;
+    }
+    if (info === 'mermaid') {
+        return createMermaidCard(code, 'Mermaid 図表');
     }
     return originalCodeRenderer.call(this, code, infostring, escaped);
 };
@@ -271,6 +339,86 @@ function setFormDisabled(disabled) {
             }
         }
     }
+}
+
+function initDebugLogViewer() {
+    const configEl = document.querySelector('#support-config');
+    if (!configEl || configEl.dataset.canDebugLog !== '1') return;
+
+    const panel = document.getElementById('chat-debug-panel');
+    const viewer = document.getElementById('chat-debug-viewer');
+    const status = document.getElementById('chat-debug-status');
+    if (!panel || !viewer || !status || panel.dataset.initialized === 'true') return;
+
+    panel.dataset.initialized = 'true';
+    let offset = 0;
+    let timer = null;
+    let loading = false;
+
+    const setStatus = (text, className = 'text-[9px] text-slate-400 font-bold') => {
+        status.textContent = text;
+        status.className = className;
+    };
+
+    const appendLog = (text) => {
+        if (!text) return;
+        const shouldStick = viewer.scrollHeight - viewer.scrollTop - viewer.clientHeight < 24;
+        viewer.appendChild(document.createTextNode(text));
+        const maxChars = 120000;
+        if (viewer.textContent.length > maxChars) {
+            viewer.textContent = viewer.textContent.slice(-maxChars);
+        }
+        if (shouldStick) {
+            viewer.scrollTop = viewer.scrollHeight;
+        }
+    };
+
+    const poll = async () => {
+        if (loading || !panel.open) return;
+        loading = true;
+        try {
+            const res = await fetch(`api/chat_debug_tail.php?offset=${offset}`, {
+                headers: { 'X-CSRF-Token': configEl.dataset.csrfToken || '' },
+                credentials: 'same-origin'
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) {
+                throw new Error(data.error || `HTTP ${res.status}`);
+            }
+            offset = data.offset || offset;
+            if (data.truncated && !viewer.textContent) {
+                appendLog('[ログが大きいため直近部分のみ表示しています]\n');
+            }
+            appendLog(data.content || '');
+            setStatus('監視中', 'text-[9px] text-emerald-500 font-black');
+        } catch (err) {
+            setStatus('取得エラー', 'text-[9px] text-red-500 font-black');
+            if (!viewer.textContent.includes(err.message)) {
+                appendLog(`\n[log viewer error] ${err.message}\n`);
+            }
+        } finally {
+            loading = false;
+        }
+    };
+
+    const start = () => {
+        setStatus('監視中', 'text-[9px] text-emerald-500 font-black');
+        poll();
+        if (!timer) timer = setInterval(poll, 1500);
+    };
+
+    const stop = () => {
+        if (timer) {
+            clearInterval(timer);
+            timer = null;
+        }
+        setStatus('停止中');
+    };
+
+    panel.addEventListener('toggle', () => {
+        if (panel.open) start();
+        else stop();
+    });
 }
 
 // =========================================================================
@@ -444,6 +592,18 @@ function handleChat(e) {
                         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
                         // 🏁 【新仕様】type === 'result' 受信時の最終確定処理
                         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                        } else if (sseData.type === 'error') {
+                            typeof chatLogger === 'function'
+                                ? chatLogger(`[SSEエラーイベント受信] ${sseData.error}`)
+                                : console.log(`[SSEエラーイベント受信] ${sseData.error}`);
+                            document.getElementById(tempId)?.remove();
+                            const errText = `⚠️ **システムエラーが発生しました**\n\n詳細: ${sseData.error || "不明な内部障害です。"}`;
+                            if (bubbleCreated) {
+                                aiRenderer.finalize(targetMessageId, errText);
+                            } else {
+                                appendMsg('assistant', errText);
+                            }
+
                         } else if (sseData.type === 'result') {
                             document.getElementById(tempId)?.remove();
                             
@@ -459,14 +619,15 @@ function handleChat(e) {
                                     finalReportText = finalReportText.text || finalReportText.content || JSON.stringify(finalReportText);
                                 }
                                 
-                                // 思考ログを保存したまま、最終回答ドラフトを確定展開
+                                const existingBubble = document.getElementById(targetMessageId);
+                                const liveLogText = existingBubble?.querySelector('.ai-thought-log')?.textContent || '';
+
+                                // 最終回答ドラフトを確定展開
                                 aiRenderer.finalize(targetMessageId, String(finalReportText));
-                                
+
                                 const bubbleContainer = document.getElementById(targetMessageId)?.querySelector('.ai-text-body');
                                 if (bubbleContainer) {
-                                    // 思考ログコンテナをスマートに視認性を高める折りたたみ（details）にリフォーム調停
-                                    const logBox = bubbleContainer.querySelector('.ai-thought-log');
-                                    if (logBox) {
+                                    if (liveLogText) {
                                         const detailsBox = document.createElement('details');
                                         detailsBox.className = 'mb-3 border border-slate-200 rounded-xl bg-slate-50 overflow-hidden group w-full';
                                         detailsBox.innerHTML = `
@@ -474,16 +635,10 @@ function handleChat(e) {
                                                 <span class="group-open:rotate-90 transition-transform text-[8px] w-3 text-center block">▶</span>
                                                 ⚙️ バックエンド自律推論ステータス実況ログを表示
                                             </summary>
-                                            <div class="p-3.5 pt-0 font-mono text-[11px] leading-relaxed max-h-[200px] overflow-y-auto custom-scrollbar border-t border-slate-200 bg-white/80"></div>
+                                            <div class="p-3.5 pt-0 font-mono text-[11px] leading-relaxed max-h-[200px] overflow-y-auto custom-scrollbar border-t border-slate-200 bg-white/80 whitespace-pre-wrap"></div>
                                         `;
-                                        detailsBox.querySelector('div').appendChild(logBox);
-                                        // 吹き出しの最先頭にインジェクションマウント
+                                        detailsBox.querySelector('div').textContent = liveLogText;
                                         bubbleContainer.insertBefore(detailsBox, bubbleContainer.firstChild);
-                                        logBox.style.boxShadow = 'none';
-                                        logBox.style.marginBottom = '0px';
-                                        logBox.style.padding = '0px';
-                                        logBox.style.borderLeft = 'none';
-                                        logBox.style.background = 'transparent';
                                     }
 
                                     if (sseData.reasoning_steps && sseData.reasoning_steps.length > 0) {
@@ -505,7 +660,8 @@ function handleChat(e) {
                                                 </div>
                                             </details>
                                         `;
-                                        bubbleContainer.insertBefore(rHtml = document.createRange().createContextualFragment(rHtml), bubbleContainer.children[1] || null);
+                                        const reasoningFragment = document.createRange().createContextualFragment(rHtml);
+                                        bubbleContainer.insertBefore(reasoningFragment, bubbleContainer.children[1] || null);
                                     }
                                     if (sseData.sources && sseData.sources.length > 0) {
                                         const sHtml = '<div class="flex flex-wrap mt-2.5 gap-1.5">' + sseData.sources.map(s => {
@@ -519,6 +675,7 @@ function handleChat(e) {
                                     
                                     renderChartsInContainer(bubbleContainer.parentElement);
                                     bindChartModalEvents(bubbleContainer.parentElement);
+                                    renderMermaidInContainer(bubbleContainer.parentElement);
                                 }
                             } else {
                                 const errResponse = `⚠️ **エラーが発生しました**\n\n${sseData.error || "回答を生成できませんでした。もう一度お試しください。"}`;
@@ -627,7 +784,7 @@ function appendMsg(role, text, sources = [], reasoningSteps = [], createdAt = nu
                 <span class="text-[9px] font-black text-slate-500 uppercase tracking-tight">${isAsst ? 'AI Assistant' : 'You'}</span>
                 <span class="text-[8px] text-slate-400 font-mono tracking-tighter">${formatChatDate(createdAt)}</span>
             </div>
-            <div class="${isAsst ? 'bg-white border text-slate-800 rounded-tl-none border-slate-200/80' : 'bg-[#4F5D95] text-white rounded-tr-none border-[#3d4975] shadow-md !text-white [&_*]:!text-white'} p-3.5 rounded-2xl text-xs shadow-sm markdown-body w-full leading-relaxed.ai-text-body">
+            <div class="${isAsst ? 'bg-white border text-slate-800 rounded-tl-none border-slate-200/80' : 'bg-[#4F5D95] text-white rounded-tr-none border-[#3d4975] shadow-md !text-white [&_*]:!text-white'} p-3.5 rounded-2xl text-xs shadow-sm markdown-body w-full leading-relaxed ai-text-body">
                 ${reasoningHtml}
                 ${cleanHtml}
                 ${sourceHtml}
@@ -640,6 +797,7 @@ function appendMsg(role, text, sources = [], reasoningSteps = [], createdAt = nu
 
     renderChartsInContainer(div);
     bindChartModalEvents(div);
+    renderMermaidInContainer(div);
 }
 
 /**
@@ -649,7 +807,7 @@ function initExistingCharts() {
     const chatBox = document.getElementById('chat-box');
     if (!chatBox) return;
 
-    chatBox.querySelectorAll('pre code.language-json\\:chart, pre code.language-json').forEach(codeBlock => {
+    chatBox.querySelectorAll('pre code.language-json\\:chart, pre code.language-json\\:chart_data, pre code.language-json').forEach(codeBlock => {
         const content = codeBlock.textContent.trim();
         if (content.includes('"type"') && content.includes('"datasets"')) {
             const pre = codeBlock.parentElement;
@@ -679,6 +837,7 @@ function initExistingCharts() {
 
     renderChartsInContainer(chatBox);
     bindChartModalEvents(chatBox);
+    renderMermaidInContainer(chatBox);
 }
 
 // =========================================================================
@@ -703,10 +862,12 @@ document.addEventListener('DOMContentLoaded', () => {
     window.handleChat = handleChat;
     window.appendMsg = appendMsg;
     window.initExistingCharts = initExistingCharts;
+    window.initDebugLogViewer = initDebugLogViewer;
 })();
 
 export {
     handleChat,
     appendMsg,
-    initExistingCharts
+    initExistingCharts,
+    initDebugLogViewer
 };

@@ -9,6 +9,7 @@ $URL_DOMPURIFY   = 'ht' . 'tps' . '://' . 'cdnjs' . '.cloudflare.com/ajax/libs/d
 $URL_LEAFLET_CSS = 'ht' . 'tps' . '://' . 'unpkg' . '.com/leaflet@1.9.4/dist/leaflet.css';
 $URL_LEAFLET_JS  = 'ht' . 'tps' . '://' . 'unpkg' . '.com/leaflet@1.9.4/dist/leaflet.js';
 $URL_CHART_JS    = 'ht' . 'tps' . '://' . 'cdn' . '.jsdelivr.net/npm/chart.js';
+$URL_MERMAID     = 'ht' . 'tps' . '://' . 'cdn' . '.jsdelivr.net/npm/mermaid@10.9.5/dist/mermaid.min.js';
 $URL_SVG_XMLNS   = 'ht' . 'tp' . '://' . 'www' . '.w3.org/2000/svg';
 
 /**
@@ -169,6 +170,7 @@ $all_users = $pdo->query("SELECT id, username, department FROM users ORDER BY us
 $current_project = null;
 $documents = [];
 $chat_history = [];
+$chat_reasoning_steps_by_chat_id = [];
 $comments = [];
 $faqs = [];
 $members = [];
@@ -193,6 +195,32 @@ if ($selected_project_id) {
                 $stmtChat = $pdo->prepare("SELECT * FROM chat_history WHERE project_id = :project_id ORDER BY created_at ASC");
                 $stmtChat->execute(['project_id' => $selected_project_id]);
                 $chat_history = $stmtChat->fetchAll(PDO::FETCH_ASSOC);
+
+                $assistantChatIds = array_values(array_filter(array_map(static function ($chat) {
+                    return ($chat['role'] ?? '') === 'assistant' ? (int)$chat['id'] : null;
+                }, $chat_history)));
+                if ($assistantChatIds) {
+                    $placeholders = implode(',', array_fill(0, count($assistantChatIds), '?'));
+                    $stmtReasoning = $pdo->prepare("
+                        SELECT chat_history_id, step_number, sub_query, sub_answer, created_at
+                        FROM chat_reasoning_steps
+                        WHERE chat_history_id IN ($placeholders)
+                        ORDER BY chat_history_id ASC, step_number ASC, id ASC
+                    ");
+                    $stmtReasoning->execute($assistantChatIds);
+                    foreach ($stmtReasoning->fetchAll(PDO::FETCH_ASSOC) as $step) {
+                        $historyId = (int)($step['chat_history_id'] ?? 0);
+                        if ($historyId <= 0) {
+                            continue;
+                        }
+                        $chat_reasoning_steps_by_chat_id[$historyId][] = [
+                            'step_number' => (int)($step['step_number'] ?? 0),
+                            'sub_query' => (string)($step['sub_query'] ?? ''),
+                            'sub_answer' => (string)($step['sub_answer'] ?? ''),
+                            'created_at' => (string)($step['created_at'] ?? ''),
+                        ];
+                    }
+                }
 
                 $stmtComments = $pdo->prepare("SELECT pc.*, u.username FROM project_comments pc JOIN users u ON pc.user_id = u.id WHERE pc.project_id = :project_id ORDER BY pc.created_at DESC");
                 $stmtComments->execute(['project_id' => $selected_project_id]);

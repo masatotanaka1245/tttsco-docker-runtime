@@ -88,6 +88,23 @@ class AdvancedReasoningRouteProcessor {
     public $lastLoggedLen = 0;
     public $ollamaErrorMsg = "";
 
+    public function __construct($pdo, $ollama_host, $projectId, $originalMessage, $searchQuery, $reasoningId, $reasoningModel, $synthesisModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role) {
+        $this->pdo = $pdo;
+        $this->ollama_host = $ollama_host;
+        $this->projectId = (int)$projectId;
+        $this->originalMessage = (string)$originalMessage;
+        $this->searchQuery = (string)$searchQuery;
+        $this->reasoningId = (string)$reasoningId;
+        $this->reasoningModel = (string)$reasoningModel;
+        $this->synthesisModel = (string)$synthesisModel;
+        $this->promptKey = (string)$promptKey;
+        $this->projectContext = (string)$projectContext;
+        $this->historySummaryText = (string)$historySummaryText;
+        $this->user_id = (int)$user_id;
+        $this->role = (string)$role;
+        $this->model = (string)$reasoningModel;
+    }
+
     // 対象 of 8テーブル（静的定義：概要と詳細スキーマの分離による脳内パンク防止シールド）
     private static $tablesBrief = [
         'chat_history'          => 'ユーザーとAIの過去の対話履歴が格納されているテーブル',
@@ -108,7 +125,7 @@ class AdvancedReasoningRouteProcessor {
         'documents' => "テーブル名: documents\n物理カラム:\n- id (INT, PK)\n- project_id (INT)\n- title (VARCHAR: 資料 of タイトル)\n- file_name (VARCHAR: 物理ファイル名)\n- created_at (DATETIME)",
         'project_comments' => "テーブル名: project_comments\n物理カラム:\n- id (INT, PK)\n- project_id (INT)\n- user_id (INT)\n- comment_text (TEXT: コメント内容)\n- created_at (DATETIME)",
         'project_csv_files' => "テーブル名: project_csv_files\n物理カラム:\n- id (INT, PK)\n- project_id (INT)\n- file_name (VARCHAR: CSV名)\n- column_headers (TEXT: JSON型ヘッダー名一覧)\n- row_count (INT)\n- created_at (DATETIME)",
-        'project_csv_rows' => "テーブル名: project_csv_rows\n物理カラム:\n- id (INT, PK)\n- csv_file_id (INT)\n- row_index (INT: 行番号)\n- row_data (JSON: CSV of 行データが入ったオブジェクト。値 of 抽出時は必ず row_data->>'$.\"カラム名\"' of 構文を使用してくたさい)\n- created_at (DATETIME)\n★注意: このテーブルを検索する際は、必ず WHERE csv_file_id = [対象ID] で絞り込んてくたさい。",
+        'project_csv_rows' => "テーブル名: project_csv_rows\n物理カラム:\n- id (INT, PK)\n- csv_file_id (INT)\n- row_index (INT: 行番号)\n- row_data (JSON: CSVの行データが入ったオブジェクト。値の抽出時は JSON_UNQUOTE(JSON_EXTRACT(row_data, '$.\"カラム名\"')) を使用してください)\n- created_at (DATETIME)\n★注意: このテーブルには row_count カラムはありません。行数は COUNT(id) で集計してください。",
         'project_faqs' => "テーブル名: project_faqs\n物理カラム:\n- id (INT, PK)\n- project_id (INT)\n- chat_history_id (INT: チャット履歴への参照外部キー)\n- question_summary (TEXT: 質問 of 要約・概要)\n- answer_summary (TEXT: 回答 of 要約・概要)\n- created_by (INT: 作成者ユーザーID)\n- created_at (DATETIME)",
         'users' => "テーブル名: users\n物理カラム:\n- id (INT, PK)\n- username (VARCHAR: ユーザー名)\n- department (VARCHAR: 所属部署)\n- role (VARCHAR: 権限。'admin' または 'member')\n- default_prompt (TEXT)\n- default_lang (VARCHAR)\n- default_model (VARCHAR)\n- sub_model (VARCHAR)\n- ollama_host (VARCHAR)\n- created_at (DATETIME)\n- updated_at (DATETIME)"
     ];
@@ -289,9 +306,8 @@ class AdvancedReasoningRouteProcessor {
                         . "【重要構文ルール】\n"
                         . "1. 過去の嘘のスキーマの記憶は完全パージせよ。必ず、提供された【INFORMATION_SCHEMAコンテキスト】に現実に表記されている実在の物理カラム構成のみを使用すること。\n"
                         . "2. CSVデータ自体の「中身・本文」の集計や概要, 傾向をユーザーから求められた場合は、メタ情報を管理する `project_csv_files` ではなく、必ず実データ行がレコードとして詰まっている【 `project_csv_rows` 】テーブルを使用せよ。\n"
-                        . "3. ★【🛠️ネジ締め修正②：MySQL 8.0 日本語JSONパスの絶対拘束ルール】\n"
-                        . "   JSON型（row_data カラム等）から「所属」や「課題など」といった【日本語の項目キー名】を抽出・集計する際は、MySQLの厳格なパス構文エラー（3143）を物理回避するため、必ず 【 T1.row_data->>\"$.\\\"項目名\\\"\" 】 （ドットの直後にダブルクォーテーションで日本語キーを囲み、パス全体をさらにダブルクォーテーションで囲む）のフォーマットのみを使用せよ。\n"
-                        . "   もし JSON_EXTRACT などの関数を使用する場合も、第二引数のパス表現は必ず '$.\\\"項目名\\\"' とし、日本語キーの内側をダブルクォーテーションでエスケープ囲みすること。これを怠ると MySQL Invalid JSON path expression エラーで即死する。矢印の直後に生の「$.日本語」を剥き出しで書くことは完全な構文違反であり即死する。\n"
+                        . "3. MySQL 8.0 の日本語JSONキー抽出は `JSON_UNQUOTE(JSON_EXTRACT(T1.row_data, '$.\"項目名\"'))` を使用せよ。`row_data->>$.項目名` や `row_data->>$.'項目名'` は生成禁止。\n"
+                        . "   `project_csv_rows` に `row_count` カラムは存在しない。CSV行数は `COUNT(T1.id)`、CSVファイル側の登録行数は `project_csv_files.row_count` を使用せよ。\n"
                         . "4. テーブルのエイリアスは必ず `project_csv_rows T1` のように `T1` などの一意のエイリアスを付与せよ。\n"
                         . "5. 【絶対Group Byルール】SELECT 句に集計関数（SUM/AVG/COUNT等）と、非集計カラム（JSON項目含む）を同時に含める場合は、必ずクエリの末尾に `GROUP BY` 句を明記せよ。これを怠ると MySQL 1140 構文エラーで即死する。\n\n"
                         . "【出力制約】\n"
@@ -303,7 +319,7 @@ class AdvancedReasoningRouteProcessor {
         $sql_user_prompt = $this->schemaInfo . "\n\n【ユーザーの分析観点】\n" . $subQ;
 
         // 超決定論的パラメータによる最高度引き締めAI射撃
-        $sql_json_str = callOllamaChat($this->ollama_host, 'gemma4:e4b', $sql_sys_prompt, $sql_user_prompt, 'json', ["temperature" => 0.0, "top_p" => 0.1, "num_ctx" => 4096]);
+        $sql_json_str = callOllamaChat($this->ollama_host, $this->reasoningModel, $sql_sys_prompt, $sql_user_prompt, 'json', ["temperature" => 0.0, "top_p" => 0.1, "num_ctx" => 4096]);
         
         // クレンジングおよびバッチ分割実行エンジンレイヤーへ委譲
         $sub_ans_text = $this->executeAndAnalyzeSql($sql_json_str, $subQ, $step_counter, $stepLabel);
@@ -351,8 +367,8 @@ class AdvancedReasoningRouteProcessor {
             // ━━━━【SQL実行直前の構文補正レイヤー（万能クレンザー）】━━━━
             $generated_sql = preg_replace('/:\??project_id/i', $this->projectId, $generated_sql);
             $generated_sql = preg_replace(
-                "/row_data\s*->>\s*['\"]?\\$?\.?([a-zA-Z0-9_\-\x{3040}-\x{309F}\x{30A0}-\x{30FF}\x{4E00}-\x{9FAF}]+)['\"]?/u", 
-                'row_data->>"$.$1"', 
+                "/((?:[a-zA-Z0-9_]+\.)?row_data)\s*->>\s*['\"]?\\$?\.?([a-zA-Z0-9_\-\x{3040}-\x{309F}\x{30A0}-\x{30FF}\x{4E00}-\x{9FAF}]+)['\"]?/u",
+                'JSON_UNQUOTE(JSON_EXTRACT($1, \'$."$2"\'))',
                 $generated_sql
             );
             $generated_sql = preg_replace('/' . preg_quote($fence, '/') . 'sql|' . preg_quote($fence, '/') . '/i', '', $generated_sql);
@@ -377,7 +393,7 @@ class AdvancedReasoningRouteProcessor {
             if (preg_match('/FROM\s+`?([a-zA-Z0-9_-]+)`?/i', $generated_sql, $tableMatch)) {
                 $extractedTable = $tableMatch[1];
                 if (in_array($extractedTable, $this->dynamicTableWhitelist, true)) {
-                    chatLogger("[SECURITY BYPASS] 動的ホワイトリスト監査パスを安全承認します。");
+                    chatLogger("[SECURITY APPROVED] 動的ホワイトリスト監査パスを安全承認します。");
                 }
             }
 
@@ -413,7 +429,7 @@ class AdvancedReasoningRouteProcessor {
                                 . "❌ 【前回失敗した不正なSQL】\n" . $generated_sql . "\n\n"
                                 . "⚠️ 【MySQLから返された生のエラー文】\n" . ($execResult['error'] ?? 'Unknown Error');
 
-            $sqlJsonStr = callOllamaChat($this->ollama_host, 'gemma4:e4b', $debug_sys_prompt, $debug_user_context, 'json', ["temperature" => 0.0, "top_p" => 0.1, "num_ctx" => 4096]);
+            $sqlJsonStr = callOllamaChat($this->ollama_host, $this->reasoningModel, $debug_sys_prompt, $debug_user_context, 'json', ["temperature" => 0.0, "top_p" => 0.1, "num_ctx" => 4096]);
         }
 
         if (!$execResult['success']) {
@@ -553,6 +569,14 @@ class AdvancedReasoningRouteProcessor {
         }
 
         $plan = json_decode($cleanJson, true);
+        if (is_array($plan) && isset($plan['plan']) && is_array($plan['plan'])) {
+            $plan = $plan['plan'];
+        } elseif (is_array($plan) && isset($plan['steps']) && is_array($plan['steps'])) {
+            $plan = $plan['steps'];
+        } elseif (is_array($plan) && isset($plan['table'])) {
+            chatLogger("[FORMAT-RECOVERY] 単一の計画オブジェクトを配列構造に自動ラップ救済しました。");
+            $plan = [$plan];
+        }
 
         // 【インテリジェント・フォールバック計画への賢いアップグレード】
         if (!is_array($plan) || empty($plan) || !isset($plan[0]['table'])) {
@@ -566,8 +590,14 @@ class AdvancedReasoningRouteProcessor {
                 $fallbackTable = 'doc_chunks';
             }
 
+            $fallbackPurpose = match ($fallbackTable) {
+                'project_csv_rows' => 'CSV行データから質問に関連する集計・傾向を抽出する',
+                'chat_history' => '過去の対話履歴から質問に関連する文脈を抽出する',
+                default => '関連資料PDFの本文チャンクから主要な留意点・根拠を抽出する',
+            };
+
             $plan = [
-                ["step" => 1, "table" => $fallbackTable, "purpose" => "ユーザーの要求に関連する対話ログまたはデータを物理抽出する"]
+                ["step" => 1, "table" => $fallbackTable, "purpose" => $fallbackPurpose]
             ];
         }
 
@@ -630,8 +660,8 @@ class AdvancedReasoningRouteProcessor {
                           . "【絶対ルール】\n"
                           . $projectConstraint
                           . "・★【最重要：MySQL 8.0 日本語JSONパスの絶対拘束ルール】\n"
-                          . "  JSON型（row_data カラム）から「所属」や「課題など」といった【日本語の項目キー名】を抽出・集計する際は、MySQLの厳格なパス構文エラー（3143）を物理回避するため、必ず 【 T1.row_data->>\"$.\\\"項目名\\\"\" 】 （ドットの直後にダブルクォーテーションで日本語キーを囲み、パス全体をさらにダブルクォーテーションで囲む）のフォーマットのみを使用せよ。\n"
-                          . "  もし JSON_EXTRACT などの関数を使用する場合も、第二引数のパス表現は必ず '$.\\\"項目名\\\"' とし、日本語キーの内側をダブルクォーテーションでエスケープ囲みすること。これ怠ると MySQL Invalid JSON path expression エラーで即死する。矢印の直後に生の「$.日本語」を剥き出しで書くことは完全な構文違反であり即死する。\n"
+                          . "  JSON型（row_data カラム）から「所属」や「課題など」といった日本語キーを抽出・集計する際は、必ず `JSON_UNQUOTE(JSON_EXTRACT(T1.row_data, '$.\"項目名\"'))` を使用せよ。\n"
+                          . "  `project_csv_rows` に `row_count` カラムは存在しない。CSV行数は `COUNT(T1.id)`、CSVファイル側の登録行数は `project_csv_files.row_count` を使用せよ。\n"
                           . "・キャスト時に COLLATE 句は絶対に使用しないでください。\n"
                           . "・出力は必ず実行可能なSQL文字列1つのみを内包したJSON形式で出力してください。Markdownや説明テキスト、コメントは完全禁止です。\n"
                           . '{"sql": "SELECT ..."}';
@@ -675,8 +705,8 @@ class AdvancedReasoningRouteProcessor {
             
             // 🔄 [最終ネジ締め修正] SQLを絶対に破壊せず、日本語キーだけを確実に射撃する安全クレンザー（Unicodeブロック完全拘束版）
             $generatedSql = preg_replace(
-                "/row_data\s*->>\s*['\"]?\\$?\.?([a-zA-Z0-9_\-\x{3040}-\x{309F}\x{30A0}-\x{30FF}\x{4E00}-\x{9FAF}]+)['\"]?/u", 
-                'row_data->>"$.$1"', 
+                "/((?:[a-zA-Z0-9_]+\.)?row_data)\s*->>\s*['\"]?\\$?\.?([a-zA-Z0-9_\-\x{3040}-\x{309F}\x{30A0}-\x{30FF}\x{4E00}-\x{9FAF}]+)['\"]?/u",
+                'JSON_UNQUOTE(JSON_EXTRACT($1, \'$."$2"\'))',
                 $generatedSql
             );
             
@@ -881,10 +911,11 @@ class AdvancedReasoningRouteProcessor {
         }
         // ━━━━━━━ 【Map-Reduce 分割時空ループ 終了】 ━━━━━━━
 
-        // ループ完了後、溜まりに溜まった無敵の『100%網羅カテゴリ歴史』をファイナライズ
+        // ループ完了後、溜まった中間考察を内部ドラフト化する。
+        // この段階の出力はCritic未通過のため、画面にはまだ流さない。
         sendSSE('status', [
-            'step'    => 4, 
-            'message' => "⚖️ [最終統合監査] 全 {$totalRecords} 件のバルクスキャンが100%完了しました。これから門番（ChatEvaluator）による絶対合格確定の最終品質監査へ突入します..."
+            'step'    => 4,
+            'message' => "🧾 最終回答ドラフトを内部生成中です。品質監査に通過するまで画面へは確定表示しません..."
         ]);
 
         $currentDraft = "## 📊 海外BU 次世代生成AI活用提案：全{$totalRecords}件 完全網羅カテゴリ分析レポート\n\n"
@@ -914,7 +945,6 @@ class AdvancedReasoningRouteProcessor {
                     }
                     $word = $json['response'] ?? '';
                     $self->finalResponse .= $word;
-                    sendSSE('chunk', ['text' => $word, 'word' => $word]);
                 }
             }
             return strlen($data);
@@ -1049,10 +1079,48 @@ class AdvancedReasoningRouteProcessor {
             }
         }
 
+        if (isset($this->evalResult) && (($this->evalResult['needs_revision'] ?? false) === true)) {
+            $feedback = $this->evalResult['feedback'] ?? '要求要件の網羅性が不足しています。';
+            chatLogger("[CRITIC-FINAL-REWRITE] 最大反省周回後も未合格のため、最新フィードバックを直接注入して最終リライトを実行します。");
+            sendSSE('status', [
+                'step'    => 5,
+                'message' => '🛠️ 品質監査の最終指摘を反映し、確定回答を再構成しています...'
+            ]);
+
+            $mergedReasoningText = implode("\n\n", $this->subAnswers);
+            if (mb_strlen($mergedReasoningText) > 6000) {
+                $mergedReasoningText = mb_substr($mergedReasoningText, 0, 6000) . "\n...[制限超過による省略]";
+            }
+
+            $forceSystemPrompt = $baseSystemPrompt . "\n"
+                . "あなたは最終回答の品質保証リライト担当です。以下の品質監査フィードバックを必ず反映し、ユーザーの質問に直接答える最終版のみを出力してください。\n"
+                . "拒否応答、質問未提示という誤認、監査手順の説明、内部ログの引用は禁止です。";
+            $forceUserPrompt = "【ユーザーの質問】\n{$this->originalMessage}\n\n"
+                . "【利用可能な根拠・中間考察】\n{$mergedReasoningText}\n\n"
+                . "【現在のドラフト】\n{$currentDraft}\n\n"
+                . "【品質監査フィードバック】\n{$feedback}\n\n"
+                . "上記を反映し、ユーザーへ提示する最終回答だけを日本語Markdownで出力してください。";
+
+            $forcedResponse = callOllamaChat(
+                $this->ollama_host,
+                $this->synthesisModel,
+                $forceSystemPrompt,
+                $forceUserPrompt,
+                null,
+                ["temperature" => 0.0, "top_p" => 0.1, "num_ctx" => 8192]
+            );
+
+            if (!empty($forcedResponse)) {
+                $currentDraft = trim($forcedResponse);
+                $this->evalResult['needs_revision'] = false;
+                $this->evalResult['feedback'] = '最大反省周回後、最新の品質監査フィードバックを直接反映して最終リライトしました。';
+            }
+        }
+
         $this->finalResponse = $currentDraft;
         sendSSE('status', [
-            'step'    => 6, 
-            'message' => "✅ 品質基準を105%完全突破しました（監査スコア: " . ($this->evalResult['total_score'] ?? 100) . "点）。最終確定データを送出します。"
+            'step'    => 6,
+            'message' => "✅ 品質監査を反映した最終確定回答を送出します。"
         ]);
     }
 

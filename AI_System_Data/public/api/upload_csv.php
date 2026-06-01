@@ -52,7 +52,7 @@ if (!$auth->isLoggedIn()) {
 $sessionId   = session_id();
 $user_id     = $_SESSION['user_id'];
 $role        = $_SESSION['role'] ?? 'user';
-$ollama_host = rtrim($_SESSION['ollama_host'] ?? (getenv('OLLAMA_HOST') ?: 'http://host.docker.internal:11434'), '/');
+$ollama_host = rtrim($_SESSION['ollama_host'] ?? (getenv('OLLAMA_HOST') ?: 'http://127.0.0.1:11434'), '/');
 
 // ここでセッションロックを完全に解除。以降の重いベクトル生成ループ中も、
 // フロントエンドからの進捗監視ポーリングAPI（get_upload_status.php）が完全にブロッキングされず非同期で動き続けます。

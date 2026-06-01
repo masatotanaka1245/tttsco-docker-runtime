@@ -457,9 +457,8 @@ class AdvancedReasoningRouteProcessor {
                         . "【重要構文ルール】\n"
                         . "1. 過去の嘘のスキーマの記憶は完全パージせよ。必ず、提供された【INFORMATION_SCHEMAコンテキスト】に現実に表記されている実在の物理カラム構成のみを使用すること。\n"
                         . "2. CSVデータ自体の「中身・本文」の集計や概要, 傾向をユーザーから求められた場合は、メタ情報を管理する `project_csv_files` ではなく、必ず実データ行がレコードとして詰まっている【 `project_csv_rows` 】テーブルを使用せよ。\n"
-                        . "3. ★【🛠️ネジ締め修正②：MySQL 8.0 日本語JSONパスの絶対拘束ルール】\n"
-                        . "   JSON型（row_data カラム等）から「所属」や「課題など」といった【日本語の項目キー名】を抽出・集計する際は、MySQLの厳格なパス構文エラー（3143）を物理回避するため、必ず 【 T1.row_data->>\"$.\\\"項目名\\\"\" 】 （ドットの直後にダブルクォーテーションで日本語キーを囲み、パス全体をさらにダブルクォーテーションで囲む）のフォーマットのみを使用せよ。\n"
-                        . "   もし JSON_EXTRACT などの関数を使用する場合も、第二引数のパス表現は必ず '$.\\\"項目名\\\"' とし、日本語キーの内側をダブルクォーテーションでエスケープ囲みすること。これを怠ると MySQL Invalid JSON path expression エラーで即死する。矢印の直後に生の「$.日本語」を剥き出しで書くことは完全な構文違反であり即死する。\n"
+                        . "3. MySQL 8.0 の日本語JSONキー抽出は `JSON_UNQUOTE(JSON_EXTRACT(T1.row_data, '$.\"項目名\"'))` を使用せよ。`row_data->>$.項目名` や `row_data->>$.'項目名'` は生成禁止。\n"
+                        . "   `project_csv_rows` に `row_count` カラムは存在しない。CSV行数は `COUNT(T1.id)`、CSVファイル側の登録行数は `project_csv_files.row_count` を使用せよ。\n"
                         . "4. テーブルのエイリアスは必ず `project_csv_rows T1` のように `T1` などの一意のエイリアスを付与せよ。\n"
                         . "5. 【絶対Group Byルール】SELECT 句に集計関数（SUM/AVG/COUNT等）と, 非集計カラム（JSON項目含む）を同時に含める場合は、必ずクエリの末尾に `GROUP BY` 句を明記せよ。これを怠ると MySQL 1140 構文エラーで即死する。\n\n"
                         . "【出力制約】\n"
@@ -470,7 +469,7 @@ class AdvancedReasoningRouteProcessor {
         $sql_sys_prompt = $this->databaseMemoryPrompt . "\n" . $sql_sys_prompt;
 
         $sql_user_prompt = $this->schemaInfo . "\n\n【ユーザーの分析観点】\n" . $subQ;
-        $sql_model = 'gemma4:e4b'; 
+        $sql_model = $this->model;
         
         // 初回SQL生成オプション引き締め維持
         $sql_json_str = callOllamaChat($this->ollama_host, $sql_model, $sql_sys_prompt, $sql_user_prompt, 'json', ["temperature" => 0.0, "top_p" => 0.1, "num_ctx" => 4096]);
@@ -554,8 +553,8 @@ class AdvancedReasoningRouteProcessor {
             
             // 🔄 [最終ネジ締め修正] SQLを絶対に破壊せず、日本語キーだけを確実に射撃する安全クレンザー（Unicodeブロック完全拘束版）
             $generated_sql = preg_replace(
-                "/row_data\s*->>\s*['\"]?\\$?\.?([a-zA-Z0-9_\-\x{3040}-\x{309F}\x{30A0}-\x{30FF}\x{4E00}-\x{9FAF}]+)['\"]?/u", 
-                'row_data->>"$.$1"', 
+                "/((?:[a-zA-Z0-9_]+\.)?row_data)\s*->>\s*['\"]?\\$?\.?([a-zA-Z0-9_\-\x{3040}-\x{309F}\x{30A0}-\x{30FF}\x{4E00}-\x{9FAF}]+)['\"]?/u",
+                'JSON_UNQUOTE(JSON_EXTRACT($1, \'$."$2"\'))',
                 $generated_sql
             );
             
@@ -569,7 +568,7 @@ class AdvancedReasoningRouteProcessor {
             if (preg_match('/FROM\s+`?([a-zA-Z0-9_-]+)`?/i', $generated_sql, $tableMatch)) {
                 $extractedTable = $tableMatch[1];
                 if (in_array($extractedTable, $this->dynamicTableWhitelist, true)) {
-                    chatLogger("[SECURITY BYPASS] AIが自律特定したテーブル '{$extractedTable}' は動的ホワイトリストに存在するため、監査パスを安全承認します。");
+                    chatLogger("[SECURITY APPROVED] AIが自律特定したテーブル '{$extractedTable}' は動的ホワイトリストに存在するため、監査パスを安全承認します。");
                 }
             }
 
@@ -606,7 +605,7 @@ class AdvancedReasoningRouteProcessor {
 
             // AIデバッグ専用反省コンテキストのロード
             $debug_sys_prompt = "高度なMySQL 8.0のエキスパートシステムとして、提示された【失敗したクエリ】と、MySQLサーバーが返した【生の構成エラー文】を深く自己反省（Self-Reflection）してください。\n"
-                              . "特に `only_full_group_by` の厳格な制約（SELECT句にある非集計カラムはすべてGROUP BYに記述するか集計関数で囲む）を満たしているか、またはJSONパス構文 `row_data->>\"$.キー\"` が正確であるか、利用可能なカラム名を誤認でっち上げしていないか確認し、論理的な解決策を構築してください。\n"
+                              . "特に `only_full_group_by` の厳格な制約（SELECT句にある非集計カラムはすべてGROUP BYに記述するか集計関数で囲む）を満たしているか、またはJSONキー抽出構文 `JSON_UNQUOTE(JSON_EXTRACT(row_data, '$.\"キー\"'))` が正確であるか、利用可能なカラム名を誤認でっち上げしていないか確認し、論理的な解決策を構築してください。\n"
                               . "指示スキーマに存在しない物理カラム名は勝手にでっち上げてはいけません。\n\n"
                               . "【絶対ルール】\n"
                               . "出力は必ず、修正・デバッグされた実行可能なSQL文字列1つのみを内包したJSON形式【のみ】を出力してください。挨拶やMarkdown、他の説明プロースは一切排除してください。\n"
@@ -623,7 +622,7 @@ class AdvancedReasoningRouteProcessor {
             // 📢 [超詳細ログ5] 次の周回リトライに向けて、AIの脳みそへ叩き込む「反省用インジェクションデータ」をすべてダンプ
             chatLogger("[OLLAMA-REFLECT-INPUT] (次の一手: 試行 {$retry_count}/3) AIへ送り届ける自己反省材料:\n" . $debug_user_context);
 
-            $sql_model = 'gemma4:e4b';
+            $sql_model = $this->model;
             chatLogger("[OLLAMA-DEBUG] 自律修正リクエストを送信します...");
             
             $retry_json_str = callOllamaChat($this->ollama_host, $sql_model, $debug_sys_prompt, $debug_user_context, 'json', ["temperature" => 0.0, "top_p" => 0.1, "num_ctx" => 4096]);
@@ -743,7 +742,7 @@ class AdvancedReasoningRouteProcessor {
         $system_prompt .= "\n\n// ── UIモジュールから仕入れた関数群を support.php へ正確に再出荷 ──【データ分析・報告指示（Chart.js完全準拠版）】\n"
                        . "あなたはデータアナリストです。提供された「各観点の中間考察結果」を総合して、ユーザーの質問に対する最終的な分析レポートを詳細に作成してください。\n"
                        . "レポート内でデータをグラフ視覚化する際は、Mermaidなどのテキストベースの簡易グラフは一切使用せず、**必ず以下の構造に100%厳格に準拠したグラフ専用JSONデータブロックを出力してください。**\n"
-                       . "グラフデータの前後項目は必ず " . $fence . "json:chart_data と " . $fence . " のコードブロックで正確に囲んでください。\n\n"
+                       . "グラフデータの前後項目は必ず " . $fence . "json:chart と " . $fence . " のコードブロックで正確に囲んでください。\n\n"
                        . "【指定JSON構造ルール】\n"
                        . $fence . "json:chart\n"
                        . "{\n"
@@ -874,7 +873,7 @@ class AdvancedReasoningRouteProcessor {
         $system_prompt .= "\n\n// ── UIモジュールから仕入れた関数群を support.php へ正確に再出荷 ──【データ分析・報告指示（Chart.js完全準拠版）】\n"
                        . "あなたはデータアナリストです。提供された「各観点の中間考察結果」を総合して、ユーザーの質問に対する最終的な分析レポートを詳細に作成してください。\n"
                        . "レポート内でデータをグラフ視覚化する際は、Mermaidなどのテキストベースの簡易グラフは一切使用せず、**必ず以下の構造に100%厳格に準拠したグラフ専用JSONデータブロックを出力してください。**\n"
-                       . "グラフデータの前後項目は必ず " . $fence . "json:chart_data と " . $fence . " のコードブロックで正確に囲んでください。\n\n"
+                       . "グラフデータの前後項目は必ず " . $fence . "json:chart と " . $fence . " のコードブロックで正確に囲んでください。\n\n"
                        . "【指定JSON構造ルール】\n"
                        . $fence . "json:chart\n"
                        . "{\n"

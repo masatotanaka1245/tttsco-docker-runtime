@@ -11,6 +11,7 @@ export class AiRenderer {
     constructor(chatBoxId) {
         this.chatBox = document.getElementById(chatBoxId);
         this.activeCharts = {}; // メモリリークおよび二重描画を防ぐためのインスタンス管理オブジェクト
+        this.mermaidInitialized = false;
         this.themeColors = ['#4F5D95', '#10b981', '#f59e0b', '#3b82f6', '#ef4444', '#8b5cf6'];
         
         // 生テキストのバッククォート3連記号を完全に排除するための動的フェンス定義
@@ -160,11 +161,13 @@ export class AiRenderer {
         if (typeof marked === 'undefined') return text;
 
         const renderer = new marked.Renderer();
-        let chartIndex = 0; 
+        let chartIndex = 0;
+        let mermaidIndex = 0;
         const self = this;
 
         renderer.code = function(code, infostring, escaped) {
-            if (infostring && infostring.trim() === 'json:chart') {
+            const info = (infostring || '').trim();
+            if (info === 'json:chart' || info === 'json:chart_data') {
                 chartIndex++;
                 const canvasId = `canvas-${messageId}-${chartIndex}`;
                 
@@ -201,6 +204,16 @@ export class AiRenderer {
                         </div>
                     `;
                 }
+            }
+            if (info === 'mermaid') {
+                mermaidIndex++;
+                const mermaidId = `mermaid-${messageId}-${mermaidIndex}`;
+                return `
+                    <div class="mermaid-card-wrapper my-3 rounded-xl border border-slate-200/80 bg-white p-3 shadow-xs" data-mermaid-id="${mermaidId}" data-mermaid-source="${self.escapeHTML(code.trim())}">
+                        <div class="text-[9px] text-slate-400 font-bold mb-2.5 select-none flex items-center gap-1">🧭 Mermaid 図表</div>
+                        <div id="${mermaidId}" class="mermaid-render-target overflow-x-auto text-center text-[10px] text-slate-400 py-2">図表を描画中...</div>
+                    </div>
+                `;
             }
             return `<pre class="bg-slate-50 p-3 rounded-xl border border-slate-200/60 overflow-x-auto my-2"><code class="text-[11px] font-mono text-slate-700">${self.escapeHTML(code)}</code></pre>`;
         };
@@ -241,34 +254,8 @@ export class AiRenderer {
 
         // ストリーム中はフラグが渡されない（isFinal = false）ため、過剰防衛サニタイズを完全にバイパス開通
         textBody.innerHTML = this.parseMarkdown(cumulativeText, messageId);
-
-        textBody.querySelectorAll('.chart-card-wrapper').forEach(wrapper => {
-            const canvasId = wrapper.dataset.canvasId;
-            const configStr = wrapper.dataset.chartConfig;
-            const canvasElement = document.getElementById(canvasId);
-
-            if (canvasElement && configStr) {
-                try {
-                    const config = JSON.parse(configStr);
-
-                    if (this.activeCharts[canvasId]) {
-                        this.activeCharts[canvasId].destroy();
-                        delete this.activeCharts[canvasId];
-                    }
-
-                    const ctx = canvasElement.getContext('2d');
-                    const chartConfig = this.buildChartJSConfig(config);
-                    
-                    this.activeCharts[canvasId] = new Chart(ctx, chartConfig);
-                    
-                    window.chartInstances = window.chartInstances || {};
-                    window.chartInstances[canvasId] = this.activeCharts[canvasId];
-
-                } catch (err) {
-                    console.error("JIT Chart Mount Error:", err);
-                }
-            }
-        });
+        this.mountCharts(textBody);
+        this.mountMermaid(textBody);
 
         this.smartScroll();
     }
@@ -288,6 +275,8 @@ export class AiRenderer {
             const textBody = bubble.querySelector('.ai-text-body');
             if (textBody) {
                 textBody.innerHTML = this.parseMarkdown(finalText, messageId, true);
+                this.mountCharts(textBody);
+                this.mountMermaid(textBody);
             }
 
             // ダブルクリックズームモーダル用イベントハンドラを正確にバインドマウント
@@ -306,6 +295,70 @@ export class AiRenderer {
         }
         
         this.smartScroll();
+    }
+
+    mountCharts(container) {
+        if (!container) return;
+
+        container.querySelectorAll('.chart-card-wrapper').forEach(wrapper => {
+            const canvasId = wrapper.dataset.canvasId || wrapper.dataset.chartId;
+            const configStr = wrapper.dataset.chartConfig;
+            const canvasElement = document.getElementById(canvasId);
+            if (!canvasElement || !configStr) return;
+
+            try {
+                const config = JSON.parse(configStr);
+                if (this.activeCharts[canvasId]) {
+                    this.activeCharts[canvasId].destroy();
+                    delete this.activeCharts[canvasId];
+                }
+
+                const ctx = canvasElement.getContext('2d');
+                this.activeCharts[canvasId] = new Chart(ctx, this.buildChartJSConfig(config));
+                window.chartInstances = window.chartInstances || {};
+                window.chartInstances[canvasId] = this.activeCharts[canvasId];
+            } catch (err) {
+                console.error("Final Chart Mount Error:", err);
+            }
+        });
+    }
+
+    mountMermaid(container) {
+        if (!container || typeof mermaid === 'undefined') return;
+
+        if (!this.mermaidInitialized) {
+            try {
+                mermaid.initialize({
+                    startOnLoad: false,
+                    securityLevel: 'strict',
+                    theme: 'default'
+                });
+                this.mermaidInitialized = true;
+            } catch (err) {
+                console.error("Mermaid Initialize Error:", err);
+                return;
+            }
+        }
+
+        container.querySelectorAll('.mermaid-card-wrapper').forEach(wrapper => {
+            if (wrapper.dataset.rendered === 'true') return;
+            const mermaidId = wrapper.dataset.mermaidId;
+            const source = wrapper.dataset.mermaidSource || '';
+            const target = wrapper.querySelector('.mermaid-render-target');
+            if (!mermaidId || !source || !target) return;
+
+            wrapper.dataset.rendered = 'pending';
+            mermaid.render(`${mermaidId}-svg`, source)
+                .then(({ svg }) => {
+                    target.innerHTML = svg;
+                    wrapper.dataset.rendered = 'true';
+                })
+                .catch(err => {
+                    target.textContent = '図表の描画に失敗しました。';
+                    wrapper.dataset.rendered = 'error';
+                    console.error("Mermaid Render Error:", err);
+                });
+        });
     }
 
     /**

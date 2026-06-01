@@ -1059,3 +1059,23 @@
 [2026-06-01 10:44:43] [CSV_IMPORT] project_csv_files へのインサート成功 (ID: 20)
 [2026-06-01 10:44:43] [CSV_IMPORT] documents へのRAG親ノードインサート成功 (ID: 139)
 [2026-06-01 10:45:21] [CSV_IMPORT] === コミット成功: CSVデータの取り込み完了 (計 63 件) ===
+[2026-06-01 19:43:54] [CSV_IMPORT] === CSVインポート処理開始 (案件: あいうえお) ===
+[2026-06-01 19:43:54] [CSV_IMPORT] ファイル名: language-locales.csv | 検出文字コード: UTF-8
+[2026-06-01 19:43:54] [CSV_IMPORT] 区切り文字判定: カンマ(CSV)
+[2026-06-01 19:43:54] [CSV_IMPORT] 総有効レコード数の算出を開始します...
+[2026-06-01 19:43:54] [CSV_IMPORT] 事前解析完了: 総有効データ行数 = 5行
+[2026-06-01 19:43:54] [CSV_IMPORT] 抽出された列名ヘッダー: ["Login Email","Identifier","One-time password","Recovery code","First name","Last name","Department","Language"]
+[2026-06-01 19:43:54] [CSV_IMPORT] データベース・トランザクションを開始しました。
+[2026-06-01 19:43:54] [CSV_IMPORT] project_csv_files へのインサート成功 (ID: 2)
+[2026-06-01 19:43:54] [CSV_IMPORT] documents へのRAG親ノードインサート成功 (ID: 2)
+[2026-06-01 19:43:57] [CSV_IMPORT] === コミット成功: CSVデータの取り込み完了 (計 5 件) ===
+[2026-06-01 19:59:59] [CSV_IMPORT] === CSVインポート処理開始 (案件: あいうえお) ===
+[2026-06-01 19:59:59] [CSV_IMPORT] ファイル名: username-or-email.csv | 検出文字コード: UTF-8
+[2026-06-01 19:59:59] [CSV_IMPORT] 区切り文字判定: カンマ(CSV)
+[2026-06-01 19:59:59] [CSV_IMPORT] 総有効レコード数の算出を開始します...
+[2026-06-01 19:59:59] [CSV_IMPORT] 事前解析完了: 総有効データ行数 = 5行
+[2026-06-01 19:59:59] [CSV_IMPORT] 抽出された列名ヘッダー: ["Username;Login email;Identifier;First name;Last name"]
+[2026-06-01 19:59:59] [CSV_IMPORT] データベース・トランザクションを開始しました。
+[2026-06-01 19:59:59] [CSV_IMPORT] project_csv_files へのインサート成功 (ID: 3)
+[2026-06-01 19:59:59] [CSV_IMPORT] documents へのRAG親ノードインサート成功 (ID: 3)
+[2026-06-01 19:59:59] [CSV_IMPORT] === コミット成功: CSVデータの取り込み完了 (計 5 件) ===

@@ -19,6 +19,7 @@ if (!function_exists('h')) {
     <script src="<?= !empty($URL_TAILWIND) ? h($URL_TAILWIND) : 'https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4' ?>"></script>
     <script src="<?= !empty($URL_MARKED) ? h($URL_MARKED) : 'https://cdn.jsdelivr.net/npm/marked/marked.min.js' ?>"></script>
     <script src="<?= !empty($URL_CHART_JS) ? h($URL_CHART_JS) : 'https://cdn.jsdelivr.net/npm/chart.js' ?>"></script>
+    <script src="<?= !empty($URL_MERMAID) ? h($URL_MERMAID) : 'https://cdn.jsdelivr.net/npm/mermaid@10.9.5/dist/mermaid.min.js' ?>"></script>
     <script src="<?= !empty($URL_DOMPURIFY) ? h($URL_DOMPURIFY) : 'https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js' ?>"></script>
     
     <link rel="stylesheet" href="<?= !empty($URL_LEAFLET_CSS) ? h($URL_LEAFLET_CSS) : 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css' ?>" />
@@ -78,9 +79,10 @@ if (!function_exists('h')) {
 
 <?php include_once __DIR__ . '/templates/header.php'; ?>
 
-<div id="support-config" 
-     data-csrf-token="<?= h($csrfToken) ?>" 
-     data-project-id="<?= h((string)$selected_project_id) ?>"></div>
+<div id="support-config"
+     data-csrf-token="<?= h($csrfToken) ?>"
+     data-project-id="<?= h((string)$selected_project_id) ?>"
+     data-can-debug-log="<?= $role === 'admin' ? '1' : '0' ?>"></div>
 
 <main class="flex-1 flex overflow-hidden h-[calc(100vh-72px)] gap-px bg-slate-200/50 w-full" role="region" aria-label="Support System Console">
     
@@ -430,7 +432,15 @@ if (!function_exists('h')) {
                             <?= $chat['role'] === 'assistant' ? 'bg-white text-slate-800 rounded-tl-none border-slate-100' : 'bg-gradient-to-br from-[#4F5D95] to-[#3f4a7a] text-white rounded-tr-none border-[#3b4773] shadow-xs [&_*]:!text-white' ?>">
                             
                             <?php if ($chat['role'] === 'assistant'): ?>
+                                <?php
+                                    $reasoningSteps = $chat_reasoning_steps_by_chat_id[(int)$chat['id']] ?? [];
+                                    $reasoningJson = json_encode(
+                                        $reasoningSteps,
+                                        JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
+                                    );
+                                ?>
                                 <div class="chat-raw-message-source hidden"><?= h($chat['message']) ?></div>
+                                <script type="application/json" class="chat-reasoning-source"><?= $reasoningJson ?: '[]' ?></script>
                                 <div class="ai-text-body markdown-body w-full"></div>
                             <?php else: ?>
                                 <div class="chat-raw-message-source hidden"><?= h($chat['message']) ?></div>
@@ -452,10 +462,22 @@ if (!function_exists('h')) {
             <div class="flex items-center gap-2 px-1">
                 <label class="flex items-center gap-2 text-[10px] text-slate-400 font-bold cursor-pointer hover:text-[#4F5D95] transition-colors duration-150 ease-in-out" title="AIが質問を要素分解し、個別に資料を精読してから統合回答を作成します">
                     <input type="checkbox" id="advanced-reasoning-mode" class="rounded border-slate-300 text-[#4F5D95] focus:ring-[#4F5D95]/40 w-3.5 h-3.5 cursor-pointer">
-                    <span class="bg-indigo-50/80 text-indigo-700 px-2 py-0.5 rounded-lg border border-indigo-100 font-extrabold text-[9px]">🧠 フル思考モード</span> 
+                    <span class="bg-indigo-50/80 text-indigo-700 px-2 py-0.5 rounded-lg border border-indigo-100 font-extrabold text-[9px]">🧠 フル思考モード</span>
                     <span class="font-medium text-slate-400 tracking-tight">(チェックすると強制的に多段階推論により高精度分析を実行)</span>
                 </label>
             </div>
+
+            <?php if ($role === 'admin'): ?>
+            <details id="chat-debug-panel" class="border border-slate-200 rounded-xl bg-slate-50/80 overflow-hidden">
+                <summary class="px-3 py-2 cursor-pointer flex items-center justify-between select-none">
+                    <span class="text-[10px] font-black text-slate-600 uppercase tracking-wide">chat_debug.log ライブ追記</span>
+                    <span id="chat-debug-status" class="text-[9px] text-slate-400 font-bold">停止中</span>
+                </summary>
+                <div class="border-t border-slate-200 bg-slate-950 text-slate-100">
+                    <div id="chat-debug-viewer" class="h-36 overflow-y-auto p-3 font-mono text-[10px] leading-relaxed whitespace-pre-wrap"></div>
+                </div>
+            </details>
+            <?php endif; ?>
             
             <form id="chat-form" onsubmit="if(typeof window.handleChat === 'function') { window.handleChat(event); } else { event.preventDefault(); }" class="flex items-end gap-2 bg-slate-50 rounded-2xl px-4 py-2.5 border border-slate-200/80 shadow-2xs transition-all duration-300 ease-in-out focus-within:ring-4 focus-within:ring-[#4F5D95]/10 focus-within:bg-white focus-within:border-[#4F5D95]/60 focus-within:shadow-md">
                 <textarea id="chat-input" class="flex-1 bg-transparent border-none outline-none focus:outline-none focus:ring-0 text-xs px-0.5 py-1 resize-none overflow-y-auto leading-relaxed text-slate-700 placeholder-slate-400/80 transition-all duration-200" 
@@ -490,7 +512,7 @@ if (!function_exists('h')) {
 
     // ★ 究極の安全設計: import * as 構文を使用し、1096エラー(SyntaxError)を原理的に100%防止
     // ✨ ここを ?v=4 から ?v=5 へ書き換えてキャッシュを強制粉砕！
-    import * as Support from './assets/js/support.js?v=5';
+    import * as Support from './assets/js/support.js?v=7';
 
     // ★要件4: 隔離コンテナ内のJSONデータを仲介して安全にマウント・パースするイベントハンドラの実装
     window.openProjectEditModal = (lat, lng) => {
@@ -517,6 +539,9 @@ if (!function_exists('h')) {
         if (typeof Support.initChatInput === 'function') {
             Support.initChatInput();
         }
+        if (typeof Support.initDebugLogViewer === 'function') {
+            Support.initDebugLogViewer();
+        }
         if (typeof Support.scrollToBottom === 'function') {
             Support.scrollToBottom();
         }
@@ -530,6 +555,45 @@ if (!function_exists('h')) {
 
         // ★安全弁ロジック維持: 最下部 initApp() 内での過去ログ自動一斉パース回路のインジェクト
         setTimeout(() => {
+            const parseMarkdown = (text) => {
+                return (typeof marked !== 'undefined' && typeof DOMPurify !== 'undefined')
+                    ? DOMPurify.sanitize(marked.parse(String(text || '')))
+                    : String(text || '');
+            };
+
+            const appendSavedReasoning = (textBody, bubble) => {
+                const source = bubble.querySelector('.chat-reasoning-source');
+                if (!source || !textBody) return;
+
+                let steps = [];
+                try {
+                    steps = JSON.parse(source.textContent || '[]');
+                } catch (e) {
+                    console.warn('reasoning source parse error:', e);
+                }
+                if (!Array.isArray(steps) || steps.length === 0) return;
+
+                const detailsBox = document.createElement('details');
+                detailsBox.className = 'mb-3 border border-indigo-100 rounded-xl bg-indigo-50/20 overflow-hidden group w-full';
+                const bodyHtml = steps.map(step => `
+                    <div class="text-[10px] bg-white p-3 rounded-xl border border-indigo-50 shadow-xs">
+                        <p class="font-bold text-indigo-700 mb-1.5">Q. ${String(step.sub_query || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}</p>
+                        <div class="text-slate-600 leading-relaxed markdown-body text-[10px]">${parseMarkdown(step.sub_answer || '')}</div>
+                    </div>
+                `).join('');
+
+                detailsBox.innerHTML = `
+                    <summary class="text-[10px] font-bold text-indigo-600 p-2.5 cursor-pointer hover:bg-indigo-50/50 transition-colors select-none outline-none flex items-center gap-1.5">
+                        <span class="group-open:rotate-90 transition-transform text-[8px] w-3 text-center block">▶</span>
+                        🧠 AIの思考・検証プロセスを表示 (${steps.length}件のサブクエリ)
+                    </summary>
+                    <div class="p-3.5 pt-0 space-y-3 border-t border-indigo-100/60 max-h-[300px] overflow-y-auto custom-scrollbar bg-white/50">
+                        ${bodyHtml}
+                    </div>
+                `;
+                textBody.insertBefore(detailsBox, textBody.firstChild);
+            };
+
             // 過去の全吹き出しをスキャンし、JS側の高機能レンダラーで一斉JITパース
             document.querySelectorAll('#chat-box > div').forEach(bubble => {
                 const sourceEl = bubble.querySelector('.chat-raw-message-source');
@@ -544,9 +608,8 @@ if (!function_exists('h')) {
                     const textBody = bubble.querySelector('.ai-text-body');
                     if (textBody) {
                         // 過去のマークダウン、detailsアコーディオン、グラフを安全に自動再起動
-                        textBody.innerHTML = (typeof marked !== 'undefined' && typeof DOMPurify !== 'undefined') 
-                            ? DOMPurify.sanitize(marked.parse(rawText)) 
-                            : rawText;
+                        textBody.innerHTML = parseMarkdown(rawText);
+                        appendSavedReasoning(textBody, bubble);
                     }
                 }
             });

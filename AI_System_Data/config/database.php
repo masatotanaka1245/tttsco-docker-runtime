@@ -1,9 +1,9 @@
 <?php
 // config/database.php
 
-// ① Docker / local environment settings
+// ① Windows production / local environment settings
 $env = [
-    'DB_HOST'   => getenv('DB_HOST') ?: 'db',
+    'DB_HOST'   => getenv('DB_HOST') ?: 'localhost',
     'DB_NAME'   => getenv('DB_NAME') ?: 'tepscoapp',
     'DB_USER'   => getenv('DB_USER') ?: 'newuser',
     'DB_PASS'   => getenv('DB_PASS') ?: 'password',

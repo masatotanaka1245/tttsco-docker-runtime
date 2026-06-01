@@ -50,7 +50,7 @@ function pgLogger($msg) {
     file_put_contents($debugLog, "[$ts] [PG_IMPORT] $msg\n", FILE_APPEND);
 }
 
-function updatePgProgress($status, $stage, $current, $total, $message = '') {
+function updatePgProgress($status, $stage, $current, $total, $message = '', $error = null) {
     global $progressFile, $projectName;
     $progress = ($total > 0) ? min(100, round(($current / $total) * 100)) : 0;
     
@@ -61,7 +61,7 @@ function updatePgProgress($status, $stage, $current, $total, $message = '') {
         'current' => (float)$current,
         'total' => (int)$total,
         'message' => $message,
-        'error' => null,
+        'error' => $error,
         'estimated_remaining' => null,
         'updated_at' => time(),
         'project_name' => $projectName
@@ -118,6 +118,15 @@ try {
 
 pgLogger("=== PostgreSQLインポート開始 (接続先: {$pg_host}:{$pg_port} | DB: {$pg_dbname}) ===");
 updatePgProgress('processing', 'init', 0, 0, "他のWindowsサーバーのPostgreSQLへ接続を試みています...");
+
+if (!extension_loaded('pdo_pgsql')) {
+    $message = 'PHP拡張 pdo_pgsql が有効ではありません。Windows本番環境では php.ini で extension=pdo_pgsql を有効化してください。Docker検証環境ではイメージを再ビルドしてください。';
+    pgLogger("CONNECTION ERROR: {$message}");
+    updatePgProgress('error', 'missing_driver', 0, 0, $message, 'pdo_pgsql extension is not loaded');
+    http_response_code(500);
+    echo json_encode(['success' => false, 'error' => $message], JSON_UNESCAPED_UNICODE);
+    exit;
+}
 
 try {
     // 4. 他のWindowsサーバーのPostgreSQLへリモート接続 (PDOドライバ)

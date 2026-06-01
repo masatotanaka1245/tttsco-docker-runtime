@@ -49,11 +49,11 @@ function appEnvEnabled(string $key, bool $default = false): bool
 
 function shouldWriteChatLog(string $message): bool
 {
-    if (appEnvEnabled('CHAT_DEBUG_VERBOSE', false)) {
-        return true;
+    if (appEnvEnabled('CHAT_DEBUG_MINIMAL', false)) {
+        return preg_match('/CRITICAL|ERROR|WARN|SECURITY|FAILED|FATAL|失敗|例外|拒否|エラー/u', $message) === 1;
     }
 
-    return preg_match('/CRITICAL|ERROR|WARN|SECURITY|FAILED|FATAL|失敗|例外|拒否|エラー/u', $message) === 1;
+    return true;
 }
 
 function jsonApiError(string $userMessage, int $statusCode = 500, ?Throwable $exception = null, array $context = []): void

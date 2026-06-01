@@ -11,7 +11,7 @@
 
 import { openAppModal, closeProjectModal, closeEditModal, bindModalEvents, closeTab, scrollToBottom, initChatInput, injectPdfLoadingMask, switchTab, openPdfTab, initResizer } from './modules/ui.js?v=4';
 import { handleCsvUpload, loadCsvData, handleDeleteCsv, handlePostgresImport, openCsvPreviewByDocId } from './modules/csv.js?v=4';
-import { handleChat, appendMsg, initExistingCharts } from './modules/chat.js?v=4';
+import { handleChat, appendMsg, initExistingCharts, initDebugLogViewer } from './modules/chat.js?v=7';
 import * as Project from './modules/project.js?v=5';
 // ★最終繋ぎ込み要件1: 100点満点でクレンジングが完了した map.js から回線を引き受ける
 import { searchAddress, copyCoords, initModalMap } from './modules/map.js?v=4';
@@ -323,6 +323,7 @@ function bindGlobalFunctions() {
     window.handleChat = handleChat;
     window.appendMsg = appendMsg;
     window.initExistingCharts = initExistingCharts;
+    window.initDebugLogViewer = initDebugLogViewer;
     
     // リサイザ初期化 (ui.jsからインポートした関数を直接マウント)
     window.initResizer = initResizer; 
@@ -359,6 +360,7 @@ export {
     handleUpload,
     handleChat,
     appendMsg,
+    initDebugLogViewer,
     bindGlobalFunctions,
     // ── UIモジュールから仕入れた関数群を support.php へ正確に再出荷 ──
     openAppModal,

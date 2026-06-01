@@ -48,6 +48,7 @@ class SqlExecutionEngine {
         try {
             // 1. クレンジング（Markdownコードフェンスの剥ぎ取り）
             $sql = $this->cleanSql($rawSql);
+            $sql = $this->normalizeGeneratedSql($sql);
 
             // ✨【安全スコープ自動合流（オート・インジェクション）】
             // AIにマルチテナントの条件を書かせず、プログラム側で実行直前に現在の案件ID・ファイルID・ドキュメントIDを自動融合する
@@ -102,6 +103,66 @@ class SqlExecutionEngine {
         }
         
         return trim($sql, "; \t\n\r\0\x0B");
+    }
+
+    /**
+     * LLMが出しやすいCSV/JSON関連の誤SQLを、実行前にMySQL 8.0で通る形へ寄せる。
+     */
+    private function normalizeGeneratedSql(string $sql): string {
+        $rowsAlias = $this->getTableAlias($sql, 'project_csv_rows');
+
+        if ($rowsAlias !== '') {
+            $quotedRowsAlias = preg_quote($rowsAlias, '/');
+            $sql = preg_replace(
+                '/\bSUM\s*\(\s*' . $quotedRowsAlias . '\.row_count\s*\)/i',
+                'COUNT(' . $rowsAlias . '.id)',
+                $sql
+            ) ?? $sql;
+            $sql = preg_replace(
+                '/\bCOUNT\s*\(\s*' . $quotedRowsAlias . '\.row_count\s*\)/i',
+                'COUNT(' . $rowsAlias . '.id)',
+                $sql
+            ) ?? $sql;
+        }
+
+        $filesAlias = $this->getTableAlias($sql, 'project_csv_files');
+        if ($filesAlias !== '' && $rowsAlias !== '' && stripos($sql, 'project_csv_files') !== false && stripos($sql, 'project_csv_rows') !== false) {
+            $quotedFilesAlias = preg_quote($filesAlias, '/');
+            $sql = preg_replace(
+                '/\bCOUNT\s*\(\s*' . $quotedFilesAlias . '\.id\s*\)/i',
+                'COUNT(DISTINCT ' . $filesAlias . '.id)',
+                $sql
+            ) ?? $sql;
+        }
+
+        $sql = preg_replace('/\b([a-zA-Z0-9_]+)\.JSON_UNQUOTE\s*\(\s*JSON_EXTRACT\s*\(\s*\1\./i', 'JSON_UNQUOTE(JSON_EXTRACT($1.', $sql) ?? $sql;
+        $sql = $this->normalizeJsonArrowPaths($sql);
+        $sql = preg_replace('/\s+COLLATE\s+[\'"]?[a-zA-Z0-9_-]+[\'"]?/i', '', $sql) ?? $sql;
+
+        return trim($sql);
+    }
+
+    /**
+     * row_data->>$."キー" や row_data->>"$.キー" を JSON_UNQUOTE(JSON_EXTRACT(...)) に正規化する。
+     */
+    private function normalizeJsonArrowPaths(string $sql): string {
+        $columnPattern = '((?:[a-zA-Z0-9_]+`?\.)?`?row_data`?)';
+
+        $patterns = [
+            '/\b' . $columnPattern . '\s*->>\s*\$\."([^"]+)"/u',
+            '/\b' . $columnPattern . '\s*->>\s*["\']\$\."([^"]+)"["\']/u',
+            '/\b' . $columnPattern . '\s*->>\s*["\']\$\.([^"\']+)["\']/u',
+        ];
+
+        foreach ($patterns as $pattern) {
+            $sql = preg_replace_callback($pattern, function ($matches) {
+                $column = $matches[1];
+                $key = str_replace(['\\', "'"], ['\\\\', "\\'"], trim($matches[2]));
+                return "JSON_UNQUOTE(JSON_EXTRACT({$column}, '$.\"{$key}\"'))";
+            }, $sql) ?? $sql;
+        }
+
+        return $sql;
     }
 
     /**
@@ -194,11 +255,14 @@ class SqlExecutionEngine {
 
             // 🗺️ WHERE句の自動マージマッピング
             $injectionText = implode(" AND ", $conditions);
-            if (preg_match('/\bWHERE\b/i', $sql)) {
-                $sql = preg_replace('/(\bWHERE\b)/i', '$1 ' . $injectionText . ' AND ', $sql, 1);
+            $whereClause = $this->findTopLevelClause($sql, ['WHERE']);
+            if ($whereClause !== null) {
+                $insertAt = $whereClause['offset'] + $whereClause['length'];
+                $sql = substr($sql, 0, $insertAt) . ' ' . $injectionText . ' AND ' . substr($sql, $insertAt);
             } else {
-                if (preg_match('/(\bGROUP\s+BY\b|\bORDER\s+BY\b|\bLIMIT\b)/i', $sql, $m, PREG_OFFSET_CAPTURE)) {
-                    $offset = $m[0][1];
+                $nextClause = $this->findTopLevelClause($sql, ['GROUP BY', 'ORDER BY', 'LIMIT']);
+                if ($nextClause !== null) {
+                    $offset = $nextClause['offset'];
                     $sql = substr($sql, 0, $offset) . " WHERE " . $injectionText . " " . substr($sql, $offset);
                 } else {
                     $sql .= " WHERE " . $injectionText;
@@ -225,6 +289,66 @@ class SqlExecutionEngine {
 
         // ✨【絶対大原則】関数の最末尾。型キャストを施し、ここから必ず string 型が返却される構造を絶対死守
         return (string)$resultSql;
+    }
+
+    /**
+     * SQL全体のトップレベル句だけを検出する。GROUP_CONCAT内の ORDER BY など、括弧内の句は無視する。
+     *
+     * @param string $sql
+     * @param array<int,string> $clauses
+     * @return array{offset:int,length:int,clause:string}|null
+     */
+    private function findTopLevelClause(string $sql, array $clauses): ?array {
+        $length = strlen($sql);
+        $depth = 0;
+        $quote = null;
+
+        for ($i = 0; $i < $length; $i++) {
+            $char = $sql[$i];
+
+            if ($quote !== null) {
+                if ($char === '\\') {
+                    $i++;
+                    continue;
+                }
+                if ($char === $quote) {
+                    $quote = null;
+                }
+                continue;
+            }
+
+            if ($char === "'" || $char === '"' || $char === '`') {
+                $quote = $char;
+                continue;
+            }
+
+            if ($char === '(') {
+                $depth++;
+                continue;
+            }
+            if ($char === ')') {
+                $depth = max(0, $depth - 1);
+                continue;
+            }
+
+            if ($depth !== 0) {
+                continue;
+            }
+
+            $tail = substr($sql, $i);
+            foreach ($clauses as $clause) {
+                $pattern = '/^' . str_replace('\ ', '\s+', preg_quote($clause, '/')) . '\b/i';
+                if (preg_match($pattern, $tail, $match)) {
+                    return [
+                        'offset' => $i,
+                        'length' => strlen($match[0]),
+                        'clause' => strtoupper($clause),
+                    ];
+                }
+            }
+        }
+
+        return null;
     }
 
     /**

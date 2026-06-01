@@ -17,6 +17,7 @@ $URL_SVG_XMLNS   = 'ht' . 'tp' . '://' . 'www' . '.w3.org/2000/svg';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/session.php';
 require_once __DIR__ . '/../src/Auth.php';
+require_once __DIR__ . '/../src/ProjectAccess.php';
 
 // === 1. セキュリティ & 認証 ===
 $auth = new Auth($pdo);
@@ -41,10 +42,18 @@ $totalCond = "1=1";
 $totalParams = [];
 
 if ($userRole !== 'admin') {
-    $queryCond .= " AND p.created_by = :user_id";
-    $queryParams['user_id'] = $userId;
-    $totalCond = "created_by = :user_id";
-    $totalParams['user_id'] = $userId;
+    $queryCond .= " AND (p.created_by = :owner_user_id OR EXISTS (
+        SELECT 1 FROM project_members pm
+        WHERE pm.project_id = p.id AND pm.user_id = :member_user_id
+    ))";
+    $queryParams['owner_user_id'] = $userId;
+    $queryParams['member_user_id'] = $userId;
+    $totalCond = "created_by = :total_owner_user_id OR EXISTS (
+        SELECT 1 FROM project_members pm
+        WHERE pm.project_id = projects.id AND pm.user_id = :total_member_user_id
+    )";
+    $totalParams['total_owner_user_id'] = $userId;
+    $totalParams['total_member_user_id'] = $userId;
 }
 
 // 進行中案件数
@@ -68,8 +77,17 @@ $activeProjects = $stmtProj->fetchAll(PDO::FETCH_ASSOC);
 
 // インデックス登録済み資料の総数
 $sqlDocs = "SELECT COUNT(*) FROM documents d JOIN projects p ON d.project_id = p.id WHERE p.status = 'active'";
-$stmtDocs = $pdo->prepare($userRole !== 'admin' ? $sqlDocs . " AND p.created_by = ?" : $sqlDocs);
-$stmtDocs->execute($userRole !== 'admin' ? [$userId] : []);
+if ($userRole !== 'admin') {
+    $sqlDocs .= " AND (p.created_by = :doc_owner_user_id OR EXISTS (
+        SELECT 1 FROM project_members pm
+        WHERE pm.project_id = p.id AND pm.user_id = :doc_member_user_id
+    ))";
+}
+$stmtDocs = $pdo->prepare($sqlDocs);
+$stmtDocs->execute($userRole !== 'admin' ? [
+    'doc_owner_user_id' => $userId,
+    'doc_member_user_id' => $userId,
+] : []);
 $totalDocs = $stmtDocs->fetchColumn();
 
 // 全ユーザーリスト (アサイン機能用)
@@ -102,24 +120,42 @@ if ($selected_project_id) {
     $stmtFocus = $pdo->prepare("SELECT * FROM projects WHERE id = ?");
     $stmtFocus->execute([$selected_project_id]);
     $focused_project = $stmtFocus->fetch(PDO::FETCH_ASSOC);
-    
+
     if ($focused_project) {
-        try {
-            $focused_docs = $pdo->query("SELECT id, title, file_path FROM documents WHERE project_id = {$selected_project_id} AND file_path NOT LIKE 'csv_db_record_%' ORDER BY created_at DESC")->fetchAll(PDO::FETCH_ASSOC);
-            
-            $comments = $pdo->query("SELECT pc.*, u.username FROM project_comments pc JOIN users u ON pc.user_id = u.id WHERE pc.project_id = {$selected_project_id} ORDER BY pc.created_at DESC")->fetchAll(PDO::FETCH_ASSOC);
-            $members = $pdo->query("SELECT pm.*, u.username, u.department FROM project_members pm JOIN users u ON pm.user_id = u.id WHERE pm.project_id = {$selected_project_id} ORDER BY pm.assigned_at ASC")->fetchAll(PDO::FETCH_ASSOC);
-            $faqs = $pdo->query("SELECT pf.*, u.username FROM project_faqs pf LEFT JOIN users u ON pf.created_by = u.id WHERE pf.project_id = {$selected_project_id} ORDER BY pf.created_at DESC")->fetchAll(PDO::FETCH_ASSOC);
-            
-            // CSV情報の取得と、プレビュー用先頭5行データの動的フェッチ
-            $csv_files = $pdo->query("SELECT id, file_name, row_count, column_headers, created_at FROM project_csv_files WHERE project_id = {$selected_project_id} ORDER BY created_at DESC")->fetchAll(PDO::FETCH_ASSOC);
-            foreach ($csv_files as &$cf) {
-                $cf['preview_rows'] = $pdo->query("SELECT row_data FROM project_csv_rows WHERE csv_file_id = {$cf['id']} ORDER BY row_index ASC LIMIT 5")->fetchAll(PDO::FETCH_ASSOC);
+        if (!canAccessProject($pdo, (int)$selected_project_id, (int)$userId, $userRole)) {
+            $focused_project = null;
+        } else {
+            try {
+                $stmtFocusedDocs = $pdo->prepare("SELECT id, title, file_path FROM documents WHERE project_id = :project_id AND file_path NOT LIKE 'csv_db_record_%' ORDER BY created_at DESC");
+                $stmtFocusedDocs->execute(['project_id' => $selected_project_id]);
+                $focused_docs = $stmtFocusedDocs->fetchAll(PDO::FETCH_ASSOC);
+
+                $stmtComments = $pdo->prepare("SELECT pc.*, u.username FROM project_comments pc JOIN users u ON pc.user_id = u.id WHERE pc.project_id = :project_id ORDER BY pc.created_at DESC");
+                $stmtComments->execute(['project_id' => $selected_project_id]);
+                $comments = $stmtComments->fetchAll(PDO::FETCH_ASSOC);
+
+                $stmtMembers = $pdo->prepare("SELECT pm.*, u.username, u.department FROM project_members pm JOIN users u ON pm.user_id = u.id WHERE pm.project_id = :project_id ORDER BY pm.assigned_at ASC");
+                $stmtMembers->execute(['project_id' => $selected_project_id]);
+                $members = $stmtMembers->fetchAll(PDO::FETCH_ASSOC);
+
+                $stmtFaqs = $pdo->prepare("SELECT pf.*, u.username FROM project_faqs pf LEFT JOIN users u ON pf.created_by = u.id WHERE pf.project_id = :project_id ORDER BY pf.created_at DESC");
+                $stmtFaqs->execute(['project_id' => $selected_project_id]);
+                $faqs = $stmtFaqs->fetchAll(PDO::FETCH_ASSOC);
+
+                // CSV情報の取得と、プレビュー用先頭5行データの動的フェッチ
+                $stmtCsvFiles = $pdo->prepare("SELECT id, file_name, row_count, column_headers, created_at FROM project_csv_files WHERE project_id = :project_id ORDER BY created_at DESC");
+                $stmtCsvFiles->execute(['project_id' => $selected_project_id]);
+                $csv_files = $stmtCsvFiles->fetchAll(PDO::FETCH_ASSOC);
+
+                $stmtPreviewRows = $pdo->prepare("SELECT row_data FROM project_csv_rows WHERE csv_file_id = :csv_file_id ORDER BY row_index ASC LIMIT 5");
+                foreach ($csv_files as &$cf) {
+                    $stmtPreviewRows->execute(['csv_file_id' => $cf['id']]);
+                    $cf['preview_rows'] = $stmtPreviewRows->fetchAll(PDO::FETCH_ASSOC);
+                }
+                unset($cf); // 参照渡し解除
+            } catch (PDOException $e) {
+                error_log("Dashboard query error: " . $e->getMessage());
             }
-            unset($cf); // 参照渡し解除
-            
-        } catch (PDOException $e) {
-            error_log("Dashboard query error: " . $e->getMessage());
         }
     }
 }
@@ -1287,6 +1323,16 @@ if ($isAjax) {
             });
         }
     });
+</script>
+<script type="module">
+    import * as Support from './assets/js/support.js?v=5';
+
+    if (typeof Support.bindGlobalFunctions === 'function') {
+        Support.bindGlobalFunctions();
+    }
+    if (typeof Support.bindModalEvents === 'function') {
+        Support.bindModalEvents();
+    }
 </script>
 </body>
 </html>

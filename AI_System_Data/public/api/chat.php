@@ -86,10 +86,10 @@ if (!function_exists('calculateCosineSimilarity')) {
         $normA = 0.0;
         $normB = 0.0;
         foreach ($vecA as $i => $valA) {
-            $vecB = $vecB[$i] ?? 0;
+            $valB = $vecB[$i] ?? 0;
             $dotProduct += $valA * $valB;
             $normA += $valA * $valA;
-            $normB += $vecB * $vecB; // 元のコードのバグ防止（$vecBの乗算固定）
+            $normB += $valB * $valB;
         }
         if ($normA == 0 || $normB == 0) return 0.0;
         return $dotProduct / (sqrt($normA) * sqrt($normB));
@@ -291,7 +291,7 @@ try {
 
     $selected_model = $input['model'] ?? $default_model;
     $prompt_key     = $input['prompt_mode'] ?? 'construction_consultant';
-    $reasoning_id   = $input['reasoning_id'] ?? null;
+    $reasoning_id   = $input['reasoning_id'] ?? ($input['advanced_reasoning_id'] ?? null);
 
     chatLogger("=== 新着チャット受信 | Host: {$ollama_host} | Model: {$selected_model} ===");
     chatLogger("ユーザー: {$username} (ID: {$user_id}) | 案件ID: " . ($project_id ?? 'NULL (汎用)'));
@@ -359,6 +359,25 @@ try {
 
     $search_query = $message;
     $history_summary_text = "";
+
+    try {
+        $historySql = $project_id === null
+            ? "SELECT role, message FROM chat_history WHERE project_id IS NULL AND user_id = ? ORDER BY created_at DESC LIMIT 8"
+            : "SELECT role, message FROM chat_history WHERE project_id = ? AND user_id = ? ORDER BY created_at DESC LIMIT 8";
+        $stmtHistory = $pdo->prepare($historySql);
+        $stmtHistory->execute($project_id === null ? [$user_id] : [$project_id, $user_id]);
+        $recentHistory = array_reverse($stmtHistory->fetchAll(PDO::FETCH_ASSOC));
+        if ($recentHistory) {
+            $historyLines = [];
+            foreach ($recentHistory as $h) {
+                $roleLabel = $h['role'] === 'assistant' ? 'AI' : 'ユーザー';
+                $historyLines[] = $roleLabel . ': ' . mb_substr(preg_replace('/\s+/u', ' ', (string)$h['message']), 0, 500);
+            }
+            $history_summary_text = implode("\n", $historyLines);
+        }
+    } catch (Throwable $historyEx) {
+        chatLogger("[WARN] 会話履歴コンテキスト取得に失敗: " . $historyEx->getMessage());
+    }
 
     // =========================================================================
     // 4. 回答分岐 ＆ 各コントローラーファイルへの処理移譲

@@ -10,7 +10,7 @@ class User {
      * IDからユーザー情報を取得
      */
     public function getById($id) {
-        $stmt = $this->pdo->prepare("SELECT id, username, department, email, created_at FROM users WHERE id = ?");
+        $stmt = $this->pdo->prepare("SELECT id, username, department, role, created_at FROM users WHERE id = ?");
         $stmt->execute([$id]);
         return $stmt->fetch();
     }
