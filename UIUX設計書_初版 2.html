@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI システム UI/UX デザイン仕様書</title>
+
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com"></script>
+<!-- Mermaid JS -->
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.5/dist/mermaid.min.js"></script>
+
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          primary: '#4F5D95', // PHP Purple base
+          secondary: '#00758F', // MySQL Blue base
+          accent: '#1a6634', // Green
+          surface: '#f8fafc',
+          border: '#e2e8f0',
+        }
+      }
+    }
+  }
+</script>
+
+<style>
+  body { font-family: 'Segoe UI', 'Meiryo', sans-serif; scroll-behavior: smooth; color: #1e293b; line-height: 1.6; }
+  .section-container { margin-bottom: 4rem; }
+  .h-header { border-bottom: 2px solid #4F5D95; padding-bottom: 0.5rem; margin-bottom: 1.5rem; display: flex; align-items: center; gap: 1rem; }
+  .h-number { background: #4F5D95; color: white; border-radius: 6px; padding: 2px 12px; font-weight: bold; }
+  .spec-card { background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+  .mockup-window { background: #f1f5f9; border: 2px solid #cbd5e1; border-radius: 12px; overflow: hidden; margin-top: 1rem; position: relative; }
+  .mermaid-container { display: flex; justify-content: center; background: white; padding: 2rem; border-radius: 1rem; border: 1px solid #e2e8f0; margin: 1rem 0; }
+  .badge-ai { background: #eef2ff; color: #4338ca; border: 1px solid #c7d2fe; padding: 2px 8px; border-radius: 9999px; font-size: 0.75rem; font-weight: bold; }
+  .badge-user { background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; padding: 2px 8px; border-radius: 9999px; font-size: 0.75rem; font-weight: bold; }
+</style>
+</head>
+
+<body class="bg-slate-50 p-4 md:p-8">
+
+<div class="max-w-6xl mx-auto bg-white rounded-3xl shadow-2xl p-6 md:p-12 border border-slate-100">
+
+  <!-- Document Header -->
+  <header class="mb-12 border-b border-slate-200 pb-8">
+    <div class="text-sm font-bold text-primary tracking-widest mb-2 uppercase">TEPSCO SYSTEM</div>
+    <h1 class="text-4xl font-black text-slate-900 tracking-tight">テプスコ システム UI/UX デザイン設計書</h1>
+    <p class="text-lg text-slate-500 mt-2">建設コンサルタント実務特化型 AI 支援プラットフォーム v1.0</p>
+  </header>
+
+  <!-- 1. コンセプト -->
+  <section class="section-container">
+    <h2 class="text-2xl font-bold h-header">
+      <span class="h-number">1</span>デザインコンセプト
+    </h2>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div class="spec-card">
+        <h3 class="font-bold text-primary mb-2">情報の高密度化</h3>
+        <p class="text-sm text-slate-600">東電設計の実務者が一度に多くのデータを把握できるよう、余白を抑え、一画面に複数の情報を集約する設計。</p>
+      </div>
+      <div class="spec-card">
+        <h3 class="font-bold text-primary mb-2">思考の同期</h3>
+        <p class="text-sm text-slate-600">AIとの対話、PDFの精査、地理情報の確認をシームレスに同期。情報の検索から判断までのリードタイムを最小化する。</p>
+      </div>
+      <div class="spec-card">
+        <h3 class="font-bold text-primary mb-2">安全性の視覚化</h3>
+        <p class="text-sm text-slate-600">オンプレミス環境で稼働。機密性の高い設計データを扱う上での安心感を提供する。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. 共通UI仕様 -->
+  <section class="section-container">
+    <h2 class="text-2xl font-bold h-header">
+      <span class="h-number">2</span>共通UI仕様
+    </h2>
+    
+    <h3 class="text-lg font-bold mb-4">2.1 グローバルヘッダー</h3>
+    <div class="bg-primary text-white p-4 rounded-xl flex items-center justify-between mb-4 shadow-md">
+      <div class="flex items-center gap-6">
+        <div class="font-black tracking-widest text-xl">AI SYSTEM</div>
+        <div class="h-8 w-px bg-white/20"></div>
+        <nav class="flex gap-8 text-sm font-medium">
+          <span class="opacity-70 hover:opacity-100 cursor-pointer">ダッシュボード</span>
+          <span class="border-b-2 border-white pb-1 font-bold">業務支援</span>
+          <span class="opacity-70 hover:opacity-100 cursor-pointer">資料検索</span>
+        </nav>
+      </div>
+      <div class="flex items-center gap-4 text-xs">
+        <div class="text-right">
+          <div class="font-bold">技術 太郎</div>
+          <div class="text-[10px] text-white/70 italic">システム企画部 | 管理者</div>
+        </div>
+        <div class="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center text-lg border border-white/30">👤</div>
+      </div>
+    </div>
+    <ul class="list-disc list-inside text-sm text-slate-600 space-y-2 mt-4">
+      <li><strong>ナビゲーション:</strong> 中央に3つの主要モードを配置し、現在地をアンダーラインで強調。</li>
+      <li><strong>プロフィール:</strong> 右端にユーザー情報とシステム稼働モードを表示。</li>
+      <li><strong>配色:</strong> 信頼感を表す <span class="text-primary font-bold">PHP Purple (#4F5D95)</span> をメインカラーに採用。</li>
+    </ul>
+  </section>
+
+  <!-- 3. 画面別ワークスペース詳細 -->
+  <section class="section-container">
+    <h2 class="text-2xl font-bold h-header">
+      <span class="h-number">3</span>画面別ワークスペース詳細
+    </h2>
+
+    <!-- Dashboard -->
+    <div class="spec-card mb-12">
+      <h3 class="text-lg font-bold mb-2 border-l-4 border-primary pl-3">3.1 ダッシュボード画面</h3>
+      <p class="text-sm text-slate-500 mb-4">全体俯瞰とAIによるクイックサマリーの提供。</p>
+      <div class="mockup-window h-[300px] flex gap-px bg-slate-300">
+        <div class="flex-1 bg-slate-50 p-4 space-y-4">
+          <div class="grid grid-cols-3 gap-3">
+            <div class="bg-white p-3 rounded-lg shadow-sm border border-slate-200">
+              <p class="text-[10px] font-bold text-slate-400 uppercase">Status</p>
+              <p class="text-xl font-black text-primary">1,248 <span class="text-xs">Docs</span></p>
+            </div>
+            <div class="bg-white p-3 rounded-lg shadow-sm border border-slate-200">
+              <p class="text-[10px] font-bold text-slate-400 uppercase">Active</p>
+              <p class="text-xl font-black text-secondary">4 <span class="text-xs">Projects</span></p>
+            </div>
+            <div class="bg-white p-3 rounded-lg shadow-sm border-t-4 border-orange-400">
+              <p class="text-[10px] font-bold text-orange-500 uppercase">Notice</p>
+              <p class="text-[10px] leading-tight">基準書改訂情報あり</p>
+            </div>
+          </div>
+          <div class="bg-white p-3 rounded-lg border border-slate-200 text-[10px]">
+            <p class="font-bold border-b pb-1 mb-2">最近の追加資料</p>
+            <p>2024_河川水位.xlsx / 柏崎港湾図面.pdf</p>
+          </div>
+        </div>
+        <!-- Right AI Panel -->
+        <div class="w-64 bg-white flex flex-col p-3 text-[9px]">
+          <p class="font-black text-slate-500 border-b pb-2 mb-3">AI 総合アシスタント</p>
+          <div class="flex-1 space-y-3">
+            <div class="bg-indigo-50 p-2 rounded-lg text-left">お疲れ様です。本日の全体更新状況を要約しますか？</div>
+          </div>
+          <div class="mt-2 bg-slate-100 rounded-full px-3 py-1 flex items-center justify-between">
+            <span>質問を入力...</span><span>⏎</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Operations Support -->
+    <div class="spec-card mb-12">
+      <h3 class="text-lg font-bold mb-2 border-l-4 border-primary pl-3">3.2 業務支援画面 (統合ワークスペース)</h3>
+      <p class="text-sm text-slate-500 mb-4">三分割構成。中央のタブ切替と右側の対話バブル配置が重要。</p>
+      <div class="mockup-window h-[450px] flex gap-px bg-slate-300">
+        <!-- Left: List -->
+        <div class="w-48 bg-white p-3 text-[9px]">
+          <p class="font-black text-primary border-b pb-1 mb-3">業務一覧</p>
+          <div class="bg-blue-50 border-l-4 border-primary p-2 rounded shadow-sm font-bold">福島第一遮水壁調査</div>
+          <div class="p-2 text-slate-400">江東区橋梁点検 A</div>
+        </div>
+        <!-- Center: Tabbed Detail -->
+        <div class="flex-1 bg-white flex flex-col overflow-hidden text-[9px]">
+          <div class="bg-slate-100 flex items-end gap-1 px-2 pt-2 border-b">
+            <div class="bg-white px-3 py-1.5 border-t border-x border-slate-300 rounded-t font-bold text-primary">🏠 概要</div>
+            <div class="bg-slate-200 px-3 py-1.5 border-t border-x border-slate-300 rounded-t opacity-70">📄 報告書.pdf</div>
+          </div>
+          <div class="flex-1 p-4 space-y-4">
+             <div class="bg-slate-50 border rounded p-2">
+               <p><strong>業務名:</strong> 福島第一遮水壁 維持管理</p>
+               <p><strong>工事場所:</strong> 福島県 (37.42, 141.03)</p>
+             </div>
+             <div class="border-2 border-dashed p-6 text-center text-slate-400">📤 PDFをアップロード</div>
+             <div class="space-y-1">
+               <p class="font-bold text-primary border-b pb-1">PDFリスト (クリックで別タブ表示)</p>
+               <div class="p-2 bg-slate-50 rounded border flex justify-between"><span>📄 調査報告書_rev1.pdf</span><span class="badge-ai">RAG Active</span></div>
+             </div>
+          </div>
+        </div>
+        <!-- Right: AI Chat -->
+        <div class="w-72 bg-slate-50 flex flex-col p-3 text-[9px] shadow-inner">
+          <p class="font-black text-slate-500 border-b pb-2 mb-3">AI 対話支援</p>
+          <div class="flex-1 space-y-4 overflow-y-auto">
+            <!-- AI Bubble (Left) -->
+            <div class="flex flex-col items-start gap-1">
+              <span class="badge-ai">AI</span>
+              <div class="bg-indigo-50 p-2 rounded-2xl rounded-tl-none border border-indigo-100 max-w-[90%]">
+                解析をサポートします。地層の透水係数との相関を調べて。
+              </div>
+            </div>
+            <!-- User Bubble (Right) -->
+            <div class="flex flex-col items-end gap-1">
+              <span class="badge-user">USER</span>
+              <div class="bg-primary text-white p-2 rounded-2xl rounded-tr-none max-w-[90%] shadow-sm text-right">
+                報告書P15にある温度上昇について、透水係数との相関を調べて。
+              </div>
+            </div>
+          </div>
+          <div class="mt-2 bg-white border rounded-full px-3 py-1.5 flex items-center justify-between shadow-sm">
+            <span>AIに専門的な質問をする...</span><span class="text-primary font-bold">⏎</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Material Search -->
+    <div class="spec-card">
+      <h3 class="text-lg font-bold mb-2 border-l-4 border-primary pl-3">3.3 資料検索画面 (空間・横断検索)</h3>
+      <p class="text-sm text-slate-500 mb-4">位置情報とキーワードの統合検索インターフェース。</p>
+      <div class="mockup-window h-[350px] flex flex-col">
+        <!-- Search Bar: Left Aligned -->
+        <div class="bg-white p-3 border-b flex gap-4">
+          <div class="w-64 bg-slate-50 border rounded px-3 py-1 text-[9px] flex items-center justify-between">
+            <span>キーワード検索...</span><span>🔍</span>
+          </div>
+          <button class="bg-primary text-white px-6 py-1 rounded text-[9px] font-bold">検索</button>
+        </div>
+        <div class="flex-1 flex gap-px bg-slate-300">
+          <!-- Left: Map -->
+          <div class="w-1/3 bg-blue-50 flex items-center justify-center relative">
+            <span class="text-2xl">📍</span>
+            <div class="absolute top-2 left-2 bg-white/80 p-1 rounded text-[8px] font-bold">Leaflet.js UI</div>
+          </div>
+          <!-- Center: Results -->
+          <div class="w-1/3 bg-white p-3 text-[9px]">
+            <p class="font-black border-b pb-1 mb-2">検索結果: 42件</p>
+            <div class="p-2 border rounded bg-blue-50/50 mb-1">堤防耐震性能評価報告書 (2022)</div>
+          </div>
+          <!-- Right: Preview -->
+          <div class="w-1/3 bg-slate-100 p-4">
+            <div class="bg-white h-full w-full shadow-inner rounded flex items-center justify-center text-slate-300 italic text-[9px]">PDF Preview Area</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4. インタラクション & 非機能要件 -->
+  <section class="section-container">
+    <h2 class="text-2xl font-bold h-header">
+      <span class="h-number">4</span>UX設計
+    </h2>
+    
+    <div class="mermaid-container">
+      <div class="mermaid">
+flowchart LR
+  subgraph User_Action
+    A[資料をクリック]
+    B[AIに質問]
+  end
+  
+  subgraph System_Response
+    C[中央に別タブでPDF表示]
+    D[RAG検索 & 根拠特定]
+    E[右側にAI回答表示]
+    F[PDFビューアの該当頁へ自動遷移]
+  end
+
+  A --> C
+  B --> D
+  D --> E
+  D --> F
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-8 text-sm mt-8">
+      <div class="spec-card">
+        <h4 class="font-bold text-primary mb-2">UI コンポーネント要件</h4>
+        <ul class="space-y-2 text-slate-600">
+          <li><strong>タブ動作:</strong> 資料リストのアイテムをクリックすると、既存の「概要」タブを維持したまま、新規タブとしてPDFビューアを追加する。</li>
+          <li><strong>AI吹き出し:</strong> AIは左揃え（淡い紫背景）、ユーザーは右揃え（濃い紫背景/白文字）とし、発話者を明確に区別する。</li>
+          <li><strong>RAGリンク:</strong> AIの回答テキスト内に埋め込まれた座標/ページリンクをクリックすると、中央のビューアが即座に対象箇所へスクロールする。</li>
+        </ul>
+      </div>
+      <div class="spec-card">
+        <h4 class="font-bold text-primary mb-2">アクセシビリティ & パフォーマンス</h4>
+        <ul class="space-y-2 text-slate-600">
+          <li><strong>現場対応:</strong> タブレットでの操作を考慮し、主要ボタンのタップ領域は 44px 以上を確保。</li>
+          <li><strong>視認性:</strong> 建設図面の細かい注釈を妨げないよう、背景はニュートラルなグレー・白を基調とする。</li>
+          <li><strong>速度:</strong> PDFレンダリングおよびAI応答時の「思考中」ステータスを、プログレスバーではなくスケルトンスクリーンで表現する。</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <footer class="mt-24 pt-8 border-t border-slate-200 text-center">
+    <p class="text-sm font-bold text-slate-800">テプスコ システム</p>
+  </footer>
+
+</div>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'neutral',
+    securityLevel: 'loose',
+    fontFamily: 'Segoe UI, Meiryo'
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【社内実験】社内LLM基盤 PoC利用ガイドライン</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+    
+    <style>
+        body {
+            font-family: 'Inter', 'Noto Sans JP', sans-serif;
+            background-color: #f8fafc; /* slate-50 */
+        }
+        .mermaid-container {
+            display: flex;
+            justify-content: center;
+            overflow-x: auto;
+        }
+        .mermaid svg {
+            font-family: 'Inter', 'Noto Sans JP', sans-serif !important;
+            max-width: 100%;
+        }
+    </style>
+
+    <!-- Mermaid.js -->
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({ 
+            startOnLoad: true, 
+            theme: 'base',
+            themeVariables: {
+                fontFamily: "'Inter', 'Noto Sans JP', sans-serif",
+                lineColor: '#94a3b8',
+                textColor: '#1e293b',
+                clusterBkg: '#ffffff',
+                clusterBorder: '#cbd5e1'
+            },
+            flowchart: { 
+                useMaxWidth: true, 
+                htmlLabels: true, 
+                curve: 'basis'
+            }
+        });
+    </script>
+</head>
+<body class="text-slate-800 p-4 md:p-8">
+
+    <div class="max-w-5xl mx-auto space-y-12">
+        
+        <!-- ヘッダー＆イントロ -->
+        <header class="bg-white p-8 md:p-12 rounded-2xl shadow-sm border border-slate-200 text-center">
+            <span class="inline-block bg-blue-100 text-blue-800 text-sm font-semibold px-3 py-1 rounded-full mb-4">PoC メンバー募集</span>
+            <h1 class="text-3xl md:text-4xl font-bold text-slate-900 mb-6 tracking-tight">社内AI（LLM）基盤<br class="md:hidden"> 利用ガイドライン</h1>
+            <p class="text-slate-600 leading-relaxed max-w-3xl mx-auto text-left md:text-center">
+                社内の業務効率化とAI活用スキルの向上を目的として、社内専用のAI（LLM）基盤のPoC（概念実証）環境を構築しました。<br>
+                本環境は社内ネットワーク内で完結しているため、外部にデータが漏れる心配なく安全にAIを利用・実験することができます。<br>
+                つきましては、本環境を実際に業務で利用し、フィードバックにご協力いただけるメンバー（チーム）を募集します。
+            </p>
+        </header>
+
+        <!-- ユースケース -->
+        <section>
+            <h2 class="text-2xl font-bold text-slate-800 mb-6 flex items-center gap-2">
+                <span class="text-2xl">🌟</span> 本基盤でできること
+            </h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- 非エンジニア向け -->
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow">
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="w-10 h-10 rounded-full bg-cyan-100 flex items-center justify-center text-cyan-600 text-xl">👥</div>
+                        <h3 class="font-bold text-lg text-slate-800">非プログラマーの方 <span class="text-sm font-normal text-slate-500">(ブラウザから利用)</span></h3>
+                    </div>
+                    <ul class="space-y-3 text-slate-600 list-disc list-inside">
+                        <li>メールの下書き作成や添削、文章の要約</li>
+                        <li>アイデア出しやブレインストーミングの壁打ち相手</li>
+                        <li class="text-sm text-slate-500 list-none mt-2">※専用のWeb画面（ChatGPTのような画面）をブラウザからすぐにご利用いただけます。</li>
+                    </ul>
+                </div>
+                <!-- エンジニア向け -->
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow">
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 text-xl">💻</div>
+                        <h3 class="font-bold text-lg text-slate-800">プログラマーの方 <span class="text-sm font-normal text-slate-500">(APIから利用)</span></h3>
+                    </div>
+                    <ul class="space-y-3 text-slate-600 list-disc list-inside">
+                        <li>Pythonやエディタ拡張機能のバックエンドとしての利用</li>
+                        <li>自社システムや自作ツールへのAI機能（API）の組み込み</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <!-- 制約事項とルール -->
+        <section class="bg-amber-50 p-6 md:p-8 rounded-2xl border border-amber-200 shadow-sm">
+            <h2 class="text-2xl font-bold text-amber-900 mb-6 flex items-center gap-2">
+                <span class="text-2xl">⚠️</span> 重要：制約事項とルール
+            </h2>
+            <p class="text-amber-800 mb-6 font-medium">本基盤は「社内の検証用PC1台」で稼働している実験的な環境です。全員が快適に利用できるよう、以下のルールへの同意をお願いします。</p>
+            
+            <div class="space-y-6">
+                <div>
+                    <h3 class="font-bold text-amber-900 mb-2">1. 動作の不安定さと順番待ちについて</h3>
+                    <p class="text-amber-800 text-sm leading-relaxed"><strong>処理は1件ずつ順番に行われます。</strong> 複数人が同時にアクセスした場合、回答までに数分間の待ち時間が発生する場合があります。過負荷によりサーバーがフリーズ・ダウンすることがあります。夜間や休日の復旧対応は行いません。</p>
+                </div>
+                <div>
+                    <h3 class="font-bold text-amber-900 mb-2">2. 利用できる機能の制限</h3>
+                    <p class="text-amber-800 text-sm leading-relaxed">現在提供しているAIモデルは軽量版（gpt-oss:20b）1種類のみです。システム負荷軽減のため、<strong>一度に送信・生成できる文章量には制限があります。</strong> 長大なマニュアルの読み込みや、議事録の全文要約などはエラーになる可能性があります。</p>
+                </div>
+                <div>
+                    <h3 class="font-bold text-amber-900 mb-2">3. 情報の取り扱いについて</h3>
+                    <p class="text-amber-800 text-sm leading-relaxed">本環境は社内オンプレミスであり外部漏洩の心配はありませんが、<strong>個人情報や顧客データ、未公開の財務情報などの入力は控えてください。</strong>改善やトラブルシューティングのため、入力されたプロンプトや出力結果のログは管理者が閲覧できる状態になっています。</p>
+                </div>
+                <div>
+                    <h3 class="font-bold text-amber-900 mb-2">4. フィードバックの義務（利用条件）</h3>
+                    <p class="text-amber-800 text-sm leading-relaxed">本環境を継続して利用するための条件として、<strong>月1回のアンケート（利用用途、削減できた時間、不満点など）への回答を必須</strong>とします。<br><span class="text-amber-700 opacity-80">（皆様からの「遅い」「もっと賢いAIが必要」というリアルな声が、将来の正式なサーバー導入に向けた強力な後押しになります！）</span></p>
+                </div>
+            </div>
+        </section>
+
+        <!-- 利用申請 -->
+        <section>
+            <h2 class="text-2xl font-bold text-slate-800 mb-6 flex items-center gap-2">
+                <span class="text-2xl">🚀</span> 利用申請と使い方
+            </h2>
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div class="p-6 border-b border-slate-100">
+                    <p class="text-slate-600 mb-4">上記ルールにご同意いただける方は、以下の手順で利用申請をお願いします。</p>
+                    <div class="bg-slate-50 p-4 rounded-lg flex items-center gap-3 mb-6 border border-slate-200">
+                        <span class="text-xl">💬</span>
+                        <div>
+                            <p class="text-sm font-bold text-slate-700">専用サイトにご参加ください</p>
+                            <a href="#" class="text-blue-600 hover:underline text-sm font-medium">[URLを記載]</a>
+                        </div>
+                    </div>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        <div>
+                            <h3 class="font-bold text-slate-800 mb-3 bg-slate-100 py-1 px-3 rounded inline-block">■ AIチャットの利用 (Webブラウザ)</h3>
+                            <ol class="list-decimal list-inside text-sm text-slate-600 space-y-2">
+                                <li>専用サイトに参加する</li>
+                                <li>管理者に「Web画面の利用希望」と連絡する</li>
+                                <li>折り返し、アクセス用URLとログイン情報が届きます<br><span class="text-xs text-slate-400">（環境構築は一切不要です）</span></li>
+                            </ol>
+                        </div>
+                        <div>
+                            <h3 class="font-bold text-slate-800 mb-3 bg-slate-100 py-1 px-3 rounded inline-block">■ プログラミング利用 (API利用)</h3>
+                            <ol class="list-decimal list-inside text-sm text-slate-600 space-y-2">
+                                <li>専用サイトに参加する</li>
+                                <li>管理者に「API利用希望（用途：〇〇）」と連絡する</li>
+                                <li>折り返し、接続用の <code>Base URL</code> と専用の <code>APIキー</code> が届きます</li>
+                            </ol>
+                            <p class="text-xs text-slate-500 mt-3 bg-slate-50 p-2 rounded border border-slate-200">※ご自身のツール（Python等）への設定方法は自己責任（ベストエフォート）となります。設定で困った際は、サイト内で教え合ってください！</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- システム構成図 -->
+        <section>
+            <h2 class="text-2xl font-bold text-slate-800 mb-6 flex items-center gap-2">
+                <span class="text-2xl">🔧</span> 補足：システム構成図
+            </h2>
+            <div class="bg-white p-6 md:p-8 rounded-xl shadow-sm border border-slate-200">
+                <p class="text-slate-600 text-sm mb-6 text-center">本環境は、サーバーの過負荷を防ぐため以下のような構成で稼働しています。</p>
+                
+                <div class="mermaid-container">
+                    <div class="mermaid">
+                        graph TD
+                            classDef user fill:#e0f2fe,stroke:#0284c7,stroke-width:2px,color:#0f172a,rx:8px,ry:8px;
+                            classDef client fill:#f1f5f9,stroke:#64748b,stroke-width:2px,color:#0f172a,rx:8px,ry:8px;
+                            classDef proxy fill:#dcfce7,stroke:#16a34a,stroke-width:2px,color:#0f172a,rx:8px,ry:8px;
+                            classDef engine fill:#f3e8ff,stroke:#9333ea,stroke-width:2px,color:#0f172a,rx:8px,ry:8px;
+                            classDef hw fill:#fef3c7,stroke:#d97706,stroke-width:2px,color:#0f172a,rx:8px,ry:8px;
+                            classDef clusterStyle fill:#fafafa,stroke:#e2e8f0,stroke-width:2px,rx:12px,ry:12px,stroke-dasharray: 5 5;
+
+                            subgraph Users [利用者層]
+                                UserA["非エンジニア<br>企画・バックオフィス"]:::user
+                                UserB["エンジニア<br>開発者・ツール利用者"]:::user
+                            end
+
+                            subgraph ClientEnv [クライアント環境]
+                                Browser["Webブラウザ"]:::client
+                                VSCode["Python / API Client<br>APIキー設定済"]:::client
+                            end
+
+                            subgraph Server [オンプレミス サーバー Windows PC]
+                                WebUI["Open WebUI Python<br>ポート: 8080"]:::proxy
+                                
+                                subgraph ProxyLayer [制御レイヤー]
+                                    LiteLLM["LiteLLM Python<br>ポート: 4000<br>・APIキー認証<br>・同時実行数制限 Queue<br>・トークン制限"]:::proxy
+                                end
+                                
+                                subgraph EngineLayer [推論エンジン]
+                                    Ollama["Ollama Windows版<br>ポート: 11434 内部通信のみ"]:::engine
+                                    Model[("LLMモデル")]:::engine
+                                end
+                                
+                                GPU["GPU VRAM<br>モデルを常駐化"]:::hw
+                            end
+
+                            UserA -->|アクセス| Browser
+                            Browser -->|HTTP| WebUI
+                            WebUI -->|マスターAPIキー| LiteLLM
+
+                            UserB -->|操作| VSCode
+                            VSCode -->|個別APIキー| LiteLLM
+
+                            LiteLLM -->|同時実行1で順次処理| Ollama
+                            Ollama -->|モデル読込 / 推論| Model
+                            Model <--> GPU
+
+                            class Users,ClientEnv,Server,ProxyLayer,EngineLayer clusterStyle;
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- フッター -->
+        <footer class="text-center pb-8 pt-4">
+            <p class="text-slate-500 font-medium">【管理者連絡先】 本件に関するお問い合わせは、<span class="font-bold text-slate-700">[シス企/田仲]</span> までお願いいたします。</p>
+            <p class="text-slate-500 mt-2">皆様のご参加と、率直なフィードバックをお待ちしております！</p>
+        </footer>
+
+    </div>
+
+</body>
+</html>

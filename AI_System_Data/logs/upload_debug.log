@@ -1,0 +1,1061 @@
+[2026-05-21 12:01:04] [Progress] init: 解析を開始（全 2 頁 / モード: all）
+[2026-05-21 12:01:04] [Progress] extraction: P.1 ネイティブテキスト確認中...
+[2026-05-21 12:01:04] [Progress] extraction: P.1 高解像度画像への変換中...
+[2026-05-21 12:01:05] [Progress] extraction: P.1 ページ属性をAI判定中...
+[2026-05-21 12:01:19] [Progress] extraction: P.1 高速テキスト抽出を適用
+[2026-05-21 12:01:19] [Progress] storing: P.1 テキストのベクトル化と保存を実行中...
+[2026-05-21 12:01:22] [Progress] storing: P.1 データベースへ保存中... (1/4)
+[2026-05-21 12:01:23] [Progress] storing: P.1 データベースへ保存中... (2/4)
+[2026-05-21 12:01:24] [Progress] storing: P.1 データベースへ保存中... (3/4)
+[2026-05-21 12:01:24] [Progress] storing: P.1 データベースへ保存中... (4/4)
+[2026-05-21 12:01:24] [Progress] extraction: P.2 ネイティブテキスト確認中...
+[2026-05-21 12:01:24] [Progress] extraction: P.2 高解像度画像への変換中...
+[2026-05-21 12:01:25] [Progress] extraction: P.2 ページ属性をAI判定中...
+[2026-05-21 12:01:33] [Progress] extraction: P.2 高速テキスト抽出を適用
+[2026-05-21 12:01:33] [Progress] storing: P.2 テキストのベクトル化と保存を実行中...
+[2026-05-21 12:01:33] [Progress] storing: P.2 データベースへ保存中... (1/3)
+[2026-05-21 12:01:33] [Progress] storing: P.2 データベースへ保存中... (2/3)
+[2026-05-21 12:01:33] [Progress] storing: P.2 データベースへ保存中... (3/3)
+[2026-05-21 12:01:33] [Progress] summary: 最終処理: 資料全体の要約をLLMで生成中...
+[2026-05-21 12:02:09] [Progress] summary: 最終処理: 要約のベクトル化と保存中...
+[2026-05-21 12:02:10] [Progress] done: 解析完了
+[2026-05-21 12:55:05] [Progress] init: 解析を開始（全 9 頁 / モード: all）
+[2026-05-21 12:55:05] [Progress] extraction: P.1 ネイティブテキスト確認中...
+[2026-05-21 12:55:05] [Progress] extraction: P.1 高解像度画像への変換中...
+[2026-05-21 12:55:05] [Progress] extraction: P.1 ページ属性をAI判定中...
+[2026-05-21 12:55:21] [Progress] extraction: P.1 高速テキスト抽出を適用
+[2026-05-21 12:55:21] [Progress] storing: P.1 テキストのベクトル化と保存を実行中...
+[2026-05-21 12:55:23] [Progress] storing: P.1 データベースへ保存中... (1/1)
+[2026-05-21 12:55:23] [Progress] extraction: P.2 ネイティブテキスト確認中...
+[2026-05-21 12:55:23] [Progress] extraction: P.2 高解像度画像への変換中...
+[2026-05-21 12:55:24] [Progress] extraction: P.2 ページ属性をAI判定中...
+[2026-05-21 12:55:32] [Progress] extraction: P.2 タイル分割解析中... (1/4)
+[2026-05-21 12:55:42] [Progress] extraction: P.2 タイル分割解析中... (2/4)
+[2026-05-21 12:55:47] [Progress] extraction: P.2 タイル分割解析中... (3/4)
+[2026-05-21 12:55:57] [Progress] extraction: P.2 タイル分割解析中... (4/4)
+[2026-05-21 12:56:03] [Progress] extraction: P.2 スライス分割解析中... (1/8)
+[2026-05-21 12:56:07] [Progress] extraction: P.2 スライス分割解析中... (2/8)
+[2026-05-21 12:56:12] [Progress] extraction: P.2 スライス分割解析中... (3/8)
+[2026-05-21 12:56:18] [Progress] extraction: P.2 スライス分割解析中... (4/8)
+[2026-05-21 12:56:26] [Progress] extraction: P.2 スライス分割解析中... (5/8)
+[2026-05-21 12:56:32] [Progress] extraction: P.2 スライス分割解析中... (6/8)
+[2026-05-21 12:56:38] [Progress] extraction: P.2 スライス分割解析中... (7/8)
+[2026-05-21 12:56:47] [Progress] extraction: P.2 スライス分割解析中... (8/8)
+[2026-05-21 12:56:52] [Progress] extraction: P.2 ページ全体のVLM解析中...
+[2026-05-21 12:57:06] [Progress] extraction: P.2 LLMによる重複排除とテキスト整理中...
+[2026-05-21 12:57:52] [Progress] storing: P.2 テキストのベクトル化と保存を実行中...
+[2026-05-21 12:57:53] [Progress] storing: P.2 データベースへ保存中... (1/4)
+[2026-05-21 12:57:54] [Progress] storing: P.2 データベースへ保存中... (2/4)
+[2026-05-21 12:57:54] [Progress] storing: P.2 データベースへ保存中... (3/4)
+[2026-05-21 12:57:55] [Progress] storing: P.2 データベースへ保存中... (4/4)
+[2026-05-21 12:57:55] [Progress] extraction: P.3 ネイティブテキスト確認中...
+[2026-05-21 12:57:55] [Progress] extraction: P.3 高解像度画像への変換中...
+[2026-05-21 12:57:55] [Progress] extraction: P.3 ページ属性をAI判定中...
+[2026-05-21 12:58:12] [Progress] extraction: P.3 高速テキスト抽出を適用
+[2026-05-21 12:58:12] [Progress] storing: P.3 テキストのベクトル化と保存を実行中...
+[2026-05-21 12:58:14] [Progress] storing: P.3 データベースへ保存中... (1/1)
+[2026-05-21 12:58:14] [Progress] extraction: P.4 ネイティブテキスト確認中...
+[2026-05-21 12:58:14] [Progress] extraction: P.4 高解像度画像への変換中...
+[2026-05-21 12:58:15] [Progress] extraction: P.4 ページ属性をAI判定中...
+[2026-05-21 12:58:24] [Progress] extraction: P.4 高速テキスト抽出を適用
+[2026-05-21 12:58:24] [Progress] storing: P.4 テキストのベクトル化と保存を実行中...
+[2026-05-21 12:58:26] [Progress] storing: P.4 データベースへ保存中... (1/2)
+[2026-05-21 12:58:27] [Progress] storing: P.4 データベースへ保存中... (2/2)
+[2026-05-21 12:58:27] [Progress] extraction: P.5 ネイティブテキスト確認中...
+[2026-05-21 12:58:27] [Progress] extraction: P.5 高解像度画像への変換中...
+[2026-05-21 12:58:27] [Progress] extraction: P.5 ページ属性をAI判定中...
+[2026-05-21 12:58:34] [Progress] extraction: P.5 高速テキスト抽出を適用
+[2026-05-21 12:58:34] [Progress] storing: P.5 テキストのベクトル化と保存を実行中...
+[2026-05-21 12:58:35] [Progress] storing: P.5 データベースへ保存中... (1/1)
+[2026-05-21 12:58:35] [Progress] extraction: P.6 ネイティブテキスト確認中...
+[2026-05-21 12:58:36] [Progress] extraction: P.6 高解像度画像への変換中...
+[2026-05-21 12:58:36] [Progress] extraction: P.6 ページ属性をAI判定中...
+[2026-05-21 12:58:43] [Progress] extraction: P.6 高速テキスト抽出を適用
+[2026-05-21 12:58:43] [Progress] storing: P.6 テキストのベクトル化と保存を実行中...
+[2026-05-21 12:58:44] [Progress] storing: P.6 データベースへ保存中... (1/1)
+[2026-05-21 12:58:44] [Progress] extraction: P.7 ネイティブテキスト確認中...
+[2026-05-21 12:58:44] [Progress] extraction: P.7 高解像度画像への変換中...
+[2026-05-21 12:58:45] [Progress] extraction: P.7 ページ属性をAI判定中...
+[2026-05-21 12:58:52] [Progress] extraction: P.7 高速テキスト抽出を適用
+[2026-05-21 12:58:52] [Progress] storing: P.7 テキストのベクトル化と保存を実行中...
+[2026-05-21 12:58:52] [Progress] storing: P.7 データベースへ保存中... (1/1)
+[2026-05-21 12:58:52] [Progress] extraction: P.8 ネイティブテキスト確認中...
+[2026-05-21 12:58:52] [Progress] extraction: P.8 高解像度画像への変換中...
+[2026-05-21 12:58:53] [Progress] extraction: P.8 ページ属性をAI判定中...
+[2026-05-21 12:59:00] [Progress] extraction: P.8 タイル分割解析中... (1/4)
+[2026-05-21 12:59:06] [Progress] extraction: P.8 タイル分割解析中... (2/4)
+[2026-05-21 12:59:10] [Progress] extraction: P.8 タイル分割解析中... (3/4)
+[2026-05-21 12:59:17] [Progress] extraction: P.8 タイル分割解析中... (4/4)
+[2026-05-21 12:59:24] [Progress] extraction: P.8 スライス分割解析中... (1/8)
+[2026-05-21 12:59:28] [Progress] extraction: P.8 スライス分割解析中... (2/8)
+[2026-05-21 12:59:32] [Progress] extraction: P.8 スライス分割解析中... (3/8)
+[2026-05-21 12:59:37] [Progress] extraction: P.8 スライス分割解析中... (4/8)
+[2026-05-21 12:59:41] [Progress] extraction: P.8 スライス分割解析中... (5/8)
+[2026-05-21 12:59:45] [Progress] extraction: P.8 スライス分割解析中... (6/8)
+[2026-05-21 12:59:48] [Progress] extraction: P.8 スライス分割解析中... (7/8)
+[2026-05-21 12:59:52] [Progress] extraction: P.8 スライス分割解析中... (8/8)
+[2026-05-21 12:59:56] [Progress] extraction: P.8 ページ全体のVLM解析中...
+[2026-05-21 13:00:06] [Progress] extraction: P.8 LLMによる重複排除とテキスト整理中...
+[2026-05-21 13:00:29] [Progress] storing: P.8 テキストのベクトル化と保存を実行中...
+[2026-05-21 13:00:30] [Progress] storing: P.8 データベースへ保存中... (1/1)
+[2026-05-21 13:00:30] [Progress] extraction: P.9 ネイティブテキスト確認中...
+[2026-05-21 13:00:30] [Progress] extraction: P.9 高解像度画像への変換中...
+[2026-05-21 13:00:30] [Progress] extraction: P.9 ページ属性をAI判定中...
+[2026-05-21 13:00:46] [Progress] extraction: P.9 タイル分割解析中... (1/4)
+[2026-05-21 13:00:51] [Progress] extraction: P.9 タイル分割解析中... (2/4)
+[2026-05-21 13:00:54] [Progress] extraction: P.9 タイル分割解析中... (3/4)
+[2026-05-21 13:00:59] [Progress] extraction: P.9 タイル分割解析中... (4/4)
+[2026-05-21 13:01:06] [Progress] extraction: P.9 スライス分割解析中... (1/8)
+[2026-05-21 13:01:10] [Progress] extraction: P.9 スライス分割解析中... (2/8)
+[2026-05-21 13:01:14] [Progress] extraction: P.9 スライス分割解析中... (3/8)
+[2026-05-21 13:01:19] [Progress] extraction: P.9 スライス分割解析中... (4/8)
+[2026-05-21 13:01:22] [Progress] extraction: P.9 スライス分割解析中... (5/8)
+[2026-05-21 13:01:23] [Progress] extraction: P.9 スライス分割解析中... (6/8)
+[2026-05-21 13:01:27] [Progress] extraction: P.9 スライス分割解析中... (7/8)
+[2026-05-21 13:01:31] [Progress] extraction: P.9 スライス分割解析中... (8/8)
+[2026-05-21 13:01:36] [Progress] extraction: P.9 ページ全体のVLM解析中...
+[2026-05-21 13:01:42] [Progress] extraction: P.9 LLMによる重複排除とテキスト整理中...
+[2026-05-21 13:02:01] [Progress] storing: P.9 テキストのベクトル化と保存を実行中...
+[2026-05-21 13:02:03] [Progress] storing: P.9 データベースへ保存中... (1/1)
+[2026-05-21 13:02:03] [Progress] summary: 最終処理: 資料全体の要約をLLMで生成中...
+[2026-05-21 13:02:16] [Progress] summary: 最終処理: 要約のベクトル化と保存中...
+[2026-05-21 13:02:17] [Progress] done: 解析完了
+[2026-05-21 14:03:49] [Progress] init: 解析を開始（全 1 頁 / モード: all）
+[2026-05-21 14:03:49] [Progress] extraction: P.1 ネイティブテキスト確認中...
+[2026-05-21 14:03:49] [Progress] extraction: P.1 高解像度画像への変換中...
+[2026-05-21 14:03:49] [Progress] extraction: P.1 ページ属性をAI判定中...
+[2026-05-21 14:04:02] [Progress] extraction: P.1 高速テキスト抽出を適用
+[2026-05-21 14:04:02] [Progress] storing: P.1 テキストのベクトル化と保存を実行中...
+[2026-05-21 14:04:04] [Progress] storing: P.1 データベースへ保存中... (1/8)
+[2026-05-21 14:04:05] [Progress] storing: P.1 データベースへ保存中... (2/8)
+[2026-05-21 14:04:06] [Progress] storing: P.1 データベースへ保存中... (3/8)
+[2026-05-21 14:04:06] [Progress] storing: P.1 データベースへ保存中... (4/8)
+[2026-05-21 14:04:06] [Progress] storing: P.1 データベースへ保存中... (5/8)
+[2026-05-21 14:04:08] [Progress] storing: P.1 データベースへ保存中... (6/8)
+[2026-05-21 14:04:08] [Progress] storing: P.1 データベースへ保存中... (7/8)
+[2026-05-21 14:04:08] [Progress] storing: P.1 データベースへ保存中... (8/8)
+[2026-05-21 14:04:08] [Progress] summary: 最終処理: 資料全体の要約をLLMで生成中...
+[2026-05-21 14:04:25] [Progress] summary: 最終処理: 要約のベクトル化と保存中...
+[2026-05-21 14:04:26] [Progress] done: 解析完了
+[2026-05-21 14:15:14] [Progress] init: 解析を開始（全 1 頁 / モード: all）
+[2026-05-21 14:15:14] [Progress] extraction: P.1 ネイティブテキスト確認中...
+[2026-05-21 14:15:14] [Progress] extraction: P.1 高解像度画像への変換中...
+[2026-05-21 14:15:14] [Progress] extraction: P.1 ページ属性をAI判定中...
+[2026-05-21 14:15:30] [Progress] extraction: P.1 高速テキスト抽出を適用
+[2026-05-21 14:15:30] [Progress] storing: P.1 テキストのベクトル化と保存を実行中...
+[2026-05-21 14:15:31] [Progress] storing: P.1 データベースへ保存中... (1/8)
+[2026-05-21 14:15:31] [Progress] storing: P.1 データベースへ保存中... (2/8)
+[2026-05-21 14:15:32] [Progress] storing: P.1 データベースへ保存中... (3/8)
+[2026-05-21 14:15:33] [Progress] storing: P.1 データベースへ保存中... (4/8)
+[2026-05-21 14:15:33] [Progress] storing: P.1 データベースへ保存中... (5/8)
+[2026-05-21 14:15:33] [Progress] storing: P.1 データベースへ保存中... (6/8)
+[2026-05-21 14:15:33] [Progress] storing: P.1 データベースへ保存中... (7/8)
+[2026-05-21 14:15:35] [Progress] storing: P.1 データベースへ保存中... (8/8)
+[2026-05-21 14:15:35] [Progress] summary: 最終処理: 資料全体の要約をLLMで生成中...
+[2026-05-21 14:15:54] [Progress] summary: 最終処理: 要約のベクトル化と保存中...
+[2026-05-21 14:15:55] [Progress] done: 解析完了
+[2026-05-21 14:28:26] [Progress] init: 解析を開始（全 2 頁 / モード: all）
+[2026-05-21 14:28:26] [Progress] extraction: P.1 ネイティブテキスト確認中...
+[2026-05-21 14:28:26] [Progress] extraction: P.1 高解像度画像への変換中...
+[2026-05-21 14:28:26] [Progress] extraction: P.1 ページ属性をAI判定中...
+[2026-05-21 14:28:40] [Progress] extraction: P.1 高速テキスト抽出を適用
+[2026-05-21 14:28:40] [Progress] storing: P.1 テキストのベクトル化と保存を実行中...
+[2026-05-21 14:28:42] [Progress] storing: P.1 データベースへ保存中... (1/11)
+[2026-05-21 14:28:44] [Progress] storing: P.1 データベースへ保存中... (2/11)
+[2026-05-21 14:28:44] [Progress] storing: P.1 データベースへ保存中... (3/11)
+[2026-05-21 14:28:45] [Progress] storing: P.1 データベースへ保存中... (4/11)
+[2026-05-21 14:28:45] [Progress] storing: P.1 データベースへ保存中... (5/11)
+[2026-05-21 14:28:45] [Progress] storing: P.1 データベースへ保存中... (6/11)
+[2026-05-21 14:28:45] [Progress] storing: P.1 データベースへ保存中... (7/11)
+[2026-05-21 14:28:45] [Progress] storing: P.1 データベースへ保存中... (8/11)
+[2026-05-21 14:28:46] [Progress] storing: P.1 データベースへ保存中... (9/11)
+[2026-05-21 14:28:46] [Progress] storing: P.1 データベースへ保存中... (10/11)
+[2026-05-21 14:28:47] [Progress] storing: P.1 データベースへ保存中... (11/11)
+[2026-05-21 14:28:47] [Progress] extraction: P.2 ネイティブテキスト確認中...
+[2026-05-21 14:28:47] [Progress] extraction: P.2 高解像度画像への変換中...
+[2026-05-21 14:28:47] [Progress] extraction: P.2 ページ属性をAI判定中...
+[2026-05-21 14:28:53] [Progress] extraction: P.2 高速テキスト抽出を適用
+[2026-05-21 14:28:53] [Progress] storing: P.2 テキストのベクトル化と保存を実行中...
+[2026-05-21 14:28:54] [Progress] storing: P.2 データベースへ保存中... (1/2)
+[2026-05-21 14:28:54] [Progress] storing: P.2 データベースへ保存中... (2/2)
+[2026-05-21 14:28:54] [Progress] summary: 最終処理: 資料全体の要約をLLMで生成中...
+[2026-05-21 14:29:03] [Progress] summary: 最終処理: 要約のベクトル化と保存中...
+[2026-05-21 14:29:03] [Progress] done: 解析完了
+[2026-05-21 15:08:49] [CSV_IMPORT] === CSVインポート処理開始 (案件: カイゼン活動_DI推進) ===
+[2026-05-21 15:08:49] [CSV_IMPORT] ファイル名: 生成AIのアプリのログのカテゴリ.csv | 検出文字コード: UTF-8
+[2026-05-21 15:08:49] [CSV_IMPORT] 総有効レコード数の算出を開始します...
+[2026-05-21 15:08:49] [CSV_IMPORT] 事前解析完了: 総有効データ行数 = 101行
+[2026-05-21 15:08:49] [CSV_IMPORT] 抽出された列名ヘッダー: ["アプリ名","ログの種類","項目名","例"]
+[2026-05-21 15:08:49] [CSV_IMPORT] データベース・トランザクションを開始しました。
+[2026-05-21 15:08:49] [CSV_IMPORT] project_csv_files へのインサート成功 (ID: 4)
+[2026-05-21 15:08:49] [CSV_IMPORT] documents へのRAG親ノードインサート成功 (ID: 117)
+[2026-05-21 15:09:46] [CSV_IMPORT] === コミット成功: CSVデータの取り込み完了 (計 101 件) ===
+[2026-05-21 17:42:19] [Progress] init: 解析を開始（全 5 頁 / モード: all）
+[2026-05-21 17:42:19] [Progress] extraction: P.1 ネイティブテキスト確認中...
+[2026-05-21 17:42:19] [Progress] extraction: P.1 高解像度画像への変換中...
+[2026-05-21 17:42:21] [Progress] extraction: P.1 ページ属性をAI判定中...
+[2026-05-21 17:42:44] [Progress] extraction: P.1 タイル分割解析中... (1/4)
+[2026-05-21 17:43:00] [Progress] extraction: P.1 タイル分割解析中... (2/4)
+[2026-05-21 17:43:18] [Progress] extraction: P.1 タイル分割解析中... (3/4)
+[2026-05-21 17:43:41] [Progress] extraction: P.1 タイル分割解析中... (4/4)
+[2026-05-21 17:44:33] [Progress] extraction: P.1 スライス分割解析中... (1/8)
+[2026-05-21 17:44:54] [Progress] extraction: P.1 スライス分割解析中... (2/8)
+[2026-05-21 17:45:15] [Progress] extraction: P.1 スライス分割解析中... (3/8)
+[2026-05-21 17:45:33] [Progress] extraction: P.1 スライス分割解析中... (4/8)
+[2026-05-21 17:46:05] [Progress] extraction: P.1 スライス分割解析中... (5/8)
+[2026-05-21 17:46:24] [Progress] extraction: P.1 スライス分割解析中... (6/8)
+[2026-05-21 17:46:51] [Progress] extraction: P.1 スライス分割解析中... (7/8)
+[2026-05-21 17:47:10] [Progress] extraction: P.1 スライス分割解析中... (8/8)
+[2026-05-21 17:47:19] [Progress] extraction: P.1 ページ全体のVLM解析中...
+[2026-05-21 17:47:45] [Progress] extraction: P.1 LLMによる重複排除とテキスト整理中...
+[2026-05-21 17:49:45] [Progress] storing: P.1 テキストのベクトル化と保存を実行中...
+[2026-05-21 17:49:47] [Progress] storing: P.1 データベースへ保存中... (1/68)
+[2026-05-21 17:49:47] [Progress] storing: P.1 データベースへ保存中... (2/68)
+[2026-05-21 17:49:47] [Progress] storing: P.1 データベースへ保存中... (3/68)
+[2026-05-21 17:49:47] [Progress] storing: P.1 データベースへ保存中... (4/68)
+[2026-05-21 17:49:47] [Progress] storing: P.1 データベースへ保存中... (5/68)
+[2026-05-21 17:49:48] [Progress] storing: P.1 データベースへ保存中... (6/68)
+[2026-05-21 17:49:49] [Progress] storing: P.1 データベースへ保存中... (7/68)
+[2026-05-21 17:49:50] [Progress] storing: P.1 データベースへ保存中... (8/68)
+[2026-05-21 17:49:50] [Progress] storing: P.1 データベースへ保存中... (9/68)
+[2026-05-21 17:49:50] [Progress] storing: P.1 データベースへ保存中... (10/68)
+[2026-05-21 17:49:51] [Progress] storing: P.1 データベースへ保存中... (11/68)
+[2026-05-21 17:49:51] [Progress] storing: P.1 データベースへ保存中... (12/68)
+[2026-05-21 17:49:51] [Progress] storing: P.1 データベースへ保存中... (13/68)
+[2026-05-21 17:49:51] [Progress] storing: P.1 データベースへ保存中... (14/68)
+[2026-05-21 17:49:51] [Progress] storing: P.1 データベースへ保存中... (15/68)
+[2026-05-21 17:49:51] [Progress] storing: P.1 データベースへ保存中... (16/68)
+[2026-05-21 17:49:51] [Progress] storing: P.1 データベースへ保存中... (17/68)
+[2026-05-21 17:49:52] [Progress] storing: P.1 データベースへ保存中... (18/68)
+[2026-05-21 17:49:52] [Progress] storing: P.1 データベースへ保存中... (19/68)
+[2026-05-21 17:49:54] [Progress] storing: P.1 データベースへ保存中... (20/68)
+[2026-05-21 17:49:55] [Progress] storing: P.1 データベースへ保存中... (21/68)
+[2026-05-21 17:49:55] [Progress] storing: P.1 データベースへ保存中... (22/68)
+[2026-05-21 17:49:56] [Progress] storing: P.1 データベースへ保存中... (23/68)
+[2026-05-21 17:49:56] [Progress] storing: P.1 データベースへ保存中... (24/68)
+[2026-05-21 17:49:56] [Progress] storing: P.1 データベースへ保存中... (25/68)
+[2026-05-21 17:49:56] [Progress] storing: P.1 データベースへ保存中... (26/68)
+[2026-05-21 17:49:57] [Progress] storing: P.1 データベースへ保存中... (27/68)
+[2026-05-21 17:49:57] [Progress] storing: P.1 データベースへ保存中... (28/68)
+[2026-05-21 17:49:58] [Progress] storing: P.1 データベースへ保存中... (29/68)
+[2026-05-21 17:49:59] [Progress] storing: P.1 データベースへ保存中... (30/68)
+[2026-05-21 17:49:59] [Progress] storing: P.1 データベースへ保存中... (31/68)
+[2026-05-21 17:49:59] [Progress] storing: P.1 データベースへ保存中... (32/68)
+[2026-05-21 17:50:00] [Progress] storing: P.1 データベースへ保存中... (33/68)
+[2026-05-21 17:50:05] [Progress] storing: P.1 データベースへ保存中... (34/68)
+[2026-05-21 17:50:06] [Progress] storing: P.1 データベースへ保存中... (35/68)
+[2026-05-21 17:50:06] [Progress] storing: P.1 データベースへ保存中... (36/68)
+[2026-05-21 17:50:06] [Progress] storing: P.1 データベースへ保存中... (37/68)
+[2026-05-21 17:50:06] [Progress] storing: P.1 データベースへ保存中... (38/68)
+[2026-05-21 17:50:07] [Progress] storing: P.1 データベースへ保存中... (39/68)
+[2026-05-21 17:50:07] [Progress] storing: P.1 データベースへ保存中... (40/68)
+[2026-05-21 17:50:07] [Progress] storing: P.1 データベースへ保存中... (41/68)
+[2026-05-21 17:50:07] [Progress] storing: P.1 データベースへ保存中... (42/68)
+[2026-05-21 17:50:08] [Progress] storing: P.1 データベースへ保存中... (43/68)
+[2026-05-21 17:50:09] [Progress] storing: P.1 データベースへ保存中... (44/68)
+[2026-05-21 17:50:09] [Progress] storing: P.1 データベースへ保存中... (45/68)
+[2026-05-21 17:50:10] [Progress] storing: P.1 データベースへ保存中... (46/68)
+[2026-05-21 17:50:12] [Progress] storing: P.1 データベースへ保存中... (47/68)
+[2026-05-21 17:50:12] [Progress] storing: P.1 データベースへ保存中... (48/68)
+[2026-05-21 17:50:13] [Progress] storing: P.1 データベースへ保存中... (49/68)
+[2026-05-21 17:50:15] [Progress] storing: P.1 データベースへ保存中... (50/68)
+[2026-05-21 17:50:15] [Progress] storing: P.1 データベースへ保存中... (51/68)
+[2026-05-21 17:50:15] [Progress] storing: P.1 データベースへ保存中... (52/68)
+[2026-05-21 17:50:16] [Progress] storing: P.1 データベースへ保存中... (53/68)
+[2026-05-21 17:50:16] [Progress] storing: P.1 データベースへ保存中... (54/68)
+[2026-05-21 17:50:16] [Progress] storing: P.1 データベースへ保存中... (55/68)
+[2026-05-21 17:50:16] [Progress] storing: P.1 データベースへ保存中... (56/68)
+[2026-05-21 17:50:17] [Progress] storing: P.1 データベースへ保存中... (57/68)
+[2026-05-21 17:50:17] [Progress] storing: P.1 データベースへ保存中... (58/68)
+[2026-05-21 17:50:18] [Progress] storing: P.1 データベースへ保存中... (59/68)
+[2026-05-21 17:50:18] [Progress] storing: P.1 データベースへ保存中... (60/68)
+[2026-05-21 17:50:19] [Progress] storing: P.1 データベースへ保存中... (61/68)
+[2026-05-21 17:50:19] [Progress] storing: P.1 データベースへ保存中... (62/68)
+[2026-05-21 17:50:20] [Progress] storing: P.1 データベースへ保存中... (63/68)
+[2026-05-21 17:50:21] [Progress] storing: P.1 データベースへ保存中... (64/68)
+[2026-05-21 17:50:22] [Progress] storing: P.1 データベースへ保存中... (65/68)
+[2026-05-21 17:50:23] [Progress] storing: P.1 データベースへ保存中... (66/68)
+[2026-05-21 17:50:23] [Progress] storing: P.1 データベースへ保存中... (67/68)
+[2026-05-21 17:50:23] [Progress] storing: P.1 データベースへ保存中... (68/68)
+[2026-05-21 17:50:23] [Progress] extraction: P.2 ネイティブテキスト確認中...
+[2026-05-21 17:50:23] [Progress] extraction: P.2 高解像度画像への変換中...
+[2026-05-21 17:50:25] [Progress] extraction: P.2 ページ属性をAI判定中...
+[2026-05-21 17:50:50] [Progress] extraction: P.2 タイル分割解析中... (1/4)
+[2026-05-21 17:51:26] [Progress] extraction: P.2 タイル分割解析中... (2/4)
+[2026-05-21 17:51:47] [Progress] extraction: P.2 タイル分割解析中... (3/4)
+[2026-05-21 17:52:42] [Progress] extraction: P.2 タイル分割解析中... (4/4)
+[2026-05-21 17:53:35] [Progress] extraction: P.2 スライス分割解析中... (1/8)
+[2026-05-21 17:53:56] [Progress] extraction: P.2 スライス分割解析中... (2/8)
+[2026-05-21 17:54:27] [Progress] extraction: P.2 スライス分割解析中... (3/8)
+[2026-05-21 17:54:58] [Progress] extraction: P.2 スライス分割解析中... (4/8)
+[2026-05-21 17:55:27] [Progress] extraction: P.2 スライス分割解析中... (5/8)
+[2026-05-21 17:55:57] [Progress] extraction: P.2 スライス分割解析中... (6/8)
+[2026-05-21 17:56:34] [Progress] extraction: P.2 スライス分割解析中... (7/8)
+[2026-05-21 17:57:03] [Progress] extraction: P.2 スライス分割解析中... (8/8)
+[2026-05-21 17:57:18] [Progress] extraction: P.2 ページ全体のVLM解析中...
+[2026-05-21 17:57:44] [Progress] extraction: P.2 LLMによる重複排除とテキスト整理中...
+[2026-05-21 17:58:05] [Progress] storing: P.2 テキストのベクトル化と保存を実行中...
+[2026-05-21 17:58:07] [Progress] storing: P.2 データベースへ保存中... (1/3)
+[2026-05-21 17:58:07] [Progress] storing: P.2 データベースへ保存中... (2/3)
+[2026-05-21 17:58:07] [Progress] storing: P.2 データベースへ保存中... (3/3)
+[2026-05-21 17:58:07] [Progress] extraction: P.3 ネイティブテキスト確認中...
+[2026-05-21 17:58:08] [Progress] extraction: P.3 高解像度画像への変換中...
+[2026-05-21 17:58:09] [Progress] extraction: P.3 ページ属性をAI判定中...
+[2026-05-21 17:58:31] [Progress] extraction: P.3 タイル分割解析中... (1/4)
+[2026-05-21 17:59:08] [Progress] extraction: P.3 タイル分割解析中... (2/4)
+[2026-05-21 17:59:28] [Progress] extraction: P.3 タイル分割解析中... (3/4)
+[2026-05-21 17:59:55] [Progress] extraction: P.3 タイル分割解析中... (4/4)
+[2026-05-21 18:00:22] [Progress] extraction: P.3 スライス分割解析中... (1/8)
+[2026-05-21 18:00:40] [Progress] extraction: P.3 スライス分割解析中... (2/8)
+[2026-05-21 18:01:01] [Progress] extraction: P.3 スライス分割解析中... (3/8)
+[2026-05-21 18:01:18] [Progress] extraction: P.3 スライス分割解析中... (4/8)
+[2026-05-21 18:01:28] [Progress] extraction: P.3 スライス分割解析中... (5/8)
+[2026-05-21 18:02:12] [Progress] extraction: P.3 スライス分割解析中... (6/8)
+[2026-05-21 18:02:43] [Progress] extraction: P.3 スライス分割解析中... (7/8)
+[2026-05-21 18:03:09] [Progress] extraction: P.3 スライス分割解析中... (8/8)
+[2026-05-21 18:03:19] [Progress] extraction: P.3 ページ全体のVLM解析中...
+[2026-05-21 18:03:40] [Progress] extraction: P.3 LLMによる重複排除とテキスト整理中...
+[2026-05-21 18:05:37] [Progress] storing: P.3 テキストのベクトル化と保存を実行中...
+[2026-05-21 18:05:39] [Progress] storing: P.3 データベースへ保存中... (1/22)
+[2026-05-21 18:05:41] [Progress] storing: P.3 データベースへ保存中... (2/22)
+[2026-05-21 18:05:41] [Progress] storing: P.3 データベースへ保存中... (3/22)
+[2026-05-21 18:05:42] [Progress] storing: P.3 データベースへ保存中... (4/22)
+[2026-05-21 18:05:42] [Progress] storing: P.3 データベースへ保存中... (5/22)
+[2026-05-21 18:05:42] [Progress] storing: P.3 データベースへ保存中... (6/22)
+[2026-05-21 18:05:42] [Progress] storing: P.3 データベースへ保存中... (7/22)
+[2026-05-21 18:05:42] [Progress] storing: P.3 データベースへ保存中... (8/22)
+[2026-05-21 18:05:42] [Progress] storing: P.3 データベースへ保存中... (9/22)
+[2026-05-21 18:05:43] [Progress] storing: P.3 データベースへ保存中... (10/22)
+[2026-05-21 18:05:43] [Progress] storing: P.3 データベースへ保存中... (11/22)
+[2026-05-21 18:05:43] [Progress] storing: P.3 データベースへ保存中... (12/22)
+[2026-05-21 18:05:47] [Progress] storing: P.3 データベースへ保存中... (13/22)
+[2026-05-21 18:05:47] [Progress] storing: P.3 データベースへ保存中... (14/22)
+[2026-05-21 18:05:48] [Progress] storing: P.3 データベースへ保存中... (15/22)
+[2026-05-21 18:05:48] [Progress] storing: P.3 データベースへ保存中... (16/22)
+[2026-05-21 18:05:49] [Progress] storing: P.3 データベースへ保存中... (17/22)
+[2026-05-21 18:05:49] [Progress] storing: P.3 データベースへ保存中... (18/22)
+[2026-05-21 18:05:49] [Progress] storing: P.3 データベースへ保存中... (19/22)
+[2026-05-21 18:05:50] [Progress] storing: P.3 データベースへ保存中... (20/22)
+[2026-05-21 18:05:50] [Progress] storing: P.3 データベースへ保存中... (21/22)
+[2026-05-21 18:05:50] [Progress] storing: P.3 データベースへ保存中... (22/22)
+[2026-05-21 18:05:50] [Progress] extraction: P.4 ネイティブテキスト確認中...
+[2026-05-21 18:05:51] [Progress] extraction: P.4 高解像度画像への変換中...
+[2026-05-21 18:05:53] [Progress] extraction: P.4 ページ属性をAI判定中...
+[2026-05-21 18:06:16] [Progress] extraction: P.4 タイル分割解析中... (1/4)
+[2026-05-21 18:06:53] [Progress] extraction: P.4 タイル分割解析中... (2/4)
+[2026-05-21 18:07:09] [Progress] extraction: P.4 タイル分割解析中... (3/4)
+[2026-05-21 18:07:26] [Progress] extraction: P.4 タイル分割解析中... (4/4)
+[2026-05-21 18:07:47] [Progress] extraction: P.4 スライス分割解析中... (1/8)
+[2026-05-21 18:08:02] [Progress] extraction: P.4 スライス分割解析中... (2/8)
+[2026-05-21 18:08:23] [Progress] extraction: P.4 スライス分割解析中... (3/8)
+[2026-05-21 18:08:35] [Progress] extraction: P.4 スライス分割解析中... (4/8)
+[2026-05-21 18:08:52] [Progress] extraction: P.4 スライス分割解析中... (5/8)
+[2026-05-21 18:09:08] [Progress] extraction: P.4 スライス分割解析中... (6/8)
+[2026-05-21 18:09:21] [Progress] extraction: P.4 スライス分割解析中... (7/8)
+[2026-05-21 18:09:44] [Progress] extraction: P.4 スライス分割解析中... (8/8)
+[2026-05-21 18:09:52] [Progress] extraction: P.4 ページ全体のVLM解析中...
+[2026-05-21 18:10:11] [Progress] extraction: P.4 LLMによる重複排除とテキスト整理中...
+[2026-05-21 18:12:29] [Progress] storing: P.4 テキストのベクトル化と保存を実行中...
+[2026-05-21 18:12:32] [Progress] storing: P.4 データベースへ保存中... (1/32)
+[2026-05-21 18:12:32] [Progress] storing: P.4 データベースへ保存中... (2/32)
+[2026-05-21 18:12:34] [Progress] storing: P.4 データベースへ保存中... (3/32)
+[2026-05-21 18:12:35] [Progress] storing: P.4 データベースへ保存中... (4/32)
+[2026-05-21 18:12:35] [Progress] storing: P.4 データベースへ保存中... (5/32)
+[2026-05-21 18:12:35] [Progress] storing: P.4 データベースへ保存中... (6/32)
+[2026-05-21 18:12:37] [Progress] storing: P.4 データベースへ保存中... (7/32)
+[2026-05-21 18:12:37] [Progress] storing: P.4 データベースへ保存中... (8/32)
+[2026-05-21 18:12:37] [Progress] storing: P.4 データベースへ保存中... (9/32)
+[2026-05-21 18:12:37] [Progress] storing: P.4 データベースへ保存中... (10/32)
+[2026-05-21 18:12:38] [Progress] storing: P.4 データベースへ保存中... (11/32)
+[2026-05-21 18:12:39] [Progress] storing: P.4 データベースへ保存中... (12/32)
+[2026-05-21 18:12:40] [Progress] storing: P.4 データベースへ保存中... (13/32)
+[2026-05-21 18:12:41] [Progress] storing: P.4 データベースへ保存中... (14/32)
+[2026-05-21 18:12:41] [Progress] storing: P.4 データベースへ保存中... (15/32)
+[2026-05-21 18:12:41] [Progress] storing: P.4 データベースへ保存中... (16/32)
+[2026-05-21 18:12:41] [Progress] storing: P.4 データベースへ保存中... (17/32)
+[2026-05-21 18:12:41] [Progress] storing: P.4 データベースへ保存中... (18/32)
+[2026-05-21 18:12:42] [Progress] storing: P.4 データベースへ保存中... (19/32)
+[2026-05-21 18:12:42] [Progress] storing: P.4 データベースへ保存中... (20/32)
+[2026-05-21 18:12:42] [Progress] storing: P.4 データベースへ保存中... (21/32)
+[2026-05-21 18:12:42] [Progress] storing: P.4 データベースへ保存中... (22/32)
+[2026-05-21 18:12:42] [Progress] storing: P.4 データベースへ保存中... (23/32)
+[2026-05-21 18:12:43] [Progress] storing: P.4 データベースへ保存中... (24/32)
+[2026-05-21 18:12:43] [Progress] storing: P.4 データベースへ保存中... (25/32)
+[2026-05-21 18:12:43] [Progress] storing: P.4 データベースへ保存中... (26/32)
+[2026-05-21 18:12:45] [Progress] storing: P.4 データベースへ保存中... (27/32)
+[2026-05-21 18:12:45] [Progress] storing: P.4 データベースへ保存中... (28/32)
+[2026-05-21 18:12:45] [Progress] storing: P.4 データベースへ保存中... (29/32)
+[2026-05-21 18:12:45] [Progress] storing: P.4 データベースへ保存中... (30/32)
+[2026-05-21 18:12:46] [Progress] storing: P.4 データベースへ保存中... (31/32)
+[2026-05-21 18:12:46] [Progress] storing: P.4 データベースへ保存中... (32/32)
+[2026-05-21 18:12:46] [Progress] extraction: P.5 ネイティブテキスト確認中...
+[2026-05-21 18:12:46] [Progress] extraction: P.5 高解像度画像への変換中...
+[2026-05-21 18:12:48] [Progress] extraction: P.5 ページ属性をAI判定中...
+[2026-05-21 18:13:12] [Progress] extraction: P.5 タイル分割解析中... (1/4)
+[2026-05-21 18:13:42] [Progress] extraction: P.5 タイル分割解析中... (2/4)
+[2026-05-21 18:13:57] [Progress] extraction: P.5 タイル分割解析中... (3/4)
+[2026-05-21 18:14:05] [Progress] extraction: P.5 タイル分割解析中... (4/4)
+[2026-05-21 18:14:27] [Progress] extraction: P.5 スライス分割解析中... (1/8)
+[2026-05-21 18:14:39] [Progress] extraction: P.5 スライス分割解析中... (2/8)
+[2026-05-21 18:14:53] [Progress] extraction: P.5 スライス分割解析中... (3/8)
+[2026-05-21 18:15:01] [Progress] extraction: P.5 スライス分割解析中... (4/8)
+[2026-05-21 18:15:12] [Progress] extraction: P.5 スライス分割解析中... (5/8)
+[2026-05-21 18:15:56] [Progress] extraction: P.5 スライス分割解析中... (6/8)
+[2026-05-21 18:16:26] [Progress] extraction: P.5 スライス分割解析中... (7/8)
+[2026-05-21 18:16:35] [Progress] extraction: P.5 スライス分割解析中... (8/8)
+[2026-05-21 18:16:48] [Progress] extraction: P.5 ページ全体のVLM解析中...
+[2026-05-21 18:17:13] [Progress] extraction: P.5 LLMによる重複排除とテキスト整理中...
+[2026-05-21 18:22:13] [Progress] storing: P.5 テキストのベクトル化と保存を実行中...
+[2026-05-21 18:22:16] [Progress] storing: P.5 データベースへ保存中... (1/14)
+[2026-05-21 18:22:17] [Progress] storing: P.5 データベースへ保存中... (2/14)
+[2026-05-21 18:22:17] [Progress] storing: P.5 データベースへ保存中... (3/14)
+[2026-05-21 18:22:17] [Progress] storing: P.5 データベースへ保存中... (4/14)
+[2026-05-21 18:22:17] [Progress] storing: P.5 データベースへ保存中... (5/14)
+[2026-05-21 18:22:17] [Progress] storing: P.5 データベースへ保存中... (6/14)
+[2026-05-21 18:22:18] [Progress] storing: P.5 データベースへ保存中... (7/14)
+[2026-05-21 18:22:18] [Progress] storing: P.5 データベースへ保存中... (8/14)
+[2026-05-21 18:22:18] [Progress] storing: P.5 データベースへ保存中... (9/14)
+[2026-05-21 18:22:18] [Progress] storing: P.5 データベースへ保存中... (10/14)
+[2026-05-21 18:22:18] [Progress] storing: P.5 データベースへ保存中... (11/14)
+[2026-05-21 18:22:18] [Progress] storing: P.5 データベースへ保存中... (12/14)
+[2026-05-21 18:22:19] [Progress] storing: P.5 データベースへ保存中... (13/14)
+[2026-05-21 18:22:19] [Progress] storing: P.5 データベースへ保存中... (14/14)
+[2026-05-21 18:22:19] [Progress] summary: 最終処理: 資料全体の要約をLLMで生成中...
+[2026-05-21 18:22:29] [Progress] summary: 最終処理: 要約のベクトル化と保存中...
+[2026-05-21 18:22:30] [Progress] done: 解析完了
+[2026-05-22 10:41:41] [CSV_IMPORT] === CSVインポート処理開始 (案件: カイゼン活動_DI推進) ===
+[2026-05-22 10:41:41] [CSV_IMPORT] ファイル名: 生成AIのアプリのログのカテゴリ.csv | 検出文字コード: UTF-8
+[2026-05-22 10:41:41] [CSV_IMPORT] 総有効レコード数の算出を開始します...
+[2026-05-22 10:41:41] [CSV_IMPORT] 事前解析完了: 総有効データ行数 = 101行
+[2026-05-22 10:41:41] [CSV_IMPORT] 抽出された列名ヘッダー: ["アプリ名","ログの種類","項目名","例"]
+[2026-05-22 10:41:41] [CSV_IMPORT] データベース・トランザクションを開始しました。
+[2026-05-22 10:41:41] [CSV_IMPORT] project_csv_files へのインサート成功 (ID: 5)
+[2026-05-22 10:41:41] [CSV_IMPORT] documents へのRAG親ノードインサート成功 (ID: 119)
+[2026-05-22 10:42:23] [CSV_IMPORT] === コミット成功: CSVデータの取り込み完了 (計 101 件) ===
+[2026-05-22 10:59:35] [PG_IMPORT] === PostgreSQLインポート開始 (接続先: tsc23svr002:5432 | DB: secure_memo) ===
+[2026-05-22 10:59:35] [PG_IMPORT] CONNECTION ERROR: could not find driver
+[2026-05-22 11:00:02] [PG_IMPORT] === PostgreSQLインポート開始 (接続先: tsc23svr002:5432 | DB: secure_memo) ===
+[2026-05-22 11:00:02] [PG_IMPORT] CONNECTION ERROR: could not find driver
+[2026-05-22 11:03:15] [PG_IMPORT] === PostgreSQLインポート開始 (接続先: tsc23svr002:5432 | DB: secure_memo) ===
+[2026-05-22 11:03:15] [PG_IMPORT] CONNECTION ERROR: could not find driver
+[2026-05-22 11:05:47] [PG_IMPORT] === PostgreSQLインポート開始 (接続先: tsc23svr002:5432 | DB: secure_memo) ===
+[2026-05-22 11:05:48] [PG_IMPORT] CONNECTION ERROR: could not find driver
+[2026-05-22 11:10:23] [CSV_IMPORT] === CSVインポート処理開始 (案件: SecureMemoのログ解析) ===
+[2026-05-22 11:10:23] [CSV_IMPORT] ファイル名: ライセンス.csv | 検出文字コード: UTF-8
+[2026-05-22 11:10:23] [CSV_IMPORT] 総有効レコード数の算出を開始します...
+[2026-05-22 11:10:23] [CSV_IMPORT] 事前解析完了: 総有効データ行数 = 1966行
+[2026-05-22 11:10:23] [CSV_IMPORT] 抽出された列名ヘッダー: ["name","begin_at_jst","end_at_jst","login_interval","login_seconds","id","license_uid","license_type","transaction_uid","begin_at","end_at","created_at","updated_at","deleted_at","年月日"]
+[2026-05-22 11:10:23] [CSV_IMPORT] データベース・トランザクションを開始しました。
+[2026-05-22 11:10:23] [CSV_IMPORT] project_csv_files へのインサート成功 (ID: 6)
+[2026-05-22 11:10:23] [CSV_IMPORT] documents へのRAG親ノードインサート成功 (ID: 120)
+[2026-05-22 11:52:35] [CSV_IMPORT] === CSVインポート処理開始 (案件: SecureMemoのログ解析) ===
+[2026-05-22 11:52:35] [CSV_IMPORT] ファイル名: ライセンス_2月から.csv | 検出文字コード: UTF-8
+[2026-05-22 11:52:35] [CSV_IMPORT] 総有効レコード数の算出を開始します...
+[2026-05-22 11:52:35] [CSV_IMPORT] 事前解析完了: 総有効データ行数 = 687行
+[2026-05-22 11:52:35] [CSV_IMPORT] 抽出された列名ヘッダー: ["name","begin_at_jst","end_at_jst","login_interval","login_seconds","id","license_uid","license_type","transaction_uid","begin_at","end_at","created_at","updated_at","deleted_at","年月日"]
+[2026-05-22 11:52:35] [CSV_IMPORT] データベース・トランザクションを開始しました。
+[2026-05-22 11:52:35] [CSV_IMPORT] project_csv_files へのインサート成功 (ID: 7)
+[2026-05-22 11:52:35] [CSV_IMPORT] documents へのRAG親ノードインサート成功 (ID: 121)
+[2026-05-22 11:58:54] [CSV_IMPORT] === コミット成功: CSVデータの取り込み完了 (計 687 件) ===
+[2026-05-22 13:03:41] [CSV_IMPORT] === CSVインポート処理開始 (案件: SecureMemoのログ解析) ===
+[2026-05-22 13:03:41] [CSV_IMPORT] ファイル名: イベント_4月から.csv | 検出文字コード: UTF-8
+[2026-05-22 13:03:41] [CSV_IMPORT] 総有効レコード数の算出を開始します...
+[2026-05-22 13:03:41] [CSV_IMPORT] 事前解析完了: 総有効データ行数 = 3762行
+[2026-05-22 13:03:41] [CSV_IMPORT] 抽出された列名ヘッダー: ["Name","user_id","user_email","user_name","session_id","event_type","event_id","license_name","timestamp","datetime","week","year+week"]
+[2026-05-22 13:03:41] [CSV_IMPORT] データベース・トランザクションを開始しました。
+[2026-05-22 13:03:41] [CSV_IMPORT] project_csv_files へのインサート成功 (ID: 8)
+[2026-05-22 13:03:41] [CSV_IMPORT] documents へのRAG親ノードインサート成功 (ID: 122)
+[2026-05-22 13:09:49] [CSV_IMPORT] [Ollama-Embeddingリトライ警告] 行: 576 | 試行回数: 1 | 待機秒数: 1s | エラー: Ollama API タイムアウトまたは接続エラー: Recv failure: Connection was reset
+[2026-05-22 13:10:11] [CSV_IMPORT] [Ollama-Embeddingリトライ警告] 行: 576 | 試行回数: 2 | 待機秒数: 2s | エラー: Ollama API タイムアウトまたは接続エラー: Failed to connect to tsc23ews009 port 11434 after 21014 ms: Timed out
+[2026-05-22 13:10:34] [CSV_IMPORT] [Ollama-Embeddingリトライ警告] 行: 576 | 試行回数: 3 | 待機秒数: 4s | エラー: Ollama API タイムアウトまたは接続エラー: Failed to connect to tsc23ews009 port 11434 after 21008 ms: Timed out
+[2026-05-22 13:10:59] [CSV_IMPORT] [Ollama-Embeddingリトライ警告] 行: 576 | 試行回数: 4 | 待機秒数: 8s | エラー: Ollama API タイムアウトまたは接続エラー: Failed to connect to tsc23ews009 port 11434 after 21033 ms: Timed out
+[2026-05-22 13:11:28] [CSV_IMPORT] ロールバックを実行しました（不整合を防止）
+[2026-05-22 13:11:28] [CSV_IMPORT] FATAL ERROR: Ollama API タイムアウトまたは接続エラー: Failed to connect to tsc23ews009 port 11434 after 21029 ms: Timed out
+[2026-05-22 13:24:32] [CSV_IMPORT] === CSVインポート処理開始 (案件: SecureMemoのログ解析) ===
+[2026-05-22 13:24:32] [CSV_IMPORT] ファイル名: イベント_5月から.csv | 検出文字コード: UTF-8
+[2026-05-22 13:24:32] [CSV_IMPORT] 総有効レコード数の算出を開始します...
+[2026-05-22 13:24:32] [CSV_IMPORT] 事前解析完了: 総有効データ行数 = 766行
+[2026-05-22 13:24:32] [CSV_IMPORT] 抽出された列名ヘッダー: ["Name","user_id","user_email","user_name","session_id","event_type","event_id","license_name","timestamp"]
+[2026-05-22 13:24:32] [CSV_IMPORT] データベース・トランザクションを開始しました。
+[2026-05-22 13:24:32] [CSV_IMPORT] project_csv_files へのインサート成功 (ID: 9)
+[2026-05-22 13:24:32] [CSV_IMPORT] documents へのRAG親ノードインサート成功 (ID: 123)
+[2026-05-22 13:31:45] [CSV_IMPORT] === コミット成功: CSVデータの取り込み完了 (計 766 件) ===
+[2026-05-22 14:41:16] [CSV_IMPORT] === CSVインポート処理開始 (案件: TEPSCO-AIのログ解析) ===
+[2026-05-22 14:41:16] [CSV_IMPORT] ファイル名: alli-20260518134731071-single_action_results.csv | 検出文字コード: UTF-8
+[2026-05-22 14:41:16] [CSV_IMPORT] 総有効レコード数の算出を開始します...
+[2026-05-22 14:41:18] [CSV_IMPORT] 事前解析完了: 総有効データ行数 = 2948行
+[2026-05-22 14:41:18] [CSV_IMPORT] 抽出された列名ヘッダー: ["","Single Action App ID","Single Action App Name","User ID","User First Name","User Last Name","Date","Time","Status","Input1","Input2","Input3","Input4","Input5","Output"]
+[2026-05-22 14:41:18] [CSV_IMPORT] データベース・トランザクションを開始しました。
+[2026-05-22 14:41:18] [CSV_IMPORT] project_csv_files へのインサート成功 (ID: 10)
+[2026-05-22 14:41:18] [CSV_IMPORT] documents へのRAG親ノードインサート成功 (ID: 124)
+[2026-05-22 15:11:24] [CSV_IMPORT] === コミット成功: CSVデータの取り込み完了 (計 2948 件) ===
+[2026-05-22 15:32:45] [CSV_IMPORT] === CSVインポート処理開始 (案件: サテライトAIのログ解析) ===
+[2026-05-22 15:32:45] [CSV_IMPORT] ファイル名: tepsco.co.jp_sateraitoailog_20260401-20260518_.csv | 検出文字コード: UTF-8
+[2026-05-22 15:32:45] [CSV_IMPORT] 総有効レコード数の算出を開始します...
+[2026-05-22 15:32:45] [CSV_IMPORT] 事前解析完了: 総有効データ行数 = 5202行
+[2026-05-22 15:32:45] [CSV_IMPORT] 抽出された列名ヘッダー: ["command","access_date","user_id","ipaddress","result_code","error_info","use_plan","model","apicall_num","response_time","like_num","unlike_num","input_text_length","input_text_token","input_text","output_text_length","output_text_token","output_text","web_browsing","input_text_classification","prompt_id","prompt_name","prompt_category","use_prompt_type","source","user_agent","input_file_total_page_count","input_image_total_count","output_image_total_count","input_audio_total_second","input_video_total_second","output_video_total_second","board_type","skill_name","priject_board_name","user_group","in_token1k","out_token1k","in_out_1k","単価","入力単価","出力単価","web料金","file料金","image料金","料金"]
+[2026-05-22 15:32:45] [CSV_IMPORT] データベース・トランザクションを開始しました。
+[2026-05-22 15:32:45] [CSV_IMPORT] project_csv_files へのインサート成功 (ID: 11)
+[2026-05-22 15:32:45] [CSV_IMPORT] documents へのRAG親ノードインサート成功 (ID: 125)
+[2026-05-22 16:21:18] [CSV_IMPORT] === コミット成功: CSVデータの取り込み完了 (計 5202 件) ===
+[2026-05-25 11:54:27] [CSV_IMPORT] === CSVインポート処理開始 (案件: TEPSCO-AIのログ解析) ===
+[2026-05-25 11:54:28] [CSV_IMPORT] ファイル名: alli-20260507144700185-single_action_results.csv | 検出文字コード: UTF-8
+[2026-05-25 11:54:28] [CSV_IMPORT] 総有効レコード数の算出を開始します...
+[2026-05-25 11:54:30] [CSV_IMPORT] 事前解析完了: 総有効データ行数 = 2432行
+[2026-05-25 11:54:30] [CSV_IMPORT] 抽出された列名ヘッダー: ["","Single Action App ID","Single Action App Name","User ID","User First Name","User Last Name","Date","Time","Status","Input1","Input2","Input3","Input4","Input5","Output"]
+[2026-05-25 11:54:30] [CSV_IMPORT] データベース・トランザクションを開始しました。
+[2026-05-25 11:54:30] [CSV_IMPORT] project_csv_files へのインサート成功 (ID: 12)
+[2026-05-25 11:54:30] [CSV_IMPORT] documents へのRAG親ノードインサート成功 (ID: 126)
+[2026-05-25 11:54:50] [CSV_IMPORT] ロールバックを実行しました（不整合を防止）
+[2026-05-25 11:54:50] [CSV_IMPORT] FATAL ERROR: SQLSTATE[22001]: String data, right truncated: 1406 Data too long for column 'chunk_text' at row 1
+[2026-05-25 11:58:56] [CSV_IMPORT] === CSVインポート処理開始 (案件: TEPSCO-AIのログ解析) ===
+[2026-05-25 11:58:56] [CSV_IMPORT] ファイル名: alli-20260507144700185-single_action_results.csv | 検出文字コード: UTF-8
+[2026-05-25 11:58:56] [CSV_IMPORT] 総有効レコード数の算出を開始します...
+[2026-05-25 11:58:59] [CSV_IMPORT] 事前解析完了: 総有効データ行数 = 2432行
+[2026-05-25 11:58:59] [CSV_IMPORT] 抽出された列名ヘッダー: ["","Single Action App ID","Single Action App Name","User ID","User First Name","User Last Name","Date","Time","Status","Input1","Input2","Input3","Input4","Input5","Output"]
+[2026-05-25 11:58:59] [CSV_IMPORT] データベース・トランザクションを開始しました。
+[2026-05-25 11:58:59] [CSV_IMPORT] project_csv_files へのインサート成功 (ID: 13)
+[2026-05-25 11:58:59] [CSV_IMPORT] documents へのRAG親ノードインサート成功 (ID: 127)
+[2026-05-25 12:20:51] [CSV_IMPORT] === コミット成功: CSVデータの取り込み完了 (計 2432 件) ===
+[2026-05-25 13:31:24] [CSV_IMPORT] === CSVインポート処理開始 (案件: TEPSCO-AIのログ解析) ===
+[2026-05-25 13:31:25] [CSV_IMPORT] ファイル名: alli-20260507144700185-single_action_results.csv | 検出文字コード: UTF-8
+[2026-05-25 13:31:25] [CSV_IMPORT] 区切り文字判定: カンマ(CSV)
+[2026-05-25 13:31:25] [CSV_IMPORT] 総有効レコード数の算出を開始します...
+[2026-05-25 13:31:27] [CSV_IMPORT] 事前解析完了: 総有効データ行数 = 2432行
+[2026-05-25 13:31:27] [CSV_IMPORT] 抽出された列名ヘッダー: ["","Single Action App ID","Single Action App Name","User ID","User First Name","User Last Name","Date","Time","Status","Input1","Input2","Input3","Input4","Input5","Output"]
+[2026-05-25 13:31:27] [CSV_IMPORT] データベース・トランザクションを開始しました。
+[2026-05-25 13:31:27] [CSV_IMPORT] project_csv_files へのインサート成功 (ID: 14)
+[2026-05-25 13:31:27] [CSV_IMPORT] documents へのRAG親ノードインサート成功 (ID: 128)
+[2026-05-25 13:52:59] [CSV_IMPORT] === コミット成功: CSVデータの取り込み完了 (計 2432 件) ===
+[2026-05-25 14:08:49] [CSV_IMPORT] === CSVインポート処理開始 (案件: TEPSCO-AIのログ解析) ===
+[2026-05-25 14:08:50] [CSV_IMPORT] ファイル名: alli-20260525140426519-single_action_results.csv | 検出文字コード: UTF-8
+[2026-05-25 14:08:50] [CSV_IMPORT] 区切り文字判定: カンマ(CSV)
+[2026-05-25 14:08:50] [CSV_IMPORT] 総有効レコード数の算出を開始します...
+[2026-05-25 14:08:52] [CSV_IMPORT] 事前解析完了: 総有効データ行数 = 2888行
+[2026-05-25 14:08:52] [CSV_IMPORT] 抽出された列名ヘッダー: ["","Single Action App ID","Single Action App Name","User ID","User First Name","User Last Name","Date","Time","Status","Input1","Input2","Input3","Input4","Input5","Output"]
+[2026-05-25 14:08:52] [CSV_IMPORT] データベース・トランザクションを開始しました。
+[2026-05-25 14:08:52] [CSV_IMPORT] project_csv_files へのインサート成功 (ID: 15)
+[2026-05-25 14:08:52] [CSV_IMPORT] documents へのRAG親ノードインサート成功 (ID: 129)
+[2026-05-25 14:43:53] [CSV_IMPORT] === コミット成功: CSVデータの取り込み完了 (計 2888 件) ===
+[2026-05-25 14:48:36] [CSV_IMPORT] === CSVインポート処理開始 (案件: SecureMemoのログ解析) ===
+[2026-05-25 14:48:36] [CSV_IMPORT] ファイル名: data-1779685893596.csv | 検出文字コード: UTF-8
+[2026-05-25 14:48:36] [CSV_IMPORT] 区切り文字判定: カンマ(CSV)
+[2026-05-25 14:48:36] [CSV_IMPORT] 総有効レコード数の算出を開始します...
+[2026-05-25 14:48:36] [CSV_IMPORT] 事前解析完了: 総有効データ行数 = 2011行
+[2026-05-25 14:48:36] [CSV_IMPORT] 抽出された列名ヘッダー: ["name","begin_at_jst","end_at_jst","login_interval","login_seconds","id","license_uid","license_type","transaction_uid","begin_at","end_at","created_at","updated_at","deleted_at"]
+[2026-05-25 14:48:36] [CSV_IMPORT] データベース・トランザクションを開始しました。
+[2026-05-25 14:48:36] [CSV_IMPORT] project_csv_files へのインサート成功 (ID: 16)
+[2026-05-25 14:48:36] [CSV_IMPORT] documents へのRAG親ノードインサート成功 (ID: 130)
+[2026-05-25 15:16:13] [CSV_IMPORT] === コミット成功: CSVデータの取り込み完了 (計 2011 件) ===
+[2026-05-25 18:41:57] [CSV_IMPORT] === CSVインポート処理開始 (案件: 次世代AI分析（海外）) ===
+[2026-05-25 18:41:57] [CSV_IMPORT] ファイル名: 記載用次世代生成AIで実現したいこと【海外BU】.csv | 検出文字コード: UTF-8
+[2026-05-25 18:41:57] [CSV_IMPORT] 区切り文字判定: カンマ(CSV)
+[2026-05-25 18:41:57] [CSV_IMPORT] 総有効レコード数の算出を開始します...
+[2026-05-25 18:41:57] [CSV_IMPORT] 事前解析完了: 総有効データ行数 = 63行
+[2026-05-25 18:41:57] [CSV_IMPORT] 抽出された列名ヘッダー: ["No","タイトル","内容","課題など","提案者","所属"]
+[2026-05-25 18:41:57] [CSV_IMPORT] データベース・トランザクションを開始しました。
+[2026-05-25 18:41:57] [CSV_IMPORT] project_csv_files へのインサート成功 (ID: 17)
+[2026-05-25 18:41:57] [CSV_IMPORT] documents へのRAG親ノードインサート成功 (ID: 131)
+[2026-05-25 18:42:53] [CSV_IMPORT] === コミット成功: CSVデータの取り込み完了 (計 63 件) ===
+[2026-05-26 14:44:27] [Progress] init: 解析を開始（全 9 頁 / モード: all）
+[2026-05-26 14:44:27] [Progress] extraction: P.1 ネイティブテキスト確認中...
+[2026-05-26 14:44:27] [Progress] extraction: P.1 高解像度画像への変換中...
+[2026-05-26 14:44:28] [Progress] extraction: P.1 ページ属性をAI判定中...
+[2026-05-26 14:44:41] [Progress] extraction: P.1 高速テキスト抽出を適用
+[2026-05-26 14:44:41] [Progress] storing: P.1 テキストのベクトル化と保存を実行中...
+[2026-05-26 14:44:43] [Progress] storing: P.1 データベースへ保存中... (1/3)
+[2026-05-26 14:44:43] [Progress] storing: P.1 データベースへ保存中... (2/3)
+[2026-05-26 14:44:44] [Progress] storing: P.1 データベースへ保存中... (3/3)
+[2026-05-26 14:44:44] [Progress] extraction: P.2 ネイティブテキスト確認中...
+[2026-05-26 14:44:44] [Progress] extraction: P.2 高解像度画像への変換中...
+[2026-05-26 14:44:44] [Progress] extraction: P.2 ページ属性をAI判定中...
+[2026-05-26 14:44:50] [Progress] extraction: P.2 高速テキスト抽出を適用
+[2026-05-26 14:44:50] [Progress] storing: P.2 テキストのベクトル化と保存を実行中...
+[2026-05-26 14:44:50] [Progress] storing: P.2 データベースへ保存中... (1/1)
+[2026-05-26 14:44:50] [Progress] extraction: P.3 ネイティブテキスト確認中...
+[2026-05-26 14:44:50] [Progress] extraction: P.3 高解像度画像への変換中...
+[2026-05-26 14:44:51] [Progress] extraction: P.3 ページ属性をAI判定中...
+[2026-05-26 14:44:58] [Progress] extraction: P.3 タイル分割解析中... (1/4)
+[2026-05-26 14:45:04] [Progress] extraction: P.3 タイル分割解析中... (2/4)
+[2026-05-26 14:45:10] [Progress] extraction: P.3 タイル分割解析中... (3/4)
+[2026-05-26 14:45:17] [Progress] extraction: P.3 タイル分割解析中... (4/4)
+[2026-05-26 14:45:23] [Progress] extraction: P.3 スライス分割解析中... (1/8)
+[2026-05-26 14:45:27] [Progress] extraction: P.3 スライス分割解析中... (2/8)
+[2026-05-26 14:45:31] [Progress] extraction: P.3 スライス分割解析中... (3/8)
+[2026-05-26 14:45:37] [Progress] extraction: P.3 スライス分割解析中... (4/8)
+[2026-05-26 14:45:43] [Progress] extraction: P.3 スライス分割解析中... (5/8)
+[2026-05-26 14:45:49] [Progress] extraction: P.3 スライス分割解析中... (6/8)
+[2026-05-26 14:45:55] [Progress] extraction: P.3 スライス分割解析中... (7/8)
+[2026-05-26 14:46:00] [Progress] extraction: P.3 スライス分割解析中... (8/8)
+[2026-05-26 14:46:04] [Progress] extraction: P.3 ページ全体のVLM解析中...
+[2026-05-26 14:46:18] [Progress] extraction: P.3 LLMによる重複排除とテキスト整理中...
+[2026-05-26 14:46:54] [Progress] storing: P.3 テキストのベクトル化と保存を実行中...
+[2026-05-26 14:46:54] [Progress] storing: P.3 データベースへ保存中... (1/4)
+[2026-05-26 14:46:54] [Progress] storing: P.3 データベースへ保存中... (2/4)
+[2026-05-26 14:46:55] [Progress] storing: P.3 データベースへ保存中... (3/4)
+[2026-05-26 14:46:55] [Progress] storing: P.3 データベースへ保存中... (4/4)
+[2026-05-26 14:46:55] [Progress] extraction: P.4 ネイティブテキスト確認中...
+[2026-05-26 14:46:55] [Progress] extraction: P.4 高解像度画像への変換中...
+[2026-05-26 14:46:56] [Progress] extraction: P.4 ページ属性をAI判定中...
+[2026-05-26 14:47:12] [Progress] extraction: P.4 高速テキスト抽出を適用
+[2026-05-26 14:47:12] [Progress] storing: P.4 テキストのベクトル化と保存を実行中...
+[2026-05-26 14:47:13] [Progress] storing: P.4 データベースへ保存中... (1/1)
+[2026-05-26 14:47:13] [Progress] extraction: P.5 ネイティブテキスト確認中...
+[2026-05-26 14:47:13] [Progress] extraction: P.5 高解像度画像への変換中...
+[2026-05-26 14:47:14] [Progress] extraction: P.5 ページ属性をAI判定中...
+[2026-05-26 14:47:22] [Progress] extraction: P.5 高速テキスト抽出を適用
+[2026-05-26 14:47:22] [Progress] storing: P.5 テキストのベクトル化と保存を実行中...
+[2026-05-26 14:47:22] [Progress] storing: P.5 データベースへ保存中... (1/1)
+[2026-05-26 14:47:22] [Progress] extraction: P.6 ネイティブテキスト確認中...
+[2026-05-26 14:47:22] [Progress] extraction: P.6 高解像度画像への変換中...
+[2026-05-26 14:47:23] [Progress] extraction: P.6 ページ属性をAI判定中...
+[2026-05-26 14:47:30] [Progress] extraction: P.6 高速テキスト抽出を適用
+[2026-05-26 14:47:30] [Progress] storing: P.6 テキストのベクトル化と保存を実行中...
+[2026-05-26 14:47:30] [Progress] storing: P.6 データベースへ保存中... (1/1)
+[2026-05-26 14:47:30] [Progress] extraction: P.7 ネイティブテキスト確認中...
+[2026-05-26 14:47:30] [Progress] extraction: P.7 高解像度画像への変換中...
+[2026-05-26 14:47:31] [Progress] extraction: P.7 ページ属性をAI判定中...
+[2026-05-26 14:47:39] [Progress] extraction: P.7 タイル分割解析中... (1/4)
+[2026-05-26 14:47:46] [Progress] extraction: P.7 タイル分割解析中... (2/4)
+[2026-05-26 14:47:52] [Progress] extraction: P.7 タイル分割解析中... (3/4)
+[2026-05-26 14:48:14] [Progress] extraction: P.7 タイル分割解析中... (4/4)
+[2026-05-26 14:48:19] [Progress] extraction: P.7 スライス分割解析中... (1/8)
+[2026-05-26 14:48:22] [Progress] extraction: P.7 スライス分割解析中... (2/8)
+[2026-05-26 14:48:27] [Progress] extraction: P.7 スライス分割解析中... (3/8)
+[2026-05-26 14:48:33] [Progress] extraction: P.7 スライス分割解析中... (4/8)
+[2026-05-26 14:48:39] [Progress] extraction: P.7 スライス分割解析中... (5/8)
+[2026-05-26 14:48:46] [Progress] extraction: P.7 スライス分割解析中... (6/8)
+[2026-05-26 14:48:52] [Progress] extraction: P.7 スライス分割解析中... (7/8)
+[2026-05-26 14:48:58] [Progress] extraction: P.7 スライス分割解析中... (8/8)
+[2026-05-26 14:49:04] [Progress] extraction: P.7 ページ全体のVLM解析中...
+[2026-05-26 14:49:38] [Progress] extraction: P.7 LLMによる重複排除とテキスト整理中...
+[2026-05-26 14:50:12] [Progress] storing: P.7 テキストのベクトル化と保存を実行中...
+[2026-05-26 14:50:12] [Progress] storing: P.7 データベースへ保存中... (1/4)
+[2026-05-26 14:50:12] [Progress] storing: P.7 データベースへ保存中... (2/4)
+[2026-05-26 14:50:12] [Progress] storing: P.7 データベースへ保存中... (3/4)
+[2026-05-26 14:50:13] [Progress] storing: P.7 データベースへ保存中... (4/4)
+[2026-05-26 14:50:13] [Progress] extraction: P.8 ネイティブテキスト確認中...
+[2026-05-26 14:50:13] [Progress] extraction: P.8 高解像度画像への変換中...
+[2026-05-26 14:50:13] [Progress] extraction: P.8 ページ属性をAI判定中...
+[2026-05-26 14:50:30] [Progress] extraction: P.8 高速テキスト抽出を適用
+[2026-05-26 14:50:30] [Progress] storing: P.8 テキストのベクトル化と保存を実行中...
+[2026-05-26 14:50:32] [Progress] storing: P.8 データベースへ保存中... (1/1)
+[2026-05-26 14:50:32] [Progress] extraction: P.9 ネイティブテキスト確認中...
+[2026-05-26 14:50:32] [Progress] extraction: P.9 高解像度画像への変換中...
+[2026-05-26 14:50:32] [Progress] extraction: P.9 ページ属性をAI判定中...
+[2026-05-26 14:50:39] [Progress] extraction: P.9 高速テキスト抽出を適用
+[2026-05-26 14:50:39] [Progress] storing: P.9 テキストのベクトル化と保存を実行中...
+[2026-05-26 14:50:40] [Progress] storing: P.9 データベースへ保存中... (1/1)
+[2026-05-26 14:50:40] [Progress] summary: 最終処理: 資料全体の要約をLLMで生成中...
+[2026-05-26 14:50:53] [Progress] summary: 最終処理: 要約のベクトル化と保存中...
+[2026-05-26 14:50:53] [Progress] done: 解析完了
+[2026-05-26 16:34:49] [Progress] init: 解析を開始（全 9 頁 / モード: all）
+[2026-05-26 16:34:49] [Progress] extraction: P.1 ネイティブテキスト確認中...
+[2026-05-26 16:34:49] [Progress] extraction: P.1 高解像度画像への変換中...
+[2026-05-26 16:34:50] [Progress] extraction: P.1 ページ属性をAI判定中...
+[2026-05-26 16:35:04] [Progress] extraction: P.1 高速テキスト抽出を適用
+[2026-05-26 16:35:04] [Progress] storing: P.1 テキストのベクトル化と保存を実行中...
+[2026-05-26 16:35:08] [Progress] storing: P.1 データベースへ保存中... (1/3)
+[2026-05-26 16:35:09] [Progress] storing: P.1 データベースへ保存中... (2/3)
+[2026-05-26 16:35:10] [Progress] storing: P.1 データベースへ保存中... (3/3)
+[2026-05-26 16:35:10] [Progress] extraction: P.2 ネイティブテキスト確認中...
+[2026-05-26 16:35:10] [Progress] extraction: P.2 高解像度画像への変換中...
+[2026-05-26 16:35:10] [Progress] extraction: P.2 ページ属性をAI判定中...
+[2026-05-26 16:35:18] [Progress] extraction: P.2 高速テキスト抽出を適用
+[2026-05-26 16:35:18] [Progress] storing: P.2 テキストのベクトル化と保存を実行中...
+[2026-05-26 16:35:18] [Progress] storing: P.2 データベースへ保存中... (1/1)
+[2026-05-26 16:35:18] [Progress] extraction: P.3 ネイティブテキスト確認中...
+[2026-05-26 16:35:18] [Progress] extraction: P.3 高解像度画像への変換中...
+[2026-05-26 16:35:19] [Progress] extraction: P.3 ページ属性をAI判定中...
+[2026-05-26 16:35:28] [Progress] extraction: P.3 タイル分割解析中... (1/4)
+[2026-05-26 16:35:34] [Progress] extraction: P.3 タイル分割解析中... (2/4)
+[2026-05-26 16:35:40] [Progress] extraction: P.3 タイル分割解析中... (3/4)
+[2026-05-26 16:35:47] [Progress] extraction: P.3 タイル分割解析中... (4/4)
+[2026-05-26 16:35:53] [Progress] extraction: P.3 スライス分割解析中... (1/8)
+[2026-05-26 16:35:56] [Progress] extraction: P.3 スライス分割解析中... (2/8)
+[2026-05-26 16:36:01] [Progress] extraction: P.3 スライス分割解析中... (3/8)
+[2026-05-26 16:36:06] [Progress] extraction: P.3 スライス分割解析中... (4/8)
+[2026-05-26 16:36:12] [Progress] extraction: P.3 スライス分割解析中... (5/8)
+[2026-05-26 16:36:17] [Progress] extraction: P.3 スライス分割解析中... (6/8)
+[2026-05-26 16:36:25] [Progress] extraction: P.3 スライス分割解析中... (7/8)
+[2026-05-26 16:36:30] [Progress] extraction: P.3 スライス分割解析中... (8/8)
+[2026-05-26 16:36:34] [Progress] extraction: P.3 ページ全体のVLM解析中...
+[2026-05-26 16:36:46] [Progress] extraction: P.3 LLMによる重複排除とテキスト整理中...
+[2026-05-26 16:37:42] [Progress] storing: P.3 テキストのベクトル化と保存を実行中...
+[2026-05-26 16:37:43] [Progress] storing: P.3 データベースへ保存中... (1/3)
+[2026-05-26 16:37:43] [Progress] storing: P.3 データベースへ保存中... (2/3)
+[2026-05-26 16:37:43] [Progress] storing: P.3 データベースへ保存中... (3/3)
+[2026-05-26 16:37:43] [Progress] extraction: P.4 ネイティブテキスト確認中...
+[2026-05-26 16:37:43] [Progress] extraction: P.4 高解像度画像への変換中...
+[2026-05-26 16:37:44] [Progress] extraction: P.4 ページ属性をAI判定中...
+[2026-05-26 16:38:00] [Progress] extraction: P.4 高速テキスト抽出を適用
+[2026-05-26 16:38:00] [Progress] storing: P.4 テキストのベクトル化と保存を実行中...
+[2026-05-26 16:38:02] [Progress] storing: P.4 データベースへ保存中... (1/1)
+[2026-05-26 16:38:02] [Progress] extraction: P.5 ネイティブテキスト確認中...
+[2026-05-26 16:38:02] [Progress] extraction: P.5 高解像度画像への変換中...
+[2026-05-26 16:38:03] [Progress] extraction: P.5 ページ属性をAI判定中...
+[2026-05-26 16:38:11] [Progress] extraction: P.5 高速テキスト抽出を適用
+[2026-05-26 16:38:11] [Progress] storing: P.5 テキストのベクトル化と保存を実行中...
+[2026-05-26 16:38:11] [Progress] storing: P.5 データベースへ保存中... (1/1)
+[2026-05-26 16:38:11] [Progress] extraction: P.6 ネイティブテキスト確認中...
+[2026-05-26 16:38:11] [Progress] extraction: P.6 高解像度画像への変換中...
+[2026-05-26 16:38:12] [Progress] extraction: P.6 ページ属性をAI判定中...
+[2026-05-26 16:38:20] [Progress] extraction: P.6 高速テキスト抽出を適用
+[2026-05-26 16:38:20] [Progress] storing: P.6 テキストのベクトル化と保存を実行中...
+[2026-05-26 16:38:21] [Progress] storing: P.6 データベースへ保存中... (1/1)
+[2026-05-26 16:38:21] [Progress] extraction: P.7 ネイティブテキスト確認中...
+[2026-05-26 16:38:21] [Progress] extraction: P.7 高解像度画像への変換中...
+[2026-05-26 16:38:22] [Progress] extraction: P.7 ページ属性をAI判定中...
+[2026-05-26 16:38:30] [Progress] extraction: P.7 高速テキスト抽出を適用
+[2026-05-26 16:38:30] [Progress] storing: P.7 テキストのベクトル化と保存を実行中...
+[2026-05-26 16:38:30] [Progress] storing: P.7 データベースへ保存中... (1/1)
+[2026-05-26 16:38:30] [Progress] extraction: P.8 ネイティブテキスト確認中...
+[2026-05-26 16:38:30] [Progress] extraction: P.8 高解像度画像への変換中...
+[2026-05-26 16:38:31] [Progress] extraction: P.8 ページ属性をAI判定中...
+[2026-05-26 16:38:39] [Progress] extraction: P.8 高速テキスト抽出を適用
+[2026-05-26 16:38:39] [Progress] storing: P.8 テキストのベクトル化と保存を実行中...
+[2026-05-26 16:38:40] [Progress] storing: P.8 データベースへ保存中... (1/1)
+[2026-05-26 16:38:40] [Progress] extraction: P.9 ネイティブテキスト確認中...
+[2026-05-26 16:38:40] [Progress] extraction: P.9 高解像度画像への変換中...
+[2026-05-26 16:38:40] [Progress] extraction: P.9 ページ属性をAI判定中...
+[2026-05-26 16:38:47] [Progress] extraction: P.9 高速テキスト抽出を適用
+[2026-05-26 16:38:47] [Progress] storing: P.9 テキストのベクトル化と保存を実行中...
+[2026-05-26 16:38:47] [Progress] storing: P.9 データベースへ保存中... (1/1)
+[2026-05-26 16:38:47] [Progress] summary: 最終処理: 資料全体の要約をLLMで生成中...
+[2026-05-26 16:39:00] [Progress] summary: 最終処理: 要約のベクトル化と保存中...
+[2026-05-26 16:39:01] [Progress] done: 解析完了
+[2026-05-27 15:30:11] [Progress] init: 解析を開始（全 4 頁 / モード: all）
+[2026-05-27 15:30:12] [Progress] extraction: P.1 ネイティブテキスト確認中...
+[2026-05-27 15:30:12] [Progress] extraction: P.1 高解像度画像への変換中...
+[2026-05-27 15:30:12] [Progress] extraction: P.1 ページ属性をAI判定中...
+[2026-05-27 15:30:27] [Progress] extraction: P.1 高速テキスト抽出を適用
+[2026-05-27 15:30:27] [Progress] storing: P.1 テキストのベクトル化と保存を実行中...
+[2026-05-27 15:30:29] [Progress] storing: P.1 データベースへ保存中... (1/1)
+[2026-05-27 15:30:29] [Progress] extraction: P.2 ネイティブテキスト確認中...
+[2026-05-27 15:30:29] [Progress] extraction: P.2 高解像度画像への変換中...
+[2026-05-27 15:30:30] [Progress] extraction: P.2 ページ属性をAI判定中...
+[2026-05-27 15:30:37] [Progress] extraction: P.2 高速テキスト抽出を適用
+[2026-05-27 15:30:37] [Progress] storing: P.2 テキストのベクトル化と保存を実行中...
+[2026-05-27 15:30:37] [Progress] storing: P.2 データベースへ保存中... (1/4)
+[2026-05-27 15:30:37] [Progress] storing: P.2 データベースへ保存中... (2/4)
+[2026-05-27 15:30:39] [Progress] storing: P.2 データベースへ保存中... (3/4)
+[2026-05-27 15:30:39] [Progress] storing: P.2 データベースへ保存中... (4/4)
+[2026-05-27 15:30:39] [Progress] extraction: P.3 ネイティブテキスト確認中...
+[2026-05-27 15:30:39] [Progress] extraction: P.3 高解像度画像への変換中...
+[2026-05-27 15:30:39] [Progress] extraction: P.3 ページ属性をAI判定中...
+[2026-05-27 15:30:46] [Progress] extraction: P.3 高速テキスト抽出を適用
+[2026-05-27 15:30:46] [Progress] storing: P.3 テキストのベクトル化と保存を実行中...
+[2026-05-27 15:30:46] [Progress] storing: P.3 データベースへ保存中... (1/4)
+[2026-05-27 15:30:46] [Progress] storing: P.3 データベースへ保存中... (2/4)
+[2026-05-27 15:30:46] [Progress] storing: P.3 データベースへ保存中... (3/4)
+[2026-05-27 15:30:47] [Progress] storing: P.3 データベースへ保存中... (4/4)
+[2026-05-27 15:30:47] [Progress] extraction: P.4 ネイティブテキスト確認中...
+[2026-05-27 15:30:47] [Progress] extraction: P.4 高解像度画像への変換中...
+[2026-05-27 15:30:47] [Progress] extraction: P.4 ページ属性をAI判定中...
+[2026-05-27 15:30:54] [Progress] extraction: P.4 高速テキスト抽出を適用
+[2026-05-27 15:30:54] [Progress] storing: P.4 テキストのベクトル化と保存を実行中...
+[2026-05-27 15:30:54] [Progress] storing: P.4 データベースへ保存中... (1/1)
+[2026-05-27 15:30:54] [Progress] summary: 最終処理: 資料全体の要約をLLMで生成中...
+[2026-05-27 15:31:06] [Progress] summary: 最終処理: 要約のベクトル化と保存中...
+[2026-05-27 15:31:06] [Progress] done: 解析完了
+[2026-05-28 08:58:35] [Progress] init: 解析を開始（全 6 頁 / モード: all）
+[2026-05-28 08:58:35] [Progress] extraction: P.1 ネイティブテキスト確認中...
+[2026-05-28 08:58:35] [Progress] extraction: P.1 高解像度画像への変換中...
+[2026-05-28 08:58:35] [Progress] extraction: P.1 ページ属性をAI判定中...
+[2026-05-28 08:58:52] [Progress] extraction: P.1 タイル分割解析中... (1/4)
+[2026-05-28 08:58:59] [Progress] extraction: P.1 タイル分割解析中... (2/4)
+[2026-05-28 08:59:06] [Progress] extraction: P.1 タイル分割解析中... (3/4)
+[2026-05-28 08:59:10] [Progress] extraction: P.1 タイル分割解析中... (4/4)
+[2026-05-28 08:59:14] [Progress] extraction: P.1 スライス分割解析中... (1/8)
+[2026-05-28 08:59:16] [Progress] extraction: P.1 スライス分割解析中... (2/8)
+[2026-05-28 08:59:21] [Progress] extraction: P.1 スライス分割解析中... (3/8)
+[2026-05-28 08:59:27] [Progress] extraction: P.1 スライス分割解析中... (4/8)
+[2026-05-28 08:59:33] [Progress] extraction: P.1 スライス分割解析中... (5/8)
+[2026-05-28 08:59:37] [Progress] extraction: P.1 スライス分割解析中... (6/8)
+[2026-05-28 08:59:41] [Progress] extraction: P.1 スライス分割解析中... (7/8)
+[2026-05-28 08:59:44] [Progress] extraction: P.1 スライス分割解析中... (8/8)
+[2026-05-28 08:59:48] [Progress] extraction: P.1 ページ全体のVLM解析中...
+[2026-05-28 08:59:57] [Progress] extraction: P.1 LLMによる重複排除とテキスト整理中...
+[2026-05-28 09:00:17] [Progress] storing: P.1 テキストのベクトル化と保存を実行中...
+[2026-05-28 09:00:19] [Progress] storing: P.1 データベースへ保存中... (1/3)
+[2026-05-28 09:00:20] [Progress] storing: P.1 データベースへ保存中... (2/3)
+[2026-05-28 09:00:20] [Progress] storing: P.1 データベースへ保存中... (3/3)
+[2026-05-28 09:00:20] [Progress] extraction: P.2 ネイティブテキスト確認中...
+[2026-05-28 09:00:20] [Progress] extraction: P.2 高解像度画像への変換中...
+[2026-05-28 09:00:20] [Progress] extraction: P.2 ページ属性をAI判定中...
+[2026-05-28 09:00:36] [Progress] extraction: P.2 タイル分割解析中... (1/4)
+[2026-05-28 09:00:44] [Progress] extraction: P.2 タイル分割解析中... (2/4)
+[2026-05-28 09:00:49] [Progress] extraction: P.2 タイル分割解析中... (3/4)
+[2026-05-28 09:00:55] [Progress] extraction: P.2 タイル分割解析中... (4/4)
+[2026-05-28 09:01:01] [Progress] extraction: P.2 スライス分割解析中... (1/8)
+[2026-05-28 09:01:05] [Progress] extraction: P.2 スライス分割解析中... (2/8)
+[2026-05-28 09:01:13] [Progress] extraction: P.2 スライス分割解析中... (3/8)
+[2026-05-28 09:01:17] [Progress] extraction: P.2 スライス分割解析中... (4/8)
+[2026-05-28 09:01:21] [Progress] extraction: P.2 スライス分割解析中... (5/8)
+[2026-05-28 09:01:26] [Progress] extraction: P.2 スライス分割解析中... (6/8)
+[2026-05-28 09:01:30] [Progress] extraction: P.2 スライス分割解析中... (7/8)
+[2026-05-28 09:01:33] [Progress] extraction: P.2 スライス分割解析中... (8/8)
+[2026-05-28 09:01:37] [Progress] extraction: P.2 ページ全体のVLM解析中...
+[2026-05-28 09:01:47] [Progress] extraction: P.2 LLMによる重複排除とテキスト整理中...
+[2026-05-28 09:02:14] [Progress] storing: P.2 テキストのベクトル化と保存を実行中...
+[2026-05-28 09:02:21] [Progress] storing: P.2 データベースへ保存中... (1/4)
+[2026-05-28 09:02:22] [Progress] storing: P.2 データベースへ保存中... (2/4)
+[2026-05-28 09:02:22] [Progress] storing: P.2 データベースへ保存中... (3/4)
+[2026-05-28 09:02:22] [Progress] storing: P.2 データベースへ保存中... (4/4)
+[2026-05-28 09:02:22] [Progress] extraction: P.3 ネイティブテキスト確認中...
+[2026-05-28 09:02:22] [Progress] extraction: P.3 高解像度画像への変換中...
+[2026-05-28 09:02:23] [Progress] extraction: P.3 ページ属性をAI判定中...
+[2026-05-28 09:02:41] [Progress] extraction: P.3 タイル分割解析中... (1/4)
+[2026-05-28 09:02:52] [Progress] extraction: P.3 タイル分割解析中... (2/4)
+[2026-05-28 09:03:03] [Progress] extraction: P.3 タイル分割解析中... (3/4)
+[2026-05-28 09:07:01] [Progress] init: 解析を開始（全 6 頁 / モード: all）
+[2026-05-28 09:07:01] [Progress] extraction: P.1 ネイティブテキスト確認中...
+[2026-05-28 09:07:01] [Progress] extraction: P.1 高解像度画像への変換中...
+[2026-05-28 09:07:02] [Progress] extraction: P.1 ページ属性をAI判定中...
+[2026-05-28 09:07:03] [Progress] extraction: P.3 タイル分割解析中... (4/4)
+[2026-05-28 09:07:15] [Progress] extraction: P.1 タイル分割解析中... (1/4)
+[2026-05-28 09:07:15] [Progress] extraction: P.3 スライス分割解析中... (1/8)
+[2026-05-28 09:07:20] [Progress] extraction: P.3 スライス分割解析中... (2/8)
+[2026-05-28 09:07:26] [Progress] extraction: P.1 タイル分割解析中... (2/4)
+[2026-05-28 09:07:37] [Progress] extraction: P.1 タイル分割解析中... (3/4)
+[2026-05-28 09:07:41] [Progress] extraction: P.3 スライス分割解析中... (3/8)
+[2026-05-28 09:07:42] [Progress] extraction: P.1 タイル分割解析中... (4/4)
+[2026-05-28 09:07:47] [Progress] extraction: P.1 スライス分割解析中... (1/8)
+[2026-05-28 09:07:51] [Progress] extraction: P.1 スライス分割解析中... (2/8)
+[2026-05-28 09:07:57] [Progress] extraction: P.3 スライス分割解析中... (4/8)
+[2026-05-28 09:07:58] [Progress] extraction: P.1 スライス分割解析中... (3/8)
+[2026-05-28 09:08:07] [Progress] extraction: P.1 スライス分割解析中... (4/8)
+[2026-05-28 09:08:07] [Progress] extraction: P.3 スライス分割解析中... (5/8)
+[2026-05-28 09:08:16] [Progress] extraction: P.1 スライス分割解析中... (5/8)
+[2026-05-28 09:08:21] [Progress] extraction: P.3 スライス分割解析中... (6/8)
+[2026-05-28 09:08:23] [Progress] extraction: P.1 スライス分割解析中... (6/8)
+[2026-05-28 09:08:28] [Progress] extraction: P.3 スライス分割解析中... (7/8)
+[2026-05-28 09:08:30] [Progress] extraction: P.1 スライス分割解析中... (7/8)
+[2026-05-28 09:08:33] [Progress] extraction: P.3 スライス分割解析中... (8/8)
+[2026-05-28 09:08:35] [Progress] extraction: P.1 スライス分割解析中... (8/8)
+[2026-05-28 09:08:38] [Progress] extraction: P.3 ページ全体のVLM解析中...
+[2026-05-28 09:08:39] [Progress] extraction: P.1 ページ全体のVLM解析中...
+[2026-05-28 09:08:52] [Progress] extraction: P.1 LLMによる重複排除とテキスト整理中...
+[2026-05-28 09:09:03] [Progress] extraction: P.3 LLMによる重複排除とテキスト整理中...
+[2026-05-28 09:09:44] [Progress] storing: P.1 テキストのベクトル化と保存を実行中...
+[2026-05-28 09:09:45] [Progress] storing: P.1 データベースへ保存中... (1/3)
+[2026-05-28 09:09:51] [Progress] storing: P.3 テキストのベクトル化と保存を実行中...
+[2026-05-28 09:09:51] [Progress] storing: P.1 データベースへ保存中... (2/3)
+[2026-05-28 09:09:51] [Progress] storing: P.1 データベースへ保存中... (3/3)
+[2026-05-28 09:09:51] [Progress] extraction: P.2 ネイティブテキスト確認中...
+[2026-05-28 09:09:51] [Progress] storing: P.3 データベースへ保存中... (1/7)
+[2026-05-28 09:09:51] [Progress] storing: P.3 データベースへ保存中... (2/7)
+[2026-05-28 09:09:52] [Progress] extraction: P.2 高解像度画像への変換中...
+[2026-05-28 09:09:52] [Progress] extraction: P.2 ページ属性をAI判定中...
+[2026-05-28 09:09:52] [Progress] storing: P.3 データベースへ保存中... (3/7)
+[2026-05-28 09:09:52] [Progress] storing: P.3 データベースへ保存中... (4/7)
+[2026-05-28 09:09:53] [Progress] storing: P.3 データベースへ保存中... (5/7)
+[2026-05-28 09:09:53] [Progress] storing: P.3 データベースへ保存中... (6/7)
+[2026-05-28 09:09:53] [Progress] storing: P.3 データベースへ保存中... (7/7)
+[2026-05-28 09:09:53] [Progress] extraction: P.4 ネイティブテキスト確認中...
+[2026-05-28 09:09:53] [Progress] extraction: P.4 高解像度画像への変換中...
+[2026-05-28 09:09:53] [Progress] extraction: P.4 ページ属性をAI判定中...
+[2026-05-28 09:10:12] [Progress] extraction: P.4 タイル分割解析中... (1/4)
+[2026-05-28 09:10:12] [Progress] extraction: P.2 タイル分割解析中... (1/4)
+[2026-05-28 09:10:24] [Progress] extraction: P.2 タイル分割解析中... (2/4)
+[2026-05-28 09:10:30] [Progress] extraction: P.4 タイル分割解析中... (2/4)
+[2026-05-28 09:10:36] [Progress] extraction: P.2 タイル分割解析中... (3/4)
+[2026-05-28 09:10:43] [Progress] extraction: P.4 タイル分割解析中... (3/4)
+[2026-05-28 09:10:45] [Progress] extraction: P.2 タイル分割解析中... (4/4)
+[2026-05-28 09:10:53] [Progress] extraction: P.2 スライス分割解析中... (1/8)
+[2026-05-28 09:10:59] [Progress] extraction: P.2 スライス分割解析中... (2/8)
+[2026-05-28 09:11:00] [Progress] extraction: P.4 タイル分割解析中... (4/4)
+[2026-05-28 09:11:09] [Progress] extraction: P.2 スライス分割解析中... (3/8)
+[2026-05-28 09:11:15] [Progress] extraction: P.2 スライス分割解析中... (4/8)
+[2026-05-28 09:11:21] [Progress] extraction: P.2 スライス分割解析中... (5/8)
+[2026-05-28 09:11:27] [Progress] extraction: P.2 スライス分割解析中... (6/8)
+[2026-05-28 09:11:34] [Progress] extraction: P.2 スライス分割解析中... (7/8)
+[2026-05-28 09:11:42] [Progress] extraction: P.2 スライス分割解析中... (8/8)
+[2026-05-28 09:11:48] [Progress] extraction: P.2 ページ全体のVLM解析中...
+[2026-05-28 09:12:02] [Progress] extraction: P.2 LLMによる重複排除とテキスト整理中...
+[2026-05-28 09:12:38] [Progress] extraction: P.4 スライス分割解析中... (1/8)
+[2026-05-28 09:12:56] [Progress] storing: P.2 テキストのベクトル化と保存を実行中...
+[2026-05-28 09:13:04] [Progress] storing: P.2 データベースへ保存中... (1/4)
+[2026-05-28 09:13:05] [Progress] storing: P.2 データベースへ保存中... (2/4)
+[2026-05-28 09:13:05] [Progress] storing: P.2 データベースへ保存中... (3/4)
+[2026-05-28 09:13:07] [Progress] storing: P.2 データベースへ保存中... (4/4)
+[2026-05-28 09:13:07] [Progress] extraction: P.3 ネイティブテキスト確認中...
+[2026-05-28 09:13:07] [Progress] extraction: P.3 高解像度画像への変換中...
+[2026-05-28 09:13:08] [Progress] extraction: P.3 ページ属性をAI判定中...
+[2026-05-28 09:13:09] [Progress] extraction: P.4 スライス分割解析中... (2/8)
+[2026-05-28 09:13:19] [Progress] extraction: P.3 タイル分割解析中... (1/4)
+[2026-05-28 09:13:21] [Progress] extraction: P.4 スライス分割解析中... (3/8)
+[2026-05-28 09:13:31] [Progress] extraction: P.4 スライス分割解析中... (4/8)
+[2026-05-28 09:13:40] [Progress] extraction: P.4 スライス分割解析中... (5/8)
+[2026-05-28 09:13:54] [Progress] extraction: P.4 スライス分割解析中... (6/8)
+[2026-05-28 09:14:09] [Progress] extraction: P.4 スライス分割解析中... (7/8)
+[2026-05-28 09:14:18] [Progress] extraction: P.4 スライス分割解析中... (8/8)
+[2026-05-28 09:14:23] [Progress] extraction: P.4 ページ全体のVLM解析中...
+[2026-05-28 09:14:45] [Progress] extraction: P.4 LLMによる重複排除とテキスト整理中...
+[2026-05-28 09:17:19] [Progress] extraction: P.3 タイル分割解析中... (2/4)
+[2026-05-28 09:17:55] [Progress] storing: P.4 テキストのベクトル化と保存を実行中...
+[2026-05-28 09:18:03] [Progress] storing: P.4 データベースへ保存中... (1/7)
+[2026-05-28 09:18:03] [Progress] storing: P.4 データベースへ保存中... (2/7)
+[2026-05-28 09:18:03] [Progress] storing: P.4 データベースへ保存中... (3/7)
+[2026-05-28 09:18:04] [Progress] storing: P.4 データベースへ保存中... (4/7)
+[2026-05-28 09:18:05] [Progress] storing: P.4 データベースへ保存中... (5/7)
+[2026-05-28 09:18:05] [Progress] storing: P.4 データベースへ保存中... (6/7)
+[2026-05-28 09:18:06] [Progress] storing: P.4 データベースへ保存中... (7/7)
+[2026-05-28 09:18:06] [Progress] extraction: P.5 ネイティブテキスト確認中...
+[2026-05-28 09:18:06] [Progress] extraction: P.5 高解像度画像への変換中...
+[2026-05-28 09:18:06] [Progress] extraction: P.5 ページ属性をAI判定中...
+[2026-05-28 09:18:13] [Progress] extraction: P.3 タイル分割解析中... (3/4)
+[2026-05-28 09:18:17] [Progress] extraction: P.5 高速テキスト抽出を適用
+[2026-05-28 09:18:17] [Progress] storing: P.5 テキストのベクトル化と保存を実行中...
+[2026-05-28 09:18:17] [Progress] storing: P.5 データベースへ保存中... (1/1)
+[2026-05-28 09:18:17] [Progress] extraction: P.6 ネイティブテキスト確認中...
+[2026-05-28 09:18:18] [Progress] extraction: P.6 高解像度画像への変換中...
+[2026-05-28 09:18:18] [Progress] extraction: P.6 ページ属性をAI判定中...
+[2026-05-28 09:18:27] [Progress] extraction: P.6 タイル分割解析中... (1/4)
+[2026-05-28 09:18:47] [Progress] extraction: P.6 タイル分割解析中... (2/4)
+[2026-05-28 09:19:00] [Progress] extraction: P.6 タイル分割解析中... (3/4)
+[2026-05-28 09:19:09] [Progress] extraction: P.6 タイル分割解析中... (4/4)
+[2026-05-28 09:19:17] [Progress] extraction: P.6 スライス分割解析中... (1/8)
+[2026-05-28 09:19:26] [Progress] extraction: P.6 スライス分割解析中... (2/8)
+[2026-05-28 09:19:36] [Progress] extraction: P.6 スライス分割解析中... (3/8)
+[2026-05-28 09:19:48] [Progress] extraction: P.6 スライス分割解析中... (4/8)
+[2026-05-28 09:20:02] [Progress] extraction: P.6 スライス分割解析中... (5/8)
+[2026-05-28 09:20:08] [Progress] extraction: P.6 スライス分割解析中... (6/8)
+[2026-05-28 09:20:15] [Progress] extraction: P.6 スライス分割解析中... (7/8)
+[2026-05-28 09:22:13] [Progress] extraction: P.3 タイル分割解析中... (4/4)
+[2026-05-28 09:22:23] [Progress] extraction: P.3 スライス分割解析中... (1/8)
+[2026-05-28 09:22:29] [Progress] extraction: P.3 スライス分割解析中... (2/8)
+[2026-05-28 09:22:43] [Progress] extraction: P.3 スライス分割解析中... (3/8)
+[2026-05-28 09:23:00] [Progress] extraction: P.3 スライス分割解析中... (4/8)
+[2026-05-28 09:23:10] [Progress] extraction: P.3 スライス分割解析中... (5/8)
+[2026-05-28 09:23:24] [Progress] extraction: P.3 スライス分割解析中... (6/8)
+[2026-05-28 09:23:31] [Progress] extraction: P.3 スライス分割解析中... (7/8)
+[2026-05-28 09:23:39] [Progress] extraction: P.3 スライス分割解析中... (8/8)
+[2026-05-28 09:23:45] [Progress] extraction: P.3 ページ全体のVLM解析中...
+[2026-05-28 09:24:07] [Progress] extraction: P.3 LLMによる重複排除とテキスト整理中...
+[2026-05-28 09:24:15] [Progress] extraction: P.6 スライス分割解析中... (8/8)
+[2026-05-28 09:25:05] [Progress] storing: P.3 テキストのベクトル化と保存を実行中...
+[2026-05-28 09:25:15] [Progress] storing: P.3 データベースへ保存中... (1/5)
+[2026-05-28 09:25:16] [Progress] storing: P.3 データベースへ保存中... (2/5)
+[2026-05-28 09:25:16] [Progress] storing: P.3 データベースへ保存中... (3/5)
+[2026-05-28 09:25:16] [Progress] storing: P.3 データベースへ保存中... (4/5)
+[2026-05-28 09:25:16] [Progress] storing: P.3 データベースへ保存中... (5/5)
+[2026-05-28 09:25:16] [Progress] extraction: P.4 ネイティブテキスト確認中...
+[2026-05-28 09:25:16] [Progress] extraction: P.4 高解像度画像への変換中...
+[2026-05-28 09:25:17] [Progress] extraction: P.6 ページ全体のVLM解析中...
+[2026-05-28 09:25:17] [Progress] extraction: P.4 ページ属性をAI判定中...
+[2026-05-28 09:25:27] [Progress] extraction: P.4 タイル分割解析中... (1/4)
+[2026-05-28 09:25:32] [Progress] extraction: P.6 LLMによる重複排除とテキスト整理中...
+[2026-05-28 09:25:39] [Progress] extraction: P.4 タイル分割解析中... (2/4)
+[2026-05-28 09:26:02] [Progress] storing: P.6 テキストのベクトル化と保存を実行中...
+[2026-05-28 09:26:11] [Progress] storing: P.6 データベースへ保存中... (1/5)
+[2026-05-28 09:26:12] [Progress] storing: P.6 データベースへ保存中... (2/5)
+[2026-05-28 09:26:13] [Progress] storing: P.6 データベースへ保存中... (3/5)
+[2026-05-28 09:26:13] [Progress] storing: P.6 データベースへ保存中... (4/5)
+[2026-05-28 09:26:14] [Progress] storing: P.6 データベースへ保存中... (5/5)
+[2026-05-28 09:26:14] [Progress] summary: 最終処理: 資料全体の要約をLLMで生成中...
+[2026-05-28 09:26:15] [Progress] extraction: P.4 タイル分割解析中... (3/4)
+[2026-05-28 09:26:27] [Progress] extraction: P.4 タイル分割解析中... (4/4)
+[2026-05-28 09:26:45] [Progress] summary: 最終処理: 要約のベクトル化と保存中...
+[2026-05-28 09:26:54] [Progress] done: 解析完了
+[2026-05-28 09:27:01] [Progress] extraction: P.4 スライス分割解析中... (1/8)
+[2026-05-28 09:27:05] [Progress] extraction: P.4 スライス分割解析中... (2/8)
+[2026-05-28 09:27:16] [Progress] extraction: P.4 スライス分割解析中... (3/8)
+[2026-05-28 09:27:21] [Progress] extraction: P.4 スライス分割解析中... (4/8)
+[2026-05-28 09:27:25] [Progress] extraction: P.4 スライス分割解析中... (5/8)
+[2026-05-28 09:27:35] [Progress] extraction: P.4 スライス分割解析中... (6/8)
+[2026-05-28 09:27:43] [Progress] extraction: P.4 スライス分割解析中... (7/8)
+[2026-05-28 09:27:49] [Progress] extraction: P.4 スライス分割解析中... (8/8)
+[2026-05-28 09:27:54] [Progress] extraction: P.4 ページ全体のVLM解析中...
+[2026-05-28 09:28:07] [Progress] extraction: P.4 LLMによる重複排除とテキスト整理中...
+[2026-05-28 09:28:42] [Progress] storing: P.4 テキストのベクトル化と保存を実行中...
+[2026-05-28 09:28:42] [Progress] storing: P.4 データベースへ保存中... (1/8)
+[2026-05-28 09:28:43] [Progress] storing: P.4 データベースへ保存中... (2/8)
+[2026-05-28 09:28:43] [Progress] storing: P.4 データベースへ保存中... (3/8)
+[2026-05-28 09:28:44] [Progress] storing: P.4 データベースへ保存中... (4/8)
+[2026-05-28 09:28:44] [Progress] storing: P.4 データベースへ保存中... (5/8)
+[2026-05-28 09:28:45] [Progress] storing: P.4 データベースへ保存中... (6/8)
+[2026-05-28 09:28:46] [Progress] storing: P.4 データベースへ保存中... (7/8)
+[2026-05-28 09:28:46] [Progress] storing: P.4 データベースへ保存中... (8/8)
+[2026-05-28 09:28:46] [Progress] extraction: P.5 ネイティブテキスト確認中...
+[2026-05-28 09:28:46] [Progress] extraction: P.5 高解像度画像への変換中...
+[2026-05-28 09:28:46] [Progress] extraction: P.5 ページ属性をAI判定中...
+[2026-05-28 09:29:02] [Progress] extraction: P.5 タイル分割解析中... (1/4)
+[2026-05-28 09:29:13] [Progress] extraction: P.5 タイル分割解析中... (2/4)
+[2026-05-28 09:29:19] [Progress] extraction: P.5 タイル分割解析中... (3/4)
+[2026-05-28 09:29:25] [Progress] extraction: P.5 タイル分割解析中... (4/4)
+[2026-05-28 09:29:31] [Progress] extraction: P.5 スライス分割解析中... (1/8)
+[2026-05-28 09:29:39] [Progress] extraction: P.5 スライス分割解析中... (2/8)
+[2026-05-28 09:29:44] [Progress] extraction: P.5 スライス分割解析中... (3/8)
+[2026-05-28 09:29:49] [Progress] extraction: P.5 スライス分割解析中... (4/8)
+[2026-05-28 09:29:54] [Progress] extraction: P.5 スライス分割解析中... (5/8)
+[2026-05-28 09:29:59] [Progress] extraction: P.5 スライス分割解析中... (6/8)
+[2026-05-28 09:30:02] [Progress] extraction: P.5 スライス分割解析中... (7/8)
+[2026-05-28 09:30:05] [Progress] extraction: P.5 スライス分割解析中... (8/8)
+[2026-05-28 09:30:09] [Progress] extraction: P.5 ページ全体のVLM解析中...
+[2026-05-28 09:30:19] [Progress] extraction: P.5 LLMによる重複排除とテキスト整理中...
+[2026-05-28 09:30:50] [Progress] storing: P.5 テキストのベクトル化と保存を実行中...
+[2026-05-28 09:30:54] [Progress] storing: P.5 データベースへ保存中... (1/5)
+[2026-05-28 09:30:54] [Progress] storing: P.5 データベースへ保存中... (2/5)
+[2026-05-28 09:30:58] [Progress] storing: P.5 データベースへ保存中... (3/5)
+[2026-05-28 09:31:03] [Progress] storing: P.5 データベースへ保存中... (4/5)
+[2026-05-28 09:31:03] [Progress] storing: P.5 データベースへ保存中... (5/5)
+[2026-05-28 09:31:03] [Progress] extraction: P.6 ネイティブテキスト確認中...
+[2026-05-28 09:31:03] [Progress] extraction: P.6 高解像度画像への変換中...
+[2026-05-28 09:31:04] [Progress] extraction: P.6 ページ属性をAI判定中...
+[2026-05-28 09:31:19] [Progress] extraction: P.6 タイル分割解析中... (1/4)
+[2026-05-28 09:31:31] [Progress] extraction: P.6 タイル分割解析中... (2/4)
+[2026-05-28 09:31:37] [Progress] extraction: P.6 タイル分割解析中... (3/4)
+[2026-05-28 09:31:41] [Progress] extraction: P.6 タイル分割解析中... (4/4)
+[2026-05-28 09:31:48] [Progress] extraction: P.6 スライス分割解析中... (1/8)
+[2026-05-28 09:31:54] [Progress] extraction: P.6 スライス分割解析中... (2/8)
+[2026-05-28 09:32:01] [Progress] extraction: P.6 スライス分割解析中... (3/8)
+[2026-05-28 09:32:07] [Progress] extraction: P.6 スライス分割解析中... (4/8)
+[2026-05-28 09:32:14] [Progress] extraction: P.6 スライス分割解析中... (5/8)
+[2026-05-28 09:32:18] [Progress] extraction: P.6 スライス分割解析中... (6/8)
+[2026-05-28 09:32:21] [Progress] extraction: P.6 スライス分割解析中... (7/8)
+[2026-05-28 09:32:24] [Progress] extraction: P.6 スライス分割解析中... (8/8)
+[2026-05-28 09:32:27] [Progress] extraction: P.6 ページ全体のVLM解析中...
+[2026-05-28 09:32:41] [Progress] extraction: P.6 LLMによる重複排除とテキスト整理中...
+[2026-05-28 09:33:04] [Progress] storing: P.6 テキストのベクトル化と保存を実行中...
+[2026-05-28 09:33:07] [Progress] storing: P.6 データベースへ保存中... (1/8)
+[2026-05-28 09:33:07] [Progress] storing: P.6 データベースへ保存中... (2/8)
+[2026-05-28 09:33:07] [Progress] storing: P.6 データベースへ保存中... (3/8)
+[2026-05-28 09:33:07] [Progress] storing: P.6 データベースへ保存中... (4/8)
+[2026-05-28 09:33:07] [Progress] storing: P.6 データベースへ保存中... (5/8)
+[2026-05-28 09:33:09] [Progress] storing: P.6 データベースへ保存中... (6/8)
+[2026-05-28 09:33:09] [Progress] storing: P.6 データベースへ保存中... (7/8)
+[2026-05-28 09:33:09] [Progress] storing: P.6 データベースへ保存中... (8/8)
+[2026-05-28 09:33:09] [Progress] summary: 最終処理: 資料全体の要約をLLMで生成中...
+[2026-05-28 09:33:23] [Progress] summary: 最終処理: 要約のベクトル化と保存中...
+[2026-05-28 09:33:24] [Progress] done: 解析完了
+[2026-05-28 11:56:40] [CSV_IMPORT] === CSVインポート処理開始 (案件: SecureMemoのログ集計) ===
+[2026-05-28 11:56:40] [CSV_IMPORT] ファイル名: data-1779685893596.csv | 検出文字コード: UTF-8
+[2026-05-28 11:56:40] [CSV_IMPORT] 区切り文字判定: カンマ(CSV)
+[2026-05-28 11:56:40] [CSV_IMPORT] 総有効レコード数の算出を開始します...
+[2026-05-28 11:56:40] [CSV_IMPORT] 事前解析完了: 総有効データ行数 = 2011行
+[2026-05-28 11:56:40] [CSV_IMPORT] 抽出された列名ヘッダー: ["name","begin_at_jst","end_at_jst","login_interval","login_seconds","id","license_uid","license_type","transaction_uid","begin_at","end_at","created_at","updated_at","deleted_at"]
+[2026-05-28 11:56:40] [CSV_IMPORT] データベース・トランザクションを開始しました。
+[2026-05-28 11:56:40] [CSV_IMPORT] project_csv_files へのインサート成功 (ID: 18)
+[2026-05-28 11:56:40] [CSV_IMPORT] documents へのRAG親ノードインサート成功 (ID: 137)
+[2026-05-28 12:14:50] [CSV_IMPORT] === コミット成功: CSVデータの取り込み完了 (計 2011 件) ===
+[2026-05-28 12:29:26] [CSV_IMPORT] === CSVインポート処理開始 (案件: SecureMemoのログ集計) ===
+[2026-05-28 12:29:26] [CSV_IMPORT] ファイル名: イベント.csv | 検出文字コード: UTF-8
+[2026-05-28 12:29:26] [CSV_IMPORT] 区切り文字判定: カンマ(CSV)
+[2026-05-28 12:29:26] [CSV_IMPORT] 総有効レコード数の算出を開始します...
+[2026-05-28 12:29:27] [CSV_IMPORT] 事前解析完了: 総有効データ行数 = 24613行
+[2026-05-28 12:29:27] [CSV_IMPORT] 抽出された列名ヘッダー: ["Name","user_id","user_email","user_name","session_id","event_type","event_id","license_name","timestamp","datetime","week","year+week"]
+[2026-05-28 12:29:27] [CSV_IMPORT] データベース・トランザクションを開始しました。
+[2026-05-28 12:29:27] [CSV_IMPORT] project_csv_files へのインサート成功 (ID: 19)
+[2026-05-28 12:29:27] [CSV_IMPORT] documents へのRAG親ノードインサート成功 (ID: 138)
+[2026-05-28 17:08:45] [CSV_IMPORT] === コミット成功: CSVデータの取り込み完了 (計 24613 件) ===
+[2026-06-01 10:44:43] [CSV_IMPORT] === CSVインポート処理開始 (案件: 次世代生成AI（海外BU）) ===
+[2026-06-01 10:44:43] [CSV_IMPORT] ファイル名: 記載用次世代生成AIで実現したいこと【海外BU】.csv | 検出文字コード: UTF-8
+[2026-06-01 10:44:43] [CSV_IMPORT] 区切り文字判定: カンマ(CSV)
+[2026-06-01 10:44:43] [CSV_IMPORT] 総有効レコード数の算出を開始します...
+[2026-06-01 10:44:43] [CSV_IMPORT] 事前解析完了: 総有効データ行数 = 63行
+[2026-06-01 10:44:43] [CSV_IMPORT] 抽出された列名ヘッダー: ["No","タイトル","内容","課題など","提案者","所属"]
+[2026-06-01 10:44:43] [CSV_IMPORT] データベース・トランザクションを開始しました。
+[2026-06-01 10:44:43] [CSV_IMPORT] project_csv_files へのインサート成功 (ID: 20)
+[2026-06-01 10:44:43] [CSV_IMPORT] documents へのRAG親ノードインサート成功 (ID: 139)
+[2026-06-01 10:45:21] [CSV_IMPORT] === コミット成功: CSVデータの取り込み完了 (計 63 件) ===

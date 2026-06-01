@@ -1,0 +1,271 @@
+@charset "UTF-8";
+
+/* ==========================================================================
+   プロフェッショナル向け高密度調整 (High-Density UI)
+   ========================================================================== */
+
+html {
+    /* 16pxベースだが、業務システムとして情報の凝縮度を優先 */
+    font-size: 16px;
+    height: 100%;
+}
+
+body {
+    background-color: #f1f5f9;
+    color: #1e293b;
+    font-family: 'Inter', 'Segoe UI', 'Hiragino Kaku Gothic ProN', 'Meiryo', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    height: 100%;
+    overflow: hidden; /* 親要素での不要なスクロールを徹底排除 */
+}
+
+/* ==========================================================================
+   チャットシステムの中核 (Scroll & Layout)
+   ========================================================================== */
+
+#chat-box {
+    display: flex;
+    flex-direction: column;
+    /* Flexアイテムとして縮むことを許可し、余白を埋める */
+    flex: 1 1 0%; 
+    overflow-y: auto;
+    min-height: 0; 
+    scroll-behavior: smooth;
+    padding-right: 4px; /* スクロールバーとバブルの干渉を防ぐ */
+}
+
+/* メッセージ間の距離を一定に保つ */
+#chat-box > div + div {
+    margin-top: 1rem;
+}
+
+/* ==========================================================================
+   スクロールバーのカスタマイズ (Sleek Scroll)
+   ========================================================================== */
+
+/* 全体のスクロールバー設定 */
+::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+/* つまみ部分：通常時は薄く、ホバーで濃くして情報の邪魔をしない */
+::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 10px;
+    border: 1px solid transparent;
+    background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+}
+
+/* ==========================================================================
+   コンポーネント装飾 (UI Polish)
+   ========================================================================== */
+
+/* フォーム入力欄のフォーカス */
+input:focus, 
+select:focus, 
+textarea:focus {
+    outline: none !important;
+    border-color: #4F5D95 !important;
+    box-shadow: 0 0 0 2px rgba(79, 93, 149, 0.1) !important;
+}
+
+/* プレースホルダー */
+input::placeholder {
+    font-size: 0.8rem;
+    color: #94a3b8;
+    letter-spacing: 0.025em;
+}
+
+/* アニメーション：メッセージの登場をスムーズに */
+@keyframes fadeIn {
+    from { 
+        opacity: 0; 
+        transform: translateY(8px); 
+    }
+    to { 
+        opacity: 1; 
+        transform: translateY(0); 
+    }
+}
+
+.animate-fadeIn {
+    animation: fadeIn 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+/* トランジション共通設定 */
+.transition-all {
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ==========================================================================
+   ユーティリティ (Fixed Heights)
+   ========================================================================== */
+
+/* タブのホバーエフェクト強化 */
+.tab-btn:not(.active):hover {
+    background-color: rgba(255, 255, 255, 0.5);
+    color: #4F5D95;
+    opacity: 1;
+}
+
+/* iframe背景（PDFビューア読み込み待ち時のチラつき防止） */
+iframe {
+    background-color: #e2e8f0;
+}
+
+/* ==========================================================================
+   AI出力（Markdown）の反映用スタイル
+   ========================================================================== */
+
+/* AI出力のMarkdown装飾 */
+#chat-box strong { font-weight: 800; color: #1e293b; }
+
+#chat-box table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 10px 0;
+    font-size: 0.8rem;
+    background: white;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+#chat-box th, #chat-box td {
+    border: 1px solid #e2e8f0;
+    padding: 8px;
+    text-align: left;
+}
+
+#chat-box th {
+    background-color: #f8fafc;
+    font-weight: bold;
+}
+
+/* 箇条書きのポインタを表示させる */
+#chat-box ul { list-style-type: disc; padding-left: 20px; }
+#chat-box ol { list-style-type: decimal; padding-left: 20px; }
+
+/* ==========================================================================
+   AIチャット内のMarkdownリンク装飾 (業務支援画面への遷移リンクなど)
+   ========================================================================== */
+.markdown-body a {
+    display: inline-flex;
+    align-items: center;
+    margin-top: 8px;
+    padding: 6px 14px;
+    background-color: #f0fdfa; /* ティール系の爽やかな背景色 */
+    color: #0f766e;            /* テキストカラー */
+    border: 1px solid #ccfbf1; /* 枠線 */
+    border-radius: 8px;        /* 角丸 */
+    text-decoration: none;
+    font-weight: 900;
+    font-size: 11px;
+    transition: all 0.2s ease-in-out;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+/* ホバー時の浮き上がりエフェクト */
+.markdown-body a:hover {
+    background-color: #ccfbf1;
+    border-color: #99f6e4;
+    color: #0f766e;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    text-decoration: none;
+}
+
+/* リンクの先頭にアイコンを自動付与 */
+.markdown-body a::before {
+    content: "🔗";
+    margin-right: 4px;
+    font-size: 12px;
+}
+
+/* ==========================================================================
+   追加：プレミアムUI/UX 拡張スタイルセクション (aiRenderer.js 連携)
+   ========================================================================== */
+
+/* グラフ出現時：下から弾むように滑らかに浮き出る3D調ベジェバウンド */
+@keyframes chartSlideUp {
+    from {
+        opacity: 0;
+        transform: translateY(14px) scale(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+/* ★修正: JS側のクラス名（chart-card-wrapper）と完全同期させ、JITマウント時に確実にバウンド発火 */
+.ai-chart-body, .chart-card-wrapper {
+    animation: chartSlideUp 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* 生成中プレースホルダー：滑らかで優しいパルス往復フェード効果 */
+@keyframes pulseSoft {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.4;
+    }
+}
+
+.animate-pulse-soft {
+    animation: pulseSoft 1.8s ease-in-out infinite;
+}
+
+/* 思考プロセスアコーディオン内部：高密度デザインを邪魔しない極薄スリーク仕様 */
+.custom-scrollbar::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #e2e8f0;
+    border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #cbd5e1;
+}
+
+/* RAG参照資料バッジ：ホバーで色鮮やかに浮き出るプレミアムインタラクション */
+.source-badge {
+    display: inline-block;
+    background-color: #f8fafc;
+    border: 1px solid #e2e8f0;
+    color: #475569;
+    border-radius: 8px;
+    padding: 5px 11px;
+    font-size: 10px;
+    font-weight: 600;
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+}
+
+.source-badge:hover {
+    background-color: #eff6ff;
+    border-color: #bfdbfe;
+    color: #2563eb;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.08), 0 2px 4px -1px rgba(37, 99, 235, 0.04);
+}

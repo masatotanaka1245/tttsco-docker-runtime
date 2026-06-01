@@ -1,0 +1,87 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tepsco_app
+    ports:
+      - "8080:80"
+    volumes:
+      - ./AI_System_Data:/var/www/html
+      - ./AI_System_Data/public:/data/public
+      - ./AI_System_Data/logs:/var/www/html/logs
+      - ./docker/apache/vhost.conf:/etc/apache2/sites-available/000-default.conf:ro
+    env_file:
+      - ./AI_System_Data/.env
+    depends_on:
+      db:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  watchdog:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tepsco_watchdog
+    command: sh -c "if [ -f /var/www/html/scripts/watchdog.php ]; then php /var/www/html/scripts/watchdog.php; else echo 'scripts/watchdog.php が見つかりません。アプリ本体を AI_System_Data に配置してください。'; sleep infinity; fi"
+    volumes:
+      - ./AI_System_Data:/var/www/html
+      - ./AI_System_Data/public:/data/public
+      - ./AI_System_Data/logs:/var/www/html/logs
+      - ./docker/apache/vhost.conf:/etc/apache2/sites-available/000-default.conf:ro
+    env_file:
+      - ./AI_System_Data/.env
+    depends_on:
+      db:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  db:
+    image: mysql:8.0
+    container_name: tepsco_mysql
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_DATABASE: tepscoapp
+      MYSQL_USER: newuser
+      MYSQL_PASSWORD: password
+      MYSQL_ROOT_PASSWORD: rootpassword
+      TZ: Asia/Tokyo
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./AI_System_Data/config/db.sql:/docker-entrypoint-initdb.d/01-app-schema.sql:ro
+    command: >
+      --default-authentication-plugin=mysql_native_password
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --innodb-buffer-pool-size=512M
+      --max-allowed-packet=256M
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-prootpassword"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: tepsco_phpmyadmin
+    ports:
+      - "8081:80"
+    environment:
+      PMA_HOST: db
+      PMA_USER: newuser
+      PMA_PASSWORD: password
+      UPLOAD_LIMIT: 256M
+      MEMORY_LIMIT: 512M
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  mysql_data:

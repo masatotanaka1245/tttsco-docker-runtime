@@ -1,0 +1,16 @@
+# config/ への直接アクセスを禁止
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^config/ - [F,L]
+    RewriteRule ^src/ - [F,L]
+</IfModule>
+
+# index.php をデフォルトに
+DirectoryIndex index.php
+
+# ━━━━【外側からのピンポイント開通特効薬】━━━━
+# AIストリーミングを担当する chat.php の時だけ Apache の抱え込み（圧縮）を強制ボイコットする
+<FilesMatch "chat\.php$">
+    SetEnv no-gzip 1
+    SetEnv dont-vary 1
+</FilesMatch>

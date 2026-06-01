@@ -1,0 +1,1260 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TEPSCO ルーティンズ 現行システム仕様書</title>
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.5/dist/mermaid.min.js"></script>
+
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          primary: '#4F5D95', // PHP Purple
+          secondary: '#00758F', // MySQL Blue
+          accent: '#1a6634', // phpMyAdmin Green
+          danger: '#dc2626',
+          bg_light: '#f8fafc',
+          eval: '#8b5cf6', // Violet for Evaluation
+        }
+      }
+    }
+  }
+</script>
+
+<style>
+  body { font-family: 'Segoe UI', Meiryo, sans-serif; scroll-behavior: smooth; }
+  .doc-section { margin-bottom: 5rem; }
+  .doc-section p { margin-top: 0.75rem; margin-bottom: 1.25rem; line-height: 1.8; }
+  .doc-section table { margin-top: 1rem; margin-bottom: 1.5rem; width: 100%; border-collapse: collapse; }
+  .doc-section th, .doc-section td { padding: 14px 16px; border: 1px solid #e2e8f0; text-align: left; font-size: 0.875rem; line-height: 1.6; }
+  .doc-section th { background-color: #f8fafc; font-weight: bold; font-size: 0.85rem; letter-spacing: 0.05em; color: #334155; }
+  .sub-section { margin-top: 2.5rem; margin-bottom: 1rem; }
+  .section-header { 
+    display: flex; 
+    align-items: center; 
+    border-bottom: 2px solid #4F5D95; 
+    padding-bottom: 0.75rem; 
+    margin-bottom: 1.5rem; 
+  }
+  .section-number {
+    background-color: #4F5D95;
+    color: white;
+    font-size: 1.25rem;
+    border-radius: 8px;
+    width: 2.5rem;
+    height: 2.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 1rem;
+    font-weight: bold;
+  }
+  .env-tag {
+    font-size: 0.85rem;
+    padding: 0.35rem 0.85rem;
+    border-radius: 9999px;
+    font-weight: bold;
+  }
+  pre { border-radius: 0 0 0.75rem 0.75rem; overflow-x: auto; margin: 0 !important; }
+  code { font-family: 'Consolas', 'Monaco', monospace; }
+  .toc-link:hover { color: #4F5D95; background-color: #f1f5f9; }
+  .ui-mockup { background: #f1f5f9; border: 2px solid #cbd5e1; border-radius: 12px; padding: 0px; overflow: hidden; position: relative; }
+  .screen-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin-bottom: 16px; height: 100%; }
+  
+  /* Mermaid図面のレスポンシブ表示最適化 */
+  .mermaid-container {
+    width: 100%;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 1.5rem;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 1rem;
+    overflow-x: auto; /* はみ出し時にスクロール可能にする */
+  }
+  .mermaid svg {
+    max-width: 100% !important;
+    height: auto !important;
+  }
+  
+  /* 印刷用CSS最適化 */
+  @media print {
+    body { background: white !important; color: #000000 !important; padding: 0 !important; }
+    .no-print { display: none !important; }
+    .print-full { width: 100% !important; max-width: 100% !important; box-shadow: none !important; border: none !important; padding: 0 !important; }
+    .doc-section { page-break-before: always; break-before: page; margin-bottom: 2rem !important; }
+    pre, table, .ui-mockup, .mermaid-container { page-break-inside: avoid; break-inside: avoid; }
+  }
+</style>
+</head>
+
+<body class="bg-slate-50 text-slate-900 min-h-screen">
+
+<div class="max-w-7xl mx-auto flex gap-8 p-4 md:p-8">
+
+  <nav class="w-64 hidden lg:block shrink-0 sticky top-8 h-[calc(100vh-4rem)] overflow-y-auto bg-white rounded-2xl p-6 border border-slate-200 shadow-sm no-print">
+    <h2 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 flex items-center">
+      <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+      ドキュメント目次
+    </h2>
+    <ul class="space-y-1 text-slate-600 font-semibold text-xs">
+      <li><a href="#section-1" class="block p-2 rounded transition toc-link">1. 要件定義書</a></li>
+      <li><a href="#section-2" class="block p-2 rounded transition toc-link">2. 技術仕様</a></li>
+      <li><a href="#section-3" class="block p-2 rounded transition toc-link">3. フォルダ構成 ＆ スキーマ</a></li>
+      <li><a href="#section-4" class="block p-2 rounded transition toc-link font-bold text-primary">4. 現行機能仕様</a></li>
+      <li><a href="#section-5" class="block p-2 rounded transition toc-link">5. システム構成図</a></li>
+      <li><a href="#section-6" class="block p-2 rounded transition toc-link">6. UI/UX 設計コンセプト</a></li>
+      <li><a href="#section-7" class="block p-2 rounded transition toc-link">7. RAGアーキテクチャ</a></li>
+      <li><a href="#section-8" class="block p-2 rounded transition toc-link">8. CRUD シーケンス図</a></li>
+      <li><a href="#section-9" class="block p-2 rounded transition toc-link font-bold text-secondary">9. Text-to-SQL ＆ グラフ</a></li>
+      <li><a href="#section-10" class="block p-2 rounded transition toc-link">10. RAG化ロジック詳細</a></li>
+      <li><a href="#section-11" class="block p-2 rounded transition toc-link font-bold text-violet-600">11. 自律型評価・自己修正</a></li>
+      <li><a href="#section-12" class="block p-2 rounded transition toc-link">12. システム名称候補</a></li>
+    </ul>
+  </nav>
+
+  <main class="flex-1 bg-white rounded-3xl shadow-xl p-6 md:p-12 border border-slate-100 max-w-5xl print-full overflow-hidden">
+
+    <header class="text-center mb-16 border-b border-slate-200 pb-12">
+      <h1 class="text-4xl md:text-5xl font-black text-slate-900 tracking-tight mb-4">TEPSCOルーティンズ</h1>
+      <p class="text-xl md:text-2xl text-slate-500 font-semibold tracking-wide">現行コード解析にもとづく統合仕様書</p>
+      <div class="flex justify-center flex-wrap gap-3 mt-6">
+        <span class="env-tag bg-indigo-100 text-indigo-700">PHP 8.2.8</span>
+        <span class="env-tag bg-blue-100 text-blue-700">MySQL 8.0.33</span>
+        <span class="env-tag bg-slate-100 text-slate-700">Apache 2.4.57</span>
+        <span class="env-tag bg-violet-100 text-violet-700">Ollama RAG / Text-to-SQL</span>
+      </div>
+    </header>
+
+    <nav class="lg:hidden bg-slate-50 rounded-2xl p-6 mb-12 border border-slate-200 no-print">
+      <h2 class="text-sm font-bold mb-4 flex items-center text-slate-800">
+        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+        目次
+      </h2>
+      <ul class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-slate-600 font-medium text-sm">
+        <li><a href="#section-1" class="hover:text-primary transition">1. 要件定義書</a></li>
+        <li><a href="#section-2" class="hover:text-primary transition">2. 技術仕様</a></li>
+        <li><a href="#section-3" class="hover:text-primary transition">3. フォルダ構成 ＆ スキーマ</a></li>
+        <li><a href="#section-4" class="hover:text-primary font-bold">4. 現行機能仕様</a></li>
+        <li><a href="#section-5" class="hover:text-primary transition">5. システム構成図</a></li>
+        <li><a href="#section-6" class="hover:text-primary transition">6. UI/UX 設計コンセプト</a></li>
+        <li><a href="#section-7" class="hover:text-primary transition">7. RAGアーキテクチャ</a></li>
+        <li><a href="#section-8" class="hover:text-primary transition">8. CRUD シーケンス図</a></li>
+        <li><a href="#section-9" class="hover:text-secondary font-bold">9. Text-to-SQL ＆ グラフ</a></li>
+        <li><a href="#section-10" class="hover:text-primary transition">10. RAG化ロジック詳細</a></li>
+        <li><a href="#section-11" class="hover:text-violet-600 font-bold">11. 自律型評価・自己修正</a></li>
+        <li><a href="#section-12" class="hover:text-primary transition">12. システム名称候補</a></li>
+      </ul>
+    </nav>
+
+    <section id="section-1" class="doc-section">
+      <h1 class="text-2xl md:text-3xl font-bold text-slate-900 section-header">
+        <span class="section-number">1</span>要件定義書
+      </h1>
+
+      <h2 class="text-xl font-semibold sub-section text-slate-800">1.1 システムの目的</h2>
+      <p class="text-slate-700 text-sm md:text-base leading-relaxed">
+        社会インフラのライフサイクルを支える総合コンサルティング業務を、Windows本番サーバー上の Apache 2.4.57、PHP 8.2.8、MySQL 8.0.33、Ollamaを組み合わせたオンプレミス型Webアプリとして支援する。案件、資料、CSVデータ、コメント、FAQ、担当メンバーを一元管理し、PDF・CSVをRAG化してAIチャットから検索、要約、集計、分析できる業務支援基盤を構築する。
+      </p>
+      <p class="text-slate-800 font-bold mt-4 mb-2 text-sm md:text-base">1.2 機能要件（資料・データ統合範囲の拡張）</p>
+      <p class="text-slate-700 text-sm leading-relaxed mb-4">
+        本システムは、PDF等の報告書ドキュメントの意味解析に加え、ボーリングN値、気象観測値、材料試験結果といったCSV/TSV由来の<strong>構造化データの取り込み、表形式プレビュー、自然言語RAG化、Text-to-SQL分析</strong>を提供する。認証、CSRF、案件権限、project_membersによるアサイン制御を組み込み、案件単位で資料とナレッジを安全に扱う。
+      </p>
+      <p class="text-slate-800 font-bold mb-2 text-sm">対象分野：</p>
+      <div class="bg-slate-50 border border-slate-200 rounded-2xl p-6 mb-4">
+        <ul class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-2.5 text-xs md:text-sm text-slate-700 font-medium">
+          <li>河川、砂防及び海岸・海洋分野</li>
+          <li>土質及び基礎分野</li>
+          <li>港湾及び空港分野</li>
+          <li>鋼構造及びコンクリート分野</li>
+          <li>電力土木分野</li>
+          <li>トンネル分野</li>
+          <li>道路分野</li>
+          <li>建設環境分野</li>
+          <li>都市計画及び地方計画分野</li>
+          <li>電気電子分野</li>
+          <li>地質分野</li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="section-2" class="doc-section">
+      <h1 class="text-2xl md:text-3xl font-bold text-slate-900 section-header">
+        <span class="section-number">2</span>技術仕様
+      </h1>
+      <div class="overflow-hidden rounded-2xl border border-slate-200 shadow-sm mb-8">
+        <table class="min-w-full divide-y divide-slate-200 m-0">
+          <thead>
+            <tr class="bg-slate-100 font-bold">
+              <th class="px-6 py-4 w-1/3 text-sm">構成要素</th>
+              <th class="px-6 py-4 text-sm">詳細</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-200 bg-white text-sm">
+            <tr class="hover:bg-slate-50 transition">
+              <td class="px-6 py-4 font-bold text-slate-700">実行基盤</td>
+              <td class="px-6 py-4 text-slate-600">Windows本番サーバー。Apache 2.4.57 のDocumentRootを `AI_System_Data/public` に向け、PHP 8.2.8でアプリケーションを実行する。</td>
+            </tr>
+            <tr class="hover:bg-slate-50 transition">
+              <td class="px-6 py-4 font-bold text-slate-700">Web / DB</td>
+              <td class="px-6 py-4 text-slate-600">PHP 8.2.8、Apache 2.4.57、MySQL 8.0.33、phpMyAdmin。DBは `tepscoapp`、接続先は本番Windows環境では `localhost` または本番DBホスト名を使用する。</td>
+            </tr>
+            <tr class="hover:bg-slate-50 transition">
+              <td class="px-6 py-4 font-bold text-slate-700">AI 推論 / 解析</td>
+              <td class="px-6 py-4 text-slate-600">Ollama API。チャット・VLMはユーザー設定の `default_model` / `sub_model`、ベクトル化は `mxbai-embed-large` を既定値とする。PDF解析には本番Windows上のPoppler系ツール（pdfinfo / pdftotext / pdftoppm相当）を使用する。</td>
+            </tr>
+            <tr class="hover:bg-slate-50 transition">
+              <td class="px-6 py-4 font-bold text-slate-700">フロントエンド</td>
+              <td class="px-6 py-4 text-slate-600">Tailwind CSS、Leaflet.js、Mermaid.js、モジュール化JavaScript（`support.js`、`modules/project.js`、`modules/csv.js`、`modules/chat.js`、`modules/map.js`）。</td>
+            </tr>
+            <tr class="hover:bg-slate-50 transition">
+              <td class="px-6 py-4 font-bold text-slate-700">セキュリティ</td>
+              <td class="px-6 py-4 text-slate-600">PHPセッション認証、CSRFトークン、`ProjectAccess.php` による案件参照・管理権限、APIごとの権限ガード、詳細エラーのログ分離。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="section-3" class="doc-section">
+      <h1 class="text-2xl md:text-3xl font-bold text-slate-900 section-header">
+        <span class="section-number">3</span>フォルダ構成 ＆ データベーススキーマ
+      </h1>
+      
+      <div class="rounded-2xl border border-slate-800 shadow-lg overflow-hidden mb-6">
+        <div class="bg-slate-800 px-4 py-2 flex justify-between items-center text-slate-400 text-xs font-mono border-b border-slate-700">
+          <span>Directory Structure</span>
+          <span class="text-xs bg-slate-700 px-2 py-0.5 rounded text-slate-300 font-semibold">Workspace</span>
+        </div>
+        <div class="bg-slate-900 p-6 overflow-x-auto text-xs md:text-sm">
+          <pre class="text-blue-300 font-mono leading-relaxed">
+<span class="text-white font-bold">AI_System_Data/</span>
+├── <span class="text-indigo-400 font-bold">public/</span> <span class="text-slate-500"># 監視対象ルート</span>
+│   ├── <span class="text-green-400">index.php</span> <span class="text-slate-500"># ダッシュボード、全体チャット、案件サマリー</span>
+│   ├── <span class="text-green-400">support.php</span> <span class="text-slate-500"># 案件詳細、PDF/CSV、コメント、FAQ、メンバー管理</span>
+│   ├── <span class="text-indigo-400 font-bold">assets/js/modules/</span>
+│   │   ├── <span class="text-green-400">project.js</span> <span class="text-slate-500"># 案件CRUD、コメント、メンバー、FAQ制御</span>
+│   │   ├── <span class="text-green-400">csv.js</span>     <span class="text-slate-500"># CSV/外部PostgreSQLインポート、プレビュー、削除</span>
+│   │   ├── <span class="text-green-400">chat.js</span>    <span class="text-slate-500"># SSEチャット、Markdown/Mermaid描画、参照元バッジ</span>
+│   │   ├── <span class="text-green-400">map.js</span>     <span class="text-slate-500"># 住所検索、座標コピー、Leafletモーダル地図</span>
+│   │   └── <span class="text-green-400">api.js</span>     <span class="text-slate-500"># CSRF付き secureFetch 共通通信</span>
+│   ├── <span class="text-indigo-400 font-bold">api/</span>
+│   │   ├── <span class="text-green-400">chat.php</span> <span class="text-slate-500"># AIチャットのエントリーポイント、スマートルーティング</span>
+│   │   ├── <span class="text-green-400">chat_normal.php / chat_advanced.php / chat_analysis.php / chat_global.php</span>
+│   │   ├── <span class="text-green-400">upload.php</span> <span class="text-slate-500"># PDF解析、VLM/OCR、チャンク化、ベクトル登録</span>
+│   │   ├── <span class="text-green-400">upload_csv.php</span> <span class="text-slate-500"># CSV/TSV取込、JSON行保存、自然言語チャンク化</span>
+│   │   ├── <span class="text-green-400">import_postgresql.php</span> <span class="text-slate-500"># 外部PostgreSQL抽出結果をCSV同等に登録</span>
+│   │   └── <span class="text-green-400">add/update/delete_project*.php</span> <span class="text-slate-500"># 案件、コメント、FAQ、メンバーCRUD</span>
+│   ├── <span class="text-indigo-400 font-bold">01_RAG_Documents/</span>
+│   └── <span class="text-indigo-400 font-bold">templates/</span> <span class="text-slate-500"># header、modal群</span>
+├── <span class="text-indigo-400 font-bold">config/</span>
+│   ├── <span class="text-green-400">database.php</span> <span class="text-slate-500"># MySQL接続設定（本番はlocalhost/本番DBホスト）</span>
+│   ├── <span class="text-green-400">session.php</span>  <span class="text-slate-500"># セッション、CSRF</span>
+│   └── <span class="text-green-400">db.sql</span>      <span class="text-slate-500"># MySQLスキーマ定義</span>
+├── <span class="text-indigo-400 font-bold">src/</span>
+│   ├── <span class="text-green-400">SupportController.php</span> <span class="text-slate-500"># support画面のデータ取得・権限制御</span>
+│   ├── <span class="text-green-400">ProjectAccess.php</span>    <span class="text-slate-500"># 案件参照/管理権限</span>
+│   ├── <span class="text-green-400">VectorSearch.php</span>     <span class="text-slate-500"># doc_chunks類似度検索</span>
+│   ├── <span class="text-green-400">SqlExecutionEngine.php</span><span class="text-slate-500"># Text-to-SQL安全実行</span>
+│   └── <span class="text-green-400">ChatEvaluator.php</span>    <span class="text-slate-500"># LLM-as-a-Judge評価</span>
+└── <span class="text-indigo-400 font-bold">logs/</span> <span class="text-slate-500"># app_error、chat_debug、upload_debug、進捗JSON</span></pre>
+        </div>
+      </div>
+
+      <h2 class="text-xl font-semibold sub-section text-slate-800">3.2 構造化データテーブル用 データベース定義 (DDL)</h2>
+      <p class="text-sm md:text-base text-slate-700 mb-3">
+        案件ごとにカラム構成が完全に異なるあらゆるCSVデータ群を高速に取り込み、一元的に管理するためのJSON動的格納スキーマ定義です。
+      </p>
+      
+      <div class="rounded-2xl border border-slate-200 shadow-sm overflow-hidden mb-6">
+        <div class="bg-slate-100 px-4 py-2 flex justify-between items-center text-slate-600 text-xs font-mono border-b border-slate-200">
+          <span>MySQL Schema (DDL)</span>
+          <span class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-bold">InnoDB</span>
+        </div>
+        <div class="bg-slate-50 p-6 overflow-x-auto border-t-0">
+          <pre class="text-xs md:text-sm font-mono text-slate-800 leading-relaxed">
+<span class="text-slate-500 italic">-- A. CSVデータテーブル インポートメタ管理</span>
+<span class="text-blue-700 font-bold">CREATE TABLE</span> project_csv_files (
+    id <span class="text-purple-700">BIGINT UNSIGNED</span> <span class="text-blue-700 font-bold">AUTO_INCREMENT PRIMARY KEY</span>,
+    project_id <span class="text-purple-700">BIGINT UNSIGNED</span> <span class="text-blue-700 font-bold">NOT NULL</span>,
+    file_name <span class="text-purple-700">VARCHAR(255)</span> <span class="text-blue-700 font-bold">NOT NULL</span>,
+    column_headers <span class="text-purple-700">TEXT</span> <span class="text-blue-700 font-bold">NOT NULL</span> <span class="text-slate-500 italic">-- 例: ["測定日時", "地点", "N値"] のJSON配列</span>,
+    row_count <span class="text-purple-700">INT</span> <span class="text-blue-700 font-bold">NOT NULL DEFAULT 0</span>,
+    created_at <span class="text-purple-700">DATETIME</span> <span class="text-blue-700 font-bold">DEFAULT CURRENT_TIMESTAMP</span>,
+    <span class="text-blue-700 font-bold">FOREIGN KEY</span> (project_id) <span class="text-blue-700 font-bold">REFERENCES</span> projects(id) <span class="text-blue-700 font-bold">ON DELETE CASCADE</span>
+) <span class="text-teal-700">ENGINE=InnoDB</span>;
+
+<span class="text-slate-500 italic">-- B. CSVレコード（行） JSONデータ格納</span>
+<span class="text-blue-700 font-bold">CREATE TABLE</span> project_csv_rows (
+    id <span class="text-purple-700">BIGINT UNSIGNED</span> <span class="text-blue-700 font-bold">AUTO_INCREMENT PRIMARY KEY</span>,
+    csv_file_id <span class="text-purple-700">BIGINT UNSIGNED</span> <span class="text-blue-700 font-bold">NOT NULL</span>,
+    row_index <span class="text-purple-700">INT</span> <span class="text-blue-700 font-bold">NOT NULL</span>,
+    row_data <span class="text-purple-700">JSON</span> <span class="text-blue-700 font-bold">NOT NULL</span> <span class="text-slate-500 italic">-- 例: {"測定日時": "2026/05/21", "N値": 32} 形式</span>,
+    created_at <span class="text-purple-700">DATETIME</span> <span class="text-blue-700 font-bold">DEFAULT CURRENT_TIMESTAMP</span>,
+    <span class="text-blue-700 font-bold">FOREIGN KEY</span> (csv_file_id) <span class="text-blue-700 font-bold">REFERENCES</span> project_csv_files(id) <span class="text-blue-700 font-bold">ON DELETE CASCADE</span>,
+    <span class="text-blue-700 font-bold">INDEX</span> idx_csv_file (csv_file_id, row_index)
+) <span class="text-teal-700">ENGINE=InnoDB</span>;</pre>
+        </div>
+      </div>
+
+      <h2 class="text-xl font-semibold sub-section text-slate-800">3.3 現行主要テーブルと役割</h2>
+      <p class="text-sm md:text-base text-slate-700 mb-3">
+        現行コードは、案件を中心に `documents`、`doc_chunks`、`project_csv_files`、`project_csv_rows`、`chat_history`、`chat_reasoning_steps` を関連付ける。PDFとCSVはいずれも `documents` を親レコードとして持ち、AI検索対象は最終的に `doc_chunks` に集約される。
+      </p>
+      <div class="overflow-hidden rounded-2xl border border-slate-200 shadow-sm mb-8">
+        <table class="min-w-full divide-y divide-slate-200 m-0">
+          <thead>
+            <tr class="bg-slate-100 font-bold">
+              <th>テーブル</th>
+              <th>主な用途</th>
+              <th>コード上の主な利用箇所</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-200 bg-white text-sm">
+            <tr><td class="font-bold">users</td><td>ログイン、権限、部署、Ollama接続先、既定モデル設定</td><td>Auth.php、header.php、save_user_settings.php</td></tr>
+            <tr><td class="font-bold">projects</td><td>案件本体。名称、概要、期間、住所、緯度経度、状態、作成者を管理</td><td>SupportController.php、add/update/delete_project.php</td></tr>
+            <tr><td class="font-bold">project_members</td><td>案件ごとの参加者と役割（manager/member/viewer）</td><td>ProjectAccess.php、add/remove_project_member.php</td></tr>
+            <tr><td class="font-bold">documents</td><td>PDFまたはCSV由来RAG親データ。`file_path` が物理PDFまたは `csv_db_record_ID` を保持</td><td>upload.php、upload_csv.php、view_pdf.php、delete_pdf.php</td></tr>
+            <tr><td class="font-bold">doc_chunks</td><td>AI検索対象の本文チャンク、ページ番号、embedding、画像説明</td><td>VectorSearch.php、chat_normal.php、upload.php、upload_csv.php</td></tr>
+            <tr><td class="font-bold">project_csv_files / project_csv_rows</td><td>CSVメタデータと行データ。行データはJSONで保存し、表示とText-to-SQL分析に使用</td><td>upload_csv.php、get_csv_data.php、SqlExecutionEngine.php</td></tr>
+            <tr><td class="font-bold">project_comments / project_faqs</td><td>案件メモ、申し送り、手動登録ナレッジ</td><td>add_comment.php、add_faq.php、support.php</td></tr>
+            <tr><td class="font-bold">chat_history / chat_reasoning_steps / chat_evaluations</td><td>対話履歴、推論ステップ、回答品質評価</td><td>chat_normal.php、chat_advanced.php、chat_analysis.php、ChatEvaluator.php</td></tr>
+            <tr><td class="font-bold">project_meta</td><td>案件ごとの可変メタ情報。AI用DBメモリも格納可能</td><td>SqlExecutionEngine.php</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="section-4" class="doc-section">
+      <h1 class="text-2xl md:text-3xl font-bold text-slate-900 section-header">
+        <span class="section-number">4</span>現行機能仕様
+      </h1>
+
+      <h2 class="text-xl font-semibold sub-section text-slate-800">4.1 画面構成</h2>
+      <div class="overflow-hidden rounded-2xl border border-slate-200 shadow-sm mb-8">
+        <table class="min-w-full divide-y divide-slate-200 m-0">
+          <thead><tr><th>画面</th><th>役割</th><th>主な機能</th></tr></thead>
+          <tbody>
+            <tr><td class="font-bold">login.php</td><td>認証入口</td><td>users.password_hash に対する password_verify、セッション発行</td></tr>
+            <tr><td class="font-bold">index.php</td><td>ダッシュボード</td><td>案件統計、アクティブ案件、資料数、全体チャット、選択案件の簡易ビュー</td></tr>
+            <tr><td class="font-bold">support.php</td><td>業務支援コンソール</td><td>案件一覧、概要、PDF、CSV、コメント、FAQ、メンバー、AIチャットをタブで統合</td></tr>
+            <tr><td class="font-bold">user_management.php</td><td>管理者向けユーザー管理</td><td>ユーザーの作成、更新、削除、権限設定</td></tr>
+            <tr><td class="font-bold">viewer.php / view_pdf.php</td><td>PDF表示</td><td>documents.file_path の実体PDFを認可チェック後に配信</td></tr>
+            <tr><td class="font-bold">docs/design_v3.html</td><td>仕様書</td><td>現行機能、DB、API、RAG処理、運用情報の説明</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2 class="text-xl font-semibold sub-section text-slate-800">4.2 案件管理・CRUD</h2>
+      <p class="text-sm md:text-base text-slate-700">
+        案件は `projects` を中心に管理する。作成者は `created_by` に保存され、一般ユーザーは自分が作成した案件または `project_members` に登録された案件のみ参照できる。編集、削除、メンバー変更、PDF/CSV削除などの管理操作は `canManageProject()` により、admin、作成者、manager/member権限のメンバーに限定される。
+      </p>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+        <div class="bg-slate-50 border border-slate-200 rounded-xl p-5">
+          <h3 class="font-bold text-slate-800 mb-2">主なAPI</h3>
+          <ul class="list-disc list-inside text-slate-600 space-y-1">
+            <li>`add_project.php`、`update_project.php`、`delete_project.php`</li>
+            <li>`add_comment.php`、`delete_comment.php`</li>
+            <li>`add_faq.php`、`delete_faq.php`</li>
+            <li>`add_project_member.php`、`remove_project_member.php`</li>
+          </ul>
+        </div>
+        <div class="bg-slate-50 border border-slate-200 rounded-xl p-5">
+          <h3 class="font-bold text-slate-800 mb-2">フロントエンド制御</h3>
+          <ul class="list-disc list-inside text-slate-600 space-y-1">
+            <li>`support.js` がUI、チャット、CSV、地図、案件モジュールを統合</li>
+            <li>`modules/project.js` が実際のCRUD関数を `window` に公開</li>
+            <li>`modules/api.js` がCSRF付き `secureFetch()` を提供</li>
+          </ul>
+        </div>
+      </div>
+
+      <h2 class="text-xl font-semibold sub-section text-slate-800">4.3 PDF登録・RAG化</h2>
+      <p class="text-sm md:text-base text-slate-700">
+        PDFアップロードは `upload.php` が担当する。画面から送られた `document` または互換用 `pdf` フィールドを受け取り、`public/01_RAG_Documents/{project_id}/` に保存する。`pdfinfo` でページ数を取得し、`pdftotext` でネイティブテキストを抽出する。画像化が必要な場合は `pdftoppm` でPNG化し、VLMへページ分類、2x2タイル、1x8水平スライス、全体解析を依頼する。抽出結果は500文字程度に分割され、Ollama Embedding APIでベクトル化したうえで `doc_chunks` に保存される。
+      </p>
+
+      <h2 class="text-xl font-semibold sub-section text-slate-800">4.4 CSV/TSV登録・外部PostgreSQL取込</h2>
+      <p class="text-sm md:text-base text-slate-700">
+        `upload_csv.php` はCSV/TSVの文字コードと区切り文字を判定し、列名を `project_csv_files.column_headers` に、各行を `project_csv_rows.row_data` にJSONとして格納する。同時に `documents` に `[CSVデータ] ファイル名` の親レコードを作り、各行を「列名は値です」という自然文に変換して `doc_chunks` へ登録する。`import_postgresql.php` は外部PostgreSQLへ接続し、抽出結果をCSV取込と同じ構造に流し込む。
+      </p>
+
+      <h2 class="text-xl font-semibold sub-section text-slate-800">4.5 AIチャット・分析モード</h2>
+      <p class="text-sm md:text-base text-slate-700">
+        `chat.php` はSSE形式のチャットエントリーポイントで、質問内容に応じて通常RAG、フル思考、データ分析、全社横断調査の各ルートへ分岐する。通常RAGは `chat_normal.php`、多段階推論は `chat_advanced.php`、Text-to-SQL集計は `chat_analysis.php`、admin専用の全社横断調査は `chat_global.php` が担当する。回答と質問は `chat_history` に保存され、推論過程は `chat_reasoning_steps`、品質評価は `chat_evaluations` に保存される。
+      </p>
+
+      <h2 class="text-xl font-semibold sub-section text-slate-800">4.6 ログ・運用設定</h2>
+      <p class="text-sm md:text-base text-slate-700">
+        ログは `logs/` 配下に出力する。`upload_debug.log` はアップロードやCSV/PG取込の進捗、`chat_debug.log` はチャット関連の重要ログ、`app_error.log` はAPI内部エラーを記録する。本番では詳細例外を画面に出さず、チャット詳細ログは必要時のみ有効化する運用とする。
+      </p>
+    </section>
+
+    <section id="section-5" class="doc-section">
+      <h1 class="text-2xl md:text-3xl font-bold text-slate-900 section-header">
+        <span class="section-number">5</span>システム構成図
+      </h1>
+      <div class="mermaid-container shadow-sm mb-6">
+        <div class="mermaid">
+graph TD
+    classDef userNode fill:#ffffff,stroke:#333,stroke-width:2px,color:#333;
+    classDef appNode fill:#e1f5fe,stroke:#01579b,stroke-width:2px,color:#01579b;
+    classDef aiNode fill:#fff9c4,stroke:#fbc02d,stroke-width:2px,color:#854d0e;
+    classDef dbNode fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#2e7d32;
+    classDef externalNode fill:#f5f5f5,stroke:#9e9e9e,stroke-width:2px,color:#666,stroke-dasharray: 5 5;
+
+    User((ユーザー / 管理者)):::userNode
+    Browser["ブラウザ<br>index.php / support.php"]:::userNode
+    CSV["CSV / TSV ファイル"]:::externalNode
+    PDF["PDF資料"]:::externalNode
+    PG["外部PostgreSQL<br>任意SQL抽出"]:::externalNode
+
+    subgraph Windows["Windows 本番サーバー"]
+      Apache["Apache 2.4.57<br>DocumentRoot: AI_System_Data/public"]:::appNode
+      PHP["PHP 8.2.8<br>public/api + src"]:::appNode
+      Watchdog["任意監視処理<br>scripts/watchdog.php"]:::appNode
+      DB[("MySQL 8.0.33<br>tepscoapp")]:::dbNode
+      PMA["phpMyAdmin<br>本番管理URL"]:::appNode
+      Logs[("logs/<br>app_error / upload_debug / chat_debug")]:::dbNode
+      Files[("public/01_RAG_Documents<br>PDF物理ファイル")]:::dbNode
+    end
+
+    Ollama["Ollama API<br>設定画面の接続先URL:11434<br>chat / generate / embeddings"]:::aiNode
+
+    User --> Browser
+    Browser -->|"HTTP/HTTPS / CSRF付きAPI"| Apache
+    Apache --> PHP
+    PHP -->|"PDO"| DB
+    PMA --> DB
+    PHP --> Files
+    PHP --> Logs
+    Watchdog --> Logs
+    PDF -->|"upload.php"| PHP
+    CSV -->|"upload_csv.php"| PHP
+    PG -->|"import_postgresql.php"| PHP
+    PHP -->|"VLM / Chat / Embedding"| Ollama
+    Ollama -->|"SSE / JSON応答"| PHP
+        </div>
+      </div>
+    </section>
+
+    <section id="section-6" class="doc-section">
+      <h1 class="text-2xl md:text-3xl font-bold text-slate-900 section-header">
+        <span class="section-number">6</span>UI/UX 設計コンセプト
+      </h1>
+
+      <h2 class="text-xl font-semibold sub-section text-slate-800">6.1 共通ヘッダー & 認証</h2>
+      <div class="bg-primary text-white p-4 rounded-xl flex items-center justify-between mb-6 shadow-md">
+        <div class="flex items-center gap-4">
+          <div class="font-black tracking-widest text-base md:text-xl">AI SYSTEM</div>
+          <div class="h-6 w-px bg-white/20"></div>
+          <div class="text-xs bg-white/10 px-2 py-1 rounded font-medium">ON-PREMISE SECURE MODE</div>
+        </div>
+        <div class="flex items-center gap-4 text-sm">
+          <div class="flex items-center gap-2.5">
+            <div class="w-9 h-9 bg-white/20 rounded-full flex items-center justify-center text-base">👤</div>
+            <div class="text-right hidden sm:block">
+              <div class="font-bold">技術 太郎</div>
+              <div class="text-xs text-white/70">地質分野 所属</div>
+            </div>
+          </div>
+          <div class="flex gap-2">
+            <button class="bg-white/10 px-2.5 py-1 rounded hover:bg-white/20 transition font-medium">設定</button>
+            <button class="bg-red-500/80 px-2.5 py-1 rounded hover:bg-red-600 transition font-medium">終了</button>
+          </div>
+        </div>
+      </div>
+
+      <h2 class="text-xl font-semibold sub-section text-slate-800">6.2 東設向けレイアウト設計方針</h2>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6 mb-8 text-sm md:text-base">
+        <div class="border-l-4 border-primary pl-4">
+          <h4 class="font-bold mb-1.5 text-slate-900">① 情報密度の最適化</h4>
+          <p class="text-xs md:text-sm text-slate-600 leading-relaxed">
+            一般的なB2Cの「余白重視」を排除。一画面に複数パネルを展開し、マトリクスビューやインライン編集を採用。技術者が視線移動を最小限に抑え、複雑な解析パラメータを瞬時に把握できる構成とします。
+          </p>
+        </div>
+        <div class="border-l-4 border-primary pl-4">
+          <h4 class="font-bold mb-1.5 text-slate-900">② RAG 検索とハイライト・相互データ同期</h4>
+          <p class="text-xs md:text-sm text-slate-600 leading-relaxed">
+            左側に業務関連の情報、右側に「対話UI」を配置。AIの回答内の参照箇所をクリックすると、PDF.jsが自動で該当ページへジャンプし、ハイライト表示する「思考の同期」を実装方針とする。
+            <strong>★拡張: 参照元がCSVデータテーブルである場合は、自動的に「📊 CSVデータ」タブに画面が切り替わり、対象のCSVデータグリッドを非同期で自動プレビュー展開する連携を構築。</strong>
+          </p>
+        </div>
+        <div class="border-l-4 border-[#00758F] pl-4">
+          <h4 class="font-bold mb-1.5 text-slate-900">③ 「静かでシンプルな」ダッシュボード</h4>
+          <p class="text-xs md:text-sm text-slate-600 leading-relaxed">
+            視覚的ノイズを削減し、Delta（変化値）やバッジによる「異常値・未処理タスク」の提示に特化。水位異常や新着基準書など、次に取るべきアクションを優先的に表示。
+          </p>
+        </div>
+        <div class="border-l-4 border-primary pl-4">
+          <h4 class="font-bold mb-1.5 text-slate-900">④ モバイル・フィールド対応</h4>
+          <p class="text-xs md:text-sm text-slate-600 leading-relaxed">
+            現場での利用を考慮し、ドラッグ＆ドロップおよびカメラ撮影による即時アップロードをFAB（フローティングボタン）で提供。48px以上のタップターゲットとピンチズーム対応。
+          </p>
+        </div>
+      </div>
+
+      <h2 class="text-xl font-semibold sub-section text-slate-800">6.3 統合ワークスペース・モックアップ</h2>
+      <div class="ui-mockup shadow-xl mb-12 text-xs md:text-sm">
+        <div class="bg-slate-800 text-white flex gap-1 px-2 pt-2 text-xs font-semibold overflow-x-auto">
+          <div class="bg-white text-slate-900 px-4 py-2 rounded-t-lg font-bold shrink-0">📊 ダッシュボード</div>
+          <div class="bg-slate-700 px-4 py-2 rounded-t-lg hover:bg-slate-600 cursor-pointer shrink-0">💬 業務支援チャット</div>
+          <div class="bg-slate-700 px-4 py-2 rounded-t-lg hover:bg-slate-600 cursor-pointer font-bold border-t-2 border-primary shrink-0">📁 資料管理 (02_土質)</div>
+          <div class="bg-slate-700 px-4 py-2 rounded-t-lg hover:bg-slate-600 cursor-pointer shrink-0">🗺️ 地図検索</div>
+        </div>
+
+        <div class="flex h-[28rem] gap-1 p-1 overflow-x-auto">
+          <div class="w-56 bg-white border border-slate-300 rounded flex flex-col p-2.5 shrink-0 text-xs">
+            <div class="font-bold text-primary mb-2.5 flex justify-between items-center border-b pb-1">
+              <span>FILES / 02_土質分野</span>
+              <span class="text-[10px] bg-slate-100 p-0.5 px-1.5 rounded text-slate-600">分野切替</span>
+            </div>
+            <div class="flex-1 overflow-y-auto space-y-1.5 text-slate-700">
+              <div class="p-1 hover:bg-blue-50 border-l-2 border-primary bg-blue-50/50">📄 耐震計算書_rev2.pdf</div>
+              <div class="p-1 hover:bg-slate-50 font-bold text-[#00758F]">📊 ボーリング柱状図.csv</div>
+              <div class="p-1 hover:bg-slate-50">📄 現場点検写真_0424.jpg</div>
+            </div>
+            <button class="mt-2 p-2 bg-primary text-white rounded-md font-bold text-xs">+ PDFアップロード</button>
+          </div>
+
+          <div class="flex-1 min-w-[320px] bg-white border border-slate-300 rounded flex flex-col p-2.5 shrink-0 text-xs">
+            <div class="flex-1 space-y-3 overflow-y-auto mb-2 pr-2">
+              <div class="bg-slate-100 p-2.5 rounded-lg w-11/12 text-slate-800 leading-relaxed">
+                <span class="font-bold text-primary block mb-1">USER</span>
+                ボーリング柱状図の中で、深度15m付近のN値を教えて。
+              </div>
+              <div class="bg-indigo-50 p-2.5 rounded-lg border border-indigo-100 w-11/12 ml-auto text-slate-800 leading-relaxed">
+                <span class="font-bold text-indigo-700 block mb-1">AI ASSISTANT</span>
+                取り込まれた「ボーリング柱状図.csv」の第12行レコードより、深度15.2mのN値は **35** と記録されています。
+                <div class="mt-2 text-blue-600 underline cursor-pointer font-medium">→ 右側データビューアでグリッドを表示</div>
+              </div>
+            </div>
+            <div class="h-10 border-t flex items-center px-2 gap-2 text-xs">
+              <input type="text" class="flex-1 bg-transparent outline-none text-slate-700" placeholder="専門知識に基づいて質問...">
+              <span class="text-lg font-bold text-slate-400 cursor-pointer">⏎</span>
+            </div>
+          </div>
+
+          <div class="w-80 bg-slate-200 border border-slate-300 rounded overflow-hidden flex flex-col relative shadow-inner shrink-0 text-xs">
+            <div class="bg-slate-700 text-white p-2 flex justify-between font-bold items-center bg-[#00758F]">
+              <span>DATA TABLE: ボーリング柱状図.csv</span>
+              <div class="flex gap-2"><span>📥 CSV</span><span>🗑️ 全消</span></div>
+            </div>
+            <div class="flex-1 bg-white flex flex-col overflow-auto text-xs">
+               <table class="w-full text-left border-collapse text-xs">
+                 <thead>
+                   <tr class="bg-slate-100 sticky top-0 font-bold border-b border-slate-200"><th class="p-2">No.</th><th class="p-2">深度(m)</th><th class="p-2">N値</th><th class="p-2">土質区分</th></tr>
+                 </thead>
+                 <tbody class="divide-y divide-slate-100 font-mono text-slate-700">
+                   <tr><td class="p-2">11</td><td class="p-2">14.1</td><td class="p-2">28</td><td class="p-2">細砂</td></tr>
+                   <tr class="bg-yellow-50 font-bold text-slate-900"><td class="p-2">12</td><td class="p-2">15.2</td><td class="p-2">35</td><td class="p-2">砂礫</td></tr>
+                   <tr><td class="p-2">13</td><td class="p-2">16.5</td><td class="p-2">42</td><td class="p-2">砂礫</td></tr>
+                 </tbody>
+               </table>
+            </div>
+          </div>
+        </div>
+        
+        <div class="bg-white border-t border-slate-300 px-4 py-1.5 text-xs text-slate-500 flex justify-between font-medium">
+          <div>Active Environment: Windows / Apache 2.4.57 / PHP 8.2.8 / MySQL 8.0.33</div>
+          <div>Connected to: Multi-Agent</div>
+        </div>
+      </div>
+
+      <h2 class="text-xl font-semibold sub-section text-slate-800">6.4 地図連携</h2>
+      <div class="bg-slate-50 border border-slate-200 rounded-2xl p-6 text-sm flex flex-col sm:flex-row gap-6 items-center">
+        <div class="w-48 h-32 bg-blue-100 rounded-lg flex items-center justify-center text-slate-400 border border-blue-200 overflow-hidden relative shrink-0">
+          <div class="absolute inset-0 opacity-20" style="background-image: radial-gradient(#4f5d95 1px, transparent 0); background-size: 10px 10px;"></div>
+          <span class="text-xs font-bold">Leaflet.js Layer</span>
+        </div>
+        <div class="flex-1">
+          <p class="text-xs md:text-sm text-slate-600 leading-relaxed mb-0">
+            現行コードでは、案件登録・編集モーダルに Leaflet.js の地図を組み込み、Nominatimによる住所検索、クリック/ドラッグによる緯度経度入力、座標コピーを提供する。
+            案件一覧やダッシュボードでは、住所・緯度・経度をプロジェクト属性として保持し、将来的なGISレイヤー拡張に備える。
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section id="section-7" class="doc-section">
+      <h1 class="text-2xl md:text-3xl font-bold text-slate-900 section-header">
+        <span class="section-number">7</span>AI回答生成 (RAG) アーキテクチャとシーケンス図
+      </h1>
+      <p class="text-slate-700 mb-6 text-sm md:text-base leading-relaxed">
+        本システムにおけるAI対話パイプラインは、`public/api/chat.php` を入口としてSSEで進捗と最終回答を返す。ユーザー入力の内容、文字数、分析キーワード、全社横断キーワード、フロント側のモード指定に基づき、通常RAG、フル思考、Text-to-SQL分析、admin専用グローバル調査へ分岐する。
+      </p>
+
+      <h2 class="text-xl font-semibold sub-section text-slate-800 border-l-4 border-primary pl-3 mb-4">7.1 【軽量ルート】一問一答型RAG（文脈補正・一発検索）</h2>
+      <p class="text-slate-700 text-xs md:text-sm mb-4">
+        `chat_normal.php` が担当する基本ルートです。質問ベクトルを生成し、案件内の `doc_chunks` を検索する。PDF本文、PDF画像説明、CSVから自然言語化された行データを同じ検索対象として扱い、関連チャンクをプロンプトに入れて回答を生成する。
+      </p>
+      <div class="mermaid-container mb-10">
+        <div class="mermaid">
+sequenceDiagram
+    autonumber
+    actor User as ユーザー
+    participant UI as Web UI (JS)
+    participant API as API (chat.php)
+    participant DB as MySQL (DB)
+    participant AI as Ollama (AI)
+
+    User->>UI: AIに質問を入力 (例: 「その留意点は？」)
+    UI->>API: POST /api/chat.php (メッセージ、Token)
+    
+    rect rgb(238, 242, 255)
+    Note right of API: 【1. 事前クエリ再構成ステージ】
+    API->>DB: 直近3往復（最大6レコード）の会話履歴をSELECT
+    DB-->>API: 会話ログデータを返却
+    API->>API: 指示代名詞や継続対話の兆候を正規表現フック
+    API->>AI: 過去文脈＋最新質問を投入し、クエリ再構成を要求
+    AI-->>API: 補正された独立クエリを返却 (例: 「斜張橋〇〇工法における留意点」)
+    end
+
+    rect rgb(240, 253, 250)
+    Note right of API: 【2. ベクトル類似度検索 (RAG)】
+    API->>AI: 検索キーのベクトル化要求 (Embedding)
+    AI-->>API: ベクトルデータ(数値配列)を返却
+    API->>DB: プロジェクト内のdoc_chunksを検索 (Limit: 6)
+    Note over DB: doc_chunksに格納された<br>「PDFテキストチャンク」および<br>「自然言語化されたCSVチャンク」の両方を横断検索
+    DB-->>API: チャンクテキストと画像メタデータを返却
+    end
+    
+    rect rgb(255, 247, 237)
+    Note right of API: 【3. プロンプト生成 ＆ 回答推論】
+    API->>API: 「システム指示」+「対話文脈」+ "網羅資料" を統合
+    API->>AI: 結合プロンプトを送信し、回答を要求 (ユーザー設定モデル)
+    AI-->>API: 最終回答テキストを返却
+    end
+    
+    API->>DB: ユーザー質問とAI回答を chat_history に保存
+    API-->>UI: 最終JSONデータを一括レスポンス
+    UI->>User: 画面に吹き出しを描画 / 参照ページへのバッジ表示
+        </div>
+      </div>
+
+      <h2 class="text-xl font-semibold sub-section text-slate-800 border-l-4 border-indigo-500 pl-3 mb-4">7.2 【重厚ルート】フル思考モード</h2>
+      <p class="text-slate-700 text-xs md:text-sm mb-4">
+        `chat_advanced.php` が担当する多段階推論ルートです。質問を複数観点へ分解し、観点ごとに資料・CSV・コメント・FAQを探索する。中間結果は `chat_reasoning_steps` に保存され、最終回答は統合モデルで生成する。進捗はSSEでリアルタイムにプッシュされます。
+      </p>
+      <div class="mermaid-container mb-10">
+        <div class="mermaid">
+sequenceDiagram
+    autonumber
+    actor User as ユーザー
+    participant UI as Web UI (chat.js)
+    participant API as API (chat.php)
+    participant DB as MySQL (DB)
+    participant Gemma as 推論モデル
+    participant GPT as 統合モデル
+
+    User->>UI: 複雑な質問を入力して送信
+    UI->>UI: UUIDで session_id 生成 ＆ ローディング表示
+    UI->>API: POSTリクエスト (ReadableStream接続維持)
+    
+    API->>API: session_write_close() (セッションロック即時解放)
+    API->>API: スマートルーティング判定 (複雑性/長文) -> フル思考ルートON
+    
+    rect rgb(240, 253, 250)
+    Note right of API: 【2. グループ細分化精読フェーズ (Sub-RAG)】
+    loop 各サブクエリごとに実行
+        API->>Gemma: サブクエリのベクトル化要求 (Embedding)
+        Gemma-->>API: ベクトルデータ返却
+        API->>DB: 類似度 0.35 以上のデータを「すべて」取得 (上限撤廃)
+        Note over DB: doc_chunksからPDFテキストと<br>自然言語CSVデータの両方を<br>類似スコアで一元的にスキャン
+        DB-->>API: 該当する全てのデータチャンクを返却
+        API->>API: 最大5件ずつの精読グループに小分け (array_chunk)
+        Note over API: ★CSVデータのバルク圧縮アグリゲーションが作動し、<br/>推論分割ループを最大1/4に削減
+        
+        loop グループごとに段階的スキャン
+            API->>DB: 担当グループのコンテキストをINSERT
+            API-->>UI: SSEプッシュ (type='status': '進捗 X/Y グループ目を精読検証中...')
+            API->>Gemma: 5件の資料（およびCSV翻訳行データ）を精読し、中間検証結果の生成を要求
+            Gemma-->>API: 緻密にまとめられた中間回答を返却
+            API->>DB: 中間回答を chat_reasoning_steps にUPDATE
+        end
+    end
+    end
+    
+    rect rgb(255, 247, 237)
+    Note right of API: 【3. 大域的統合フェーズ (Synthesis) - マルチエージェント】
+    API->>DB: 最終マージステップ(99)をINSERT
+    API-->>UI: SSEプッシュ (type='status': '全個別検証完了、対比マージ中...')
+    API->>GPT: すべての中間検証結果＋過去対話文脈を融合し最終統合回答を要求
+    Note over GPT: 厳格な日本語制約 (Temperature=0.2)<br>ハルシネーションと他言語混入を防止
+    GPT-->>API: 綺麗にマージされた高精度な日本語回答を返却
+    API->>DB: 統合ステップ完了をUPDATE
+    end
+
+    API->>DB: 履歴を chat_history に保存し、ステップとID紐付け
+    API-->>UI: 最終ストリーム送出 (type='result': 最終回答、参照元、全思考ステップ)
+    UI->>UI: ローディングアニメーションをクリア
+    UI->>User: 画面に最終Markdown回答と、思考プロセス(アコーディオン)を描画
+        </div>
+      </div>
+
+      <h2 class="text-xl font-semibold sub-section text-slate-800 border-l-4 border-[#00758F] pl-3 mb-4">7.3 階層型コンテキスト・段階的マルチレイヤー検索ロジック</h2>
+      <p class="text-slate-700 text-xs md:text-sm mb-4">
+        対話履歴（会話の往復ターン数）と、直近の推論プロセス（中間サブクエリデータ `chat_reasoning_steps`）の有無を判断材料にし、検索エンジンを動的に多重グラウンディング（Multi-layer Grounding）させる高度なハイブリッド検索ロジックです。
+      </p>
+      <div class="mermaid-container mb-6">
+        <div class="mermaid">
+graph TD
+    classDef startNode fill:#ffffff,stroke:#334155,stroke-width:2px,color:#0f172a,font-weight:bold;
+    classDef condNode fill:#eff6ff,stroke:#3b82f6,stroke-width:2px,color:#1e3a8a,font-weight:bold;
+    classDef actionNode fill:#f0fdf4,stroke:#22c55e,stroke-width:2px,color:#166534;
+
+    Start([ユーザーの最新質問入力]):::startNode
+    CheckTurn{Q1. 会話の往復ターン数は?<br>chat_historyに履歴はあるか?}:::condNode
+    
+    RouteT1["【ターン1: 新規RAGルート】<br>過去の会話履歴・中間思考ステップなし"]:::actionNode
+    SearchChunksT1["一次PDFデータのみを検索対象とする<br>doc_chunks からベクトル類似度検索"]:::actionNode
+    
+    RouteT2["【ターン2以降: 階層型文脈RAGルート】<br>過去の対話履歴 & 中間思考ステップが存在"]:::actionNode
+    CheckDependency{Q2. 質問内容に「代名詞」や<br>「さっきの検証・ステップ等」の<br>明示的・暗示的参照はあるか?}:::condNode
+    
+    ActionA["【ルートA: 中間推論グラウンディング】<br>MySQLから現在の session_id に紐づく<br>chat_reasoning_steps の sub_query & sub_answer"]:::actionNode
+    ActionB["【ルートB: 会話文脈 Query Rewriting】<br>直近3往復の対話履歴をコンテキストとして読み込み<br>Ollamaで「単独で成立する検索クエリ」に再構成"]:::actionNode
+    ActionC["【ルートC: トピック転換・新規検索】<br>文脈を引き継がず、新たな質問として<br>最新質問で直接doc_chunksから新規類似度検索"]:::actionNode
+    
+    PromptSynthesis["【プロンプトの動的マージ（合流）】<br>1. 一次資料 2. 過去会話 3. 中間検証軌跡<br>を役割ごとに仕分け、プロンプトへ階層的に注入"]:::actionNode
+    GenerateAnswer([AIによる一貫性のある最終回答生成 & 描画]):::startNode
+
+    Start --> CheckTurn
+    CheckTurn -- "0往復（1回目の質問）" --> RouteT1
+    RouteT1 --> SearchChunksT1
+    SearchChunksT1 --> PromptSynthesis
+    CheckTurn -- "1往復以上（2回目以降）" --> RouteT2
+    RouteT2 --> CheckDependency
+    CheckDependency -- "言及あり" --> ActionA
+    CheckDependency -- "代名詞・追問" --> ActionB
+    CheckDependency -- "参照・依存なし" --> ActionC
+    ActionA --> PromptSynthesis
+    ActionB --> PromptSynthesis
+    ActionC --> PromptSynthesis
+    PromptSynthesis --> GenerateAnswer
+        </div>
+      </div>
+      <p class="text-sm text-slate-500 mt-4 text-center">図: 往復回数（履歴）と文脈の事前依存分析に基づく段階的マルチレイヤー検索（階層型RAG）フロー</p>
+    </section>
+
+    <section class="doc-section">
+      <h2 class="text-xl font-semibold sub-section text-slate-800 border-l-4 border-amber-500 pl-3 mb-4">7.4 次世代型ハイブリッドRAG高度化アーキテクチャ (進化ロジック)</h2>
+      <p class="text-slate-700 text-xs md:text-sm mb-4">
+        RAGシステムの効率、耐障害性、および回答の精度を自律的に担保するために、従来の3層検索フローに「セマンティック・キャッシュ」「自律型クエリ拡張」「メタデータの動的プログラマブル・フィルタリング」の3層自律機能を追加・統合したインテリジェントRAG処理フローです。
+      </p>
+      <div class="mermaid-container mb-6">
+        <div class="mermaid">
+graph TD
+    classDef startNode fill:#ffffff,stroke:#334155,stroke-width:2px,color:#0f172a,font-weight:bold;
+    classDef cacheNode fill:#f0fdf4,stroke:#22c55e,stroke-width:2px,color:#166534;
+    classDef rewriteNode fill:#eff6ff,stroke:#3b82f6,stroke-width:2px,color:#1e3a8a;
+    classDef vectorNode fill:#fff9c4,stroke:#eab308,stroke-width:2px,color:#854d0e;
+    classDef errorNode fill:#fff1f2,stroke:#f43f5e,stroke-width:2px,color:#9f1239;
+
+    Q[ユーザー質問入力]:::startNode --> CacheCheck{1. セマンティック・キャッシュ検索<br>過去に極めて類似度の高い<br>検証ステップ回答が存在するか?}
+    CacheCheck -- "類似度 >= 0.90 (ヒット)" --> DirectAnswer["⚡ [超高速レスポンス]<br>過去の推論ステップ結果を再利用<br>(Ollamaの重い推論をスキップ / 1秒以内)"]:::cacheNode
+    CacheCheck -- "類似度 < 0.90 (ミス)" --> QueryResolve["2. メタデータの動的抽出<br>& クエリ再構成<br>(時間や工区・場所のタグを分離)"]:::rewriteNode
+    QueryResolve --> SQLFilter["3. プログラマブルSQLフィルタリング<br>(WHERE句による時間・座標・工区物理ロックオン<br>無関係な資料を100%除外)"]:::rewriteNode
+    SQLFilter --> VectorSearch["4. セマンティック検索実行<br>(上限なし全件スキャン)"]:::vectorNode
+    VectorSearch --> QualityCheck{5. 検索品質チェック<br>RAG類似度 >= 0.35?}
+    QualityCheck -- "データ十分" --> SubRAG["通常グループ分割推論 (Chunked Sub-RAG)<br>最大5件ずつ段階スキャン精読"]:::cacheNode
+    QualityCheck -- "データ不足" --> SelfCorrection["6. 自律型クエリ拡張 (Self-Correction)<br>類義語や専門同義語をLLMが自己補完し再検索<br>(1回限定)"]:::errorNode
+    SelfCorrection --> SubRAG
+        </div>
+      </div>
+      <p class="text-sm text-slate-500 mt-4 text-center">図: キャッシュ・自律修復・プログラマブルフィルタを完全統合したインテリジェントRAG構成</p>
+
+      <div class="overflow-hidden rounded-2xl border border-slate-200 shadow-sm mt-6">
+        <table class="min-w-full divide-y divide-slate-200 m-0">
+          <thead>
+            <tr class="bg-slate-100 font-bold">
+              <th class="px-6 py-4 w-1/4 text-sm">高度化ロジック</th>
+              <th class="px-6 py-4 text-sm">システム処理概要</th>
+              <th class="px-6 py-4 w-1/4 text-sm">コンサルタント業務への導入メリット</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-200 bg-white text-sm">
+            <tr class="hover:bg-slate-50/80 odd:bg-slate-50/30 transition">
+              <td class="px-6 py-4 font-bold text-teal-800">1. セマンティック・キャッシュ</td>
+              <td class="px-6 py-4 text-slate-600">入力質問ベクトルと類似度照合。類似度が0.90を超える場合は過去の中間推論データを直接返却します。</td>
+              <td class="px-6 py-4 text-slate-700">定型的な検証要求に対し、<strong>Ollamaの再推論（数十秒）を1秒未満に圧縮</strong>します。</td>
+            </tr>
+            <tr class="hover:bg-slate-50/80 odd:bg-slate-50/30 transition">
+              <td class="px-6 py-4 font-bold text-blue-800">2. 自律型クエリ拡張</td>
+              <td class="px-6 py-4 text-slate-600">最高類似度が0.35に満たない場合、LLMが自律的に類義語や専門同義語（シソーラス）を補完し再検索。</td>
+              <td class="px-6 py-4 text-slate-700"><strong>専門表記揺れによるデータ取りこぼしをシステムが自動検知・自己回復</strong>します。</td>
+            </tr>
+            <tr class="hover:bg-slate-50/80 odd:bg-slate-50/30 transition">
+              <td class="px-6 py-4 font-bold text-purple-800">3. プログラマブル・フィルタ</td>
+              <td class="px-6 py-4 text-slate-600">時間軸や空間のメタデータを動的抽出し、MySQLへのRAGクエリ時にSQLの `WHERE` 句として自動埋め込み。</td>
+              <td class="px-6 py-4 text-slate-700">概念的な検索が苦手とする厳密な条件抽出を<strong>100%の精度で物理ロック</strong>します。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="section-8" class="doc-section">
+      <h1 class="text-2xl md:text-3xl font-bold text-slate-900 section-header">
+        <span class="section-number">8</span>CRUD・アップロード シーケンス図
+      </h1>
+      <p class="text-slate-700 mb-6 text-sm md:text-base leading-relaxed">
+        主要なデータフローを、CRUD機能（Create, Read, Update, Delete）のセクションに分けて整理したシーケンス図です。すべての更新系APIはログイン状態とCSRFトークンを検証し、案件単位の操作は `ProjectAccess.php` による参照・管理権限を確認する。
+      </p>
+
+      <h2 class="text-xl font-semibold sub-section text-slate-800 border-l-4 border-primary pl-3 mb-4">8.1 新規案件登録 ＆ PDF/CSVアップロード・解析 (Create)</h2>
+      <div class="mermaid-container mb-8">
+        <div class="mermaid">
+sequenceDiagram
+    autonumber
+    actor User as ユーザー
+    participant UI as Web UI
+    participant API as API (add_project / upload / upload_csv)
+    participant DB as MySQL (DB)
+    participant FS as ファイルシステム
+    participant AI as Ollama (VLM/LLM)
+
+    User->>UI: ①新規案件登録
+    UI->>API: POST /api/add_project.php
+    API->>API: ログイン/CSRF検証
+    API->>DB: projectsテーブルにINSERT
+    DB-->>API: project_idを返却
+    API-->>UI: 登録完了
+
+    alt PDFファイルのアップロード
+        User->>UI: PDFアップロード
+        UI->>API: POST /api/upload.php
+        API->>API: canAccessProjectで案件権限チェック
+        API->>FS: PDF保存・画像化・テキスト抽出
+        loop ページごと
+            API->>AI: 種類判定・OCR抽出要求
+            AI-->>API: 抽出テキスト返却
+            API->>AI: 重複排除・整理要求
+            AI-->>API: 整理済みテキスト返却
+            API->>API: チャンク化
+            API->>AI: ベクトル化(Embedding)要求
+            AI-->>API: ベクトル返却
+            API->>DB: doc_chunksテーブルにINSERT
+        end
+        API->>AI: 全体要約要求
+        AI-->>API: 全体要約返却
+        API->>DB: 全体要約をdoc_chunksにINSERT
+    else CSVデータのアップロード
+        User->>UI: CSVデータインポート
+        UI->>API: POST /api/upload_csv.php
+        API->>API: canAccessProjectで案件権限チェック
+        API->>FS: 文字コード自動判定 ＆ 一時展開
+        API->>DB: project_csv_files（メタ情報）にINSERT
+        API->>DB: documents に RAG連動用の親データをINSERT
+        loop 行（レコード）ごとに処理
+            API->>DB: JSON形式で project_csv_rows にデータレコードをINSERT
+            API->>API: 列名と値を結合して「自然言語文章」を自動生成
+            API->>AI: 自然言語文章のベクトル化を要求
+            AI-->>API: ベクトルデータを返却
+            API->>DB: doc_chunksに自然言語チャンクとして保存
+        end
+    end
+    API-->>UI: 解析完了
+        </div>
+      </div>
+
+      <h2 class="text-xl font-semibold sub-section text-slate-800 border-l-4 border-primary pl-3 mb-4">8.2 案件一覧・詳細取得 (Read)</h2>
+      <div class="mermaid-container mb-8">
+        <div class="mermaid">
+sequenceDiagram
+    autonumber
+    actor User as ユーザー
+    participant UI as Web UI
+    participant API as API (read_projects / read_project / get_csv_data)
+    participant DB as MySQL (DB)
+
+    User->>UI: ダッシュボード/業務支援画面表示
+    par 一覧取得
+        UI->>API: GET /api/read_projects.php
+        API->>DB: SELECT * FROM projects
+        DB-->>API: 案件一覧データ
+        API-->>UI: 案件一覧を表示
+    and 詳細取得
+        UI->>API: GET /api/read_project.php?id=XX
+        API->>DB: SELECT * FROM projects WHERE id=XX
+        DB-->>API: 案件詳細データ
+        API-->>UI: 地図ピン・詳細情報を表示
+    and CSVデータテーブルプレビュー
+        User->>UI: CSVのインポート履歴をクリック
+        UI->>API: GET /api/get_csv_data.php?csv_file_id=YY
+        API->>DB: SELECT * FROM project_csv_rows WHERE csv_file_id=YY
+        DB-->>API: 格納されているJSON行レコード群を返却
+        API-->>UI: 動的にHTMLのレスポンス・グリッド（Excel風表）を描画
+    end
+        </div>
+      </div>
+
+      <h2 class="text-xl font-semibold sub-section text-slate-800 border-l-4 border-primary pl-3 mb-4">8.3 案件情報の更新 (Update)</h2>
+      <div class="mermaid-container mb-8">
+        <div class="mermaid">
+sequenceDiagram
+    autonumber
+    actor User as ユーザー
+    participant UI as Web UI (モーダル)
+    participant API as API (update_project)
+    participant DB as MySQL (DB)
+
+    User->>UI: 編集ボタン押下、情報修正
+    User->>UI: 更新保存ボタン押下
+    UI->>API: POST /api/update_project.php
+    API->>API: CSRF検証 / canManageProjectで管理権限チェック
+    API->>DB: UPDATE projects SET ... WHERE id=XX
+    DB-->>API: 更新完了
+    API-->>UI: 成功レスポンス
+    UI->>User: 画面リロードして最新情報を表示
+        </div>
+      </div>
+
+      <h2 class="text-xl font-semibold sub-section text-slate-800 border-l-4 border-primary pl-3 mb-4">8.4 案件・資料の削除 (Delete)</h2>
+      <div class="mermaid-container mb-8">
+        <div class="mermaid">
+sequenceDiagram
+    autonumber
+    actor User as ユーザー
+    participant UI as Web UI
+    participant API as API (delete_project / delete_pdf / delete_csv)
+    participant DB as MySQL (DB)
+    participant FS as ファイルシステム
+
+    alt 案件の削除
+        User->>UI: 案件削除ボタン押下
+        UI->>API: POST /api/delete_project.php
+        API->>API: canManageProjectで管理権限チェック
+        API->>DB: DELETE FROM projects WHERE id=XX
+        Note over DB: CASCADE制約により関連データ自動削除
+        DB-->>API: 削除完了
+        API-->>UI: 成功レスポンス
+    else 資料(PDF)の削除
+        User->>UI: ゴミ箱アイコン押下
+        UI->>API: POST /api/delete_pdf.php
+        API->>API: canManageProjectで削除権限チェック
+        API->>DB: SELECT file_path ...
+        API->>FS: 物理ファイルを削除 (unlink)
+        API->>DB: DELETE FROM documents WHERE id=XX
+        DB-->>API: CASCADEでdoc_chunksも削除
+        API-->>UI: 成功レスポンス
+    else データテーブル(CSV)の削除
+        User->>UI: 「🗑️ CSVを全削除」ボタン押下
+        UI->>API: POST /api/delete_csv.php
+        API->>API: 案件権限チェック
+        API->>DB: documents/doc_chunks から該当CSVのRAG索引を削除
+        API->>DB: project_csv_files の対象IDを物理DELETE
+        Note over DB: CASCADE制約によりproject_csv_rowsも連動削除
+        DB-->>API: 削除完了
+        API-->>UI: 成功レスポンス
+    end
+    UI->>User: 画面リロード
+        </div>
+      </div>
+    </section>
+
+    <section id="section-9" class="doc-section">
+      <h1 class="text-2xl md:text-3xl font-bold text-slate-900 section-header">
+        <span class="section-number" style="background-color: #00758F;">9</span>データ分析エージェント (Text-to-SQL) ＆ グラフ自動生成
+      </h1>
+      <p class="text-slate-700 mb-6 text-sm md:text-base leading-relaxed">
+        本システムは、RAGによる「文章の検索・要約」だけでなく、構造化データ（CSV等）に対する「正確な数値集計」と「視覚的なグラフ化」をチャット上で行うデータ分析エージェントを搭載しています。`SqlExecutionEngine.php` が生成SQLを監査し、SELECT系の安全なSQLだけを案件スコープ内で実行することで、LLM特有の数値ハルシネーションを抑制します。
+      </p>
+
+      <h2 class="text-xl font-semibold sub-section text-slate-800 border-l-4 border-[#00758F] pl-3 mb-4">9.1 JSON動的スキーマとText-to-SQLの統合</h2>
+      <div class="rounded-2xl border border-slate-200 shadow-sm overflow-hidden mb-8">
+        <div class="bg-slate-100 px-4 py-2 text-slate-700 text-xs md:text-sm font-bold border-b border-slate-200">
+          <span>SQL Query Generation Context</span>
+        </div>
+        <div class="bg-slate-50 p-6 text-sm text-slate-700 leading-relaxed">
+          <p class="mb-4">
+            任意の形式のCSVデータを <code>project_csv_rows</code> テーブルの <code>row_data</code> (JSON型) カラムに格納しています。AIには、MySQL 8.0 のJSON抽出関数（<code>-&gt;&gt;</code>）を用いたクエリ生成を強制します。
+          </p>
+          <div class="bg-slate-900 text-green-400 font-mono p-4 rounded-xl overflow-x-auto shadow-inner text-xs md:text-sm leading-relaxed">
+<span class="text-gray-400 font-bold">// ユーザーの質問: 「土質区分ごとのN値の平均を計算して」</span><br>
+<span class="text-purple-400">SELECT</span> <br>
+    &nbsp;&nbsp;row_data-&gt;&gt;'$.土質区分' <span class="text-purple-400">AS</span> soil_type, <br>
+    &nbsp;&nbsp;<span class="text-blue-300">AVG</span>(<span class="text-blue-300">CAST</span>(row_data-&gt;&gt;'$.N値' <span class="text-purple-400">AS DECIMAL</span>(10,2))) <span class="text-purple-400">AS</span> avg_n_value<br>
+<span class="text-purple-400">FROM</span> project_csv_rows <br>
+<span class="text-purple-400">WHERE</span> csv_file_id = [対象のCSV ID]<br>
+<span class="text-purple-400">GROUP BY</span> row_data-&gt;&gt;'$.土質区分';</div>
+        </div>
+      </div>
+
+      <h2 class="text-xl font-semibold sub-section text-slate-800 border-l-4 border-[#00758F] pl-3 mb-4">9.2 データ分析・グラフ描画パイプライン</h2>
+      <div class="mermaid-container mb-6">
+        <div class="mermaid">
+sequenceDiagram
+    autonumber
+    actor User as ユーザー
+    participant UI as Web UI
+    participant API as API (chat.php)
+    participant DB as MySQL (DB)
+    participant AI as Ollama (gemma4 / gpt-oss)
+
+    User->>UI: 「集計して」「グラフ化して」と質問
+    UI->>API: チャットリクエスト
+    
+    rect rgb(240, 253, 250)
+    Note right of API: 【1. Text-to-SQL】
+    API->>API: 意図解析によりデータ分析モードに分岐
+    API->>DB: 対象のCSVヘッダー(スキーマ情報)を取得
+    API->>AI: スキーマ情報を渡し、集計SQLの作成を要求
+    AI-->>API: 実行可能な SELECT クエリを返却
+    end
+    
+    rect rgb(255, 247, 237)
+    Note right of API: 【2. 安全なSQL実行】
+    API->>API: SqlExecutionEngineでSQL監査、案件ID/CSV IDの所有権検証
+    API->>DB: SQLクエリを実行
+    DB-->>API: 正確な集計結果(数値データ)を返却
+    end
+    
+    rect rgb(238, 242, 255)
+    Note right of API: 【3. レポート・グラフ生成】
+    API->>AI: 集計結果を渡し、解説とMermaid.jsグラフの作成を要求
+    AI-->>API: グラフコード(```mermaid)を含む回答を返却
+    end
+    
+    API-->>UI: 回答とSQL実行履歴をレスポンス
+    UI->>UI: Mermaid.jsでチャット内にグラフを動的レンダリング
+    UI->>User: グラフ付きの分析レポートを表示
+        </div>
+      </div>
+    </section>
+
+    <section id="section-10" class="doc-section">
+      <h1 class="text-2xl md:text-3xl font-bold text-slate-900 section-header">
+        <span class="section-number">10</span>PDF/CSVファイルの処理・RAG化ロジック
+      </h1>
+      <p class="text-slate-700 mb-5 text-sm md:text-base leading-relaxed">
+        非構造化ドキュメント（PDF）と構造化数値データ（CSV）という性質の異なるデータをどちらも等しくAIチャットの検索・精読対象にするため、それぞれ高度なパースロジックを搭載しています。
+      </p>
+
+      <div class="grid grid-cols-1 gap-6 text-sm md:text-base text-slate-700 leading-relaxed">
+        <div class="bg-white border border-slate-200 rounded-xl p-6 shadow-sm border-l-4 border-l-teal-500">
+          <h3 class="text-lg font-bold text-slate-800 mb-2">10.1 非構造化データ（PDF）のVLMマルチ解析 ＆ チャンク最適化</h3>
+          <p class="text-xs md:text-sm text-slate-600 leading-relaxed">
+            PDF資料は、ネイティブテキスト抽出とVLM（視覚言語モデル）のスマート・ルーティング判定により、ページごとに最適な方法で文字起こしを実行。細かな図面や横長の表組みに対しては、「2x2タイル分割」や「1x8水平スライス（8分割）」を施して高精度に文字情報を抽出します。
+          </p>
+        </div>
+        
+        <div class="bg-white border border-slate-200 rounded-xl p-6 shadow-sm border-l-4 border-l-blue-500">
+          <h3 class="text-lg font-bold text-slate-800 mb-2">10.2 構造化データ（CSV）の自律自然言語化パイプライン</h3>
+          <p class="text-xs md:text-sm text-slate-600 mb-4 leading-relaxed">
+            CSVのような数値がセルに並んだ構造化データは、意味的なつながり（文脈）を持たないため、AIチャットのセマンティック検索時に適合度が低くなります。これを解決するため、インポート時に<strong>「列名と行の値を機械的に結合して自然言語の文章に翻訳する」</strong>パイプラインを実装しています。
+          </p>
+          
+          <div class="bg-slate-50 p-4 rounded-lg border border-slate-200 space-y-3 text-xs md:text-sm">
+            <p class="font-bold text-slate-800">📝 変換プロセスの具体例:</p>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div class="bg-white p-4 rounded border border-slate-200">
+                <span class="font-bold text-[#00758F] block mb-2 text-xs md:text-sm">【生CSVデータ（第12行目）】</span>
+                <p class="font-mono bg-slate-50 p-3 rounded text-xs text-slate-600 leading-relaxed">測定日時: 2026/05/21 14:00<br>地点: A工区<br>深度(m): 15.2<br>N値: 35<br>土質区分: 砂礫</p>
+              </div>
+              <div class="bg-white p-4 rounded border border-slate-200">
+                <span class="font-bold text-indigo-700 block mb-2 text-xs md:text-sm">【RAG自動変換テキスト】</span>
+                <p class="leading-relaxed bg-slate-50 p-3 rounded text-xs text-slate-600">CSV「ボーリング柱状図.csv」の第12行のデータ：測定日時は「2026/05/21 14:00」、地点は「A工区」、深度(m)は「15.2」、N値は「35」、土質区分は「砂礫」です。</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-white border border-slate-200 rounded-xl p-6 shadow-sm border-l-4 border-l-indigo-500">
+          <h3 class="text-lg font-bold text-slate-800 mb-2">10.3 チャット ⇔ スプレッドシート プレビュー同期インタラクション</h3>
+          <p class="text-xs md:text-sm text-slate-600 leading-relaxed">
+            CSV翻訳テキストがヒットしてソースバッジとして表示された際、クリックすると <code>get_csv_file_id.php</code> API が稼働。画面中央のメインコンテナを一瞬で「📊 CSVデータ」タブへ切り替え、対象のグリッドビューを自動プレビュー展開させます。
+          </p>
+        </div>
+
+        <div class="bg-white border border-slate-200 rounded-xl p-6 shadow-sm border-l-4 border-l-slate-500">
+          <h3 class="text-lg font-bold text-slate-800 mb-2">10.4 進捗監視とキャンセル制御</h3>
+          <p class="text-xs md:text-sm text-slate-600 leading-relaxed">
+            PDF/CSV/外部PostgreSQLの重い処理では、セッションID単位の `logs/progress_{session_id}.json` に進捗を書き出し、`get_upload_status.php` がフロントエンドへ状態を返す。PDF解析は `cancel_{session_id}.flag` を検知して処理を中断できる。セッションロックを早期解放するため、アップロード中でもポーリングや別APIの応答がブロックされにくい。
+          </p>
+        </div>
+
+        <div id="section-10-4" class="bg-white border border-slate-200 rounded-xl p-6 shadow-sm border-l-4 border-l-amber-500">
+          <h3 class="text-lg font-bold text-slate-800 mb-2">10.5 CSV構造化データRAGの高速化・AI推論ボトルネック解消ロジック</h3>
+          <p class="text-xs md:text-sm text-slate-600 mb-4 leading-relaxed">
+            同一ファイル由来の大量のCSV翻訳レコードがヒットした場合、精読ループ回数が肥大化し深刻な推論遅延ボトルネックとなっていました。この課題を解決するため、以下の機能をバックエンドAPIへ新規に設計・統合しました。
+          </p>
+
+          <div class="space-y-4">
+            <div class="border-l-2 border-amber-400 pl-4">
+              <h4 class="font-bold text-slate-800 text-xs md:text-sm mb-1">① 複数行チャンクの列同一性バルクアグリゲーション (Structured Bulk Compression)</h4>
+              <p class="text-xs md:text-sm text-slate-600 mb-2 leading-relaxed">
+                ベクトル検索によって「同一のCSVファイル」に属する複数の翻訳行チャンクがヒットした場合、PHP側で自動的に<strong>「元の1つのMarkdownデータテーブル（表組み）として統合・再圧縮」</strong>を行います。
+              </p>
+              
+              <div class="rounded-xl border border-slate-700 overflow-hidden mb-2">
+                <div class="bg-slate-800 px-3 py-1.5 text-slate-400 text-xs font-mono border-b border-slate-700">🔄 統合後のバルク圧縮テーブル (1リクエストに集約)</div>
+                <div class="bg-slate-900 p-4 font-mono text-xs md:text-sm text-green-400 leading-relaxed">
+以下の表は、検索に合致した「ボーリング柱状図.csv」のレコード一覧です。
+| 行番号 | 深度(m) | N値 | 土質区分 |
+| :--- | :--- | :--- | :--- |
+| 1 | 1.2 | 8 | 表土 |
+| 2 | 2.5 | 12 | 砂質土 |</div>
+              </div>
+              <p class="text-xs md:text-sm text-slate-600 leading-relaxed">
+                これにより、AIの呼び出し回数が<strong>最大で 1/4 〜 1/10 に激減し、処理時間を70%以上短縮</strong>できます。
+              </p>
+            </div>
+
+            <div class="border-l-2 border-amber-400 pl-4">
+              <h4 class="font-bold text-slate-800 text-xs md:text-sm mb-1">② CSV専用ダイナミック類似度トリアージ (Structured Dynamic Thresholding)</h4>
+              <p class="text-xs md:text-sm text-slate-600 mb-2 leading-relaxed">
+                CSVデータは定型記述が繰り返されるため、類似度スコアが高く算出されやすい特性を持ちます。データ氾濫を防ぐため、システムは以下の<strong>動的閾値分岐</strong>を適用します。
+              </p>
+              <ul class="list-disc list-inside text-xs md:text-sm text-slate-500 space-y-1.5 pl-2">
+                <li><strong>PDF文書データ:</strong> 類似度スコア `0.35` 以上を網羅（標準設定）</li>
+                <li><strong>CSV構造化データ:</strong> 類似度スコア閾値を **`0.50` 以上**へ自動引き上げ。データの完全性保証のため上限数は設けず全件対象とする。</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div id="section-10-5" class="bg-white border border-slate-200 rounded-xl p-6 shadow-sm border-l-4 border-l-rose-500">
+          <h3 class="text-lg font-bold text-slate-800 mb-2">10.6 大規模データロード時のコンテキスト防護（Context Guard）と空回答フォールバック</h3>
+          <p class="text-xs md:text-sm text-slate-600 mb-4 leading-relaxed">
+            CSV検索において該当行が100行を超えるなど巨大なテーブルが生成された場合、AIサーバーの処理可能コンテキスト制限（Token Limit）やGPUメモリ限界を突破し、エラーなしの「空（0文字）」で応答を返す（サイレント・ドロップ）現象が発生します。これを防ぐための二重防護実装です。
+          </p>
+
+          <div class="space-y-4">
+            <div class="border-l-2 border-rose-400 pl-4">
+              <h4 class="font-bold text-slate-800 text-xs md:text-sm mb-1">① 文字数比例コンテキスト防護バッファ (Structured Context Guard)</h4>
+              <p class="text-xs md:text-sm text-slate-600 mb-2 leading-relaxed">
+                類似度スコアの高い行から順番に結合し、生成されたMarkdownテーブルが累積で **`4,000文字`** に達した時点で、自動的にデータの追加を停止。テーブルの末尾にセーフガードによる省略注記を付加してAIへ渡します。
+              </p>
+            </div>
+
+            <div class="border-l-2 border-rose-400 pl-4">
+              <h4 class="font-bold text-slate-800 text-xs md:text-sm mb-1">② 空レスポンス検知 ＆ 技術的フォールバック・リカバリ (Fallback Recovery)</h4>
+              <p class="text-xs md:text-sm text-slate-600 mb-2 leading-relaxed">
+                万が一、AIからの推論回答が空（0文字）または通信タイムアウトした状態で終了した場合、API側で文字数を監査し、自動的に技術的フォールバックガイダンス応答を動的に組み立て、SSEで配信します。
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="section-11" class="doc-section">
+      <h1 class="text-2xl md:text-3xl font-bold text-slate-900 section-header">
+        <span class="section-number" style="background-color: #8b5cf6;">11</span>LLM-as-a-Judge による自律型評価と自己修正ループ
+      </h1>
+      <p class="text-slate-700 mb-6 text-sm md:text-base leading-relaxed">
+        フル思考モードで生成された最終的な統合回答に対し、システムが裏側でAI自身（評価役）に品質を採点させます。スコアが閾値（合格点）に満たない場合は、AIが自らフィードバックを生成し書き直しを要求します。
+      </p>
+
+      <h2 class="text-xl font-semibold sub-section text-slate-800 border-l-4 border-violet-500 pl-3 mb-4">11.1 評価観点（メトリクス）設計</h2>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8 text-sm">
+        <div class="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+          <h4 class="font-bold text-violet-700 mb-1.5 text-sm md:text-base">1. Proactivity（提案力・先回り力）★最重要</h4>
+          <p class="text-xs md:text-sm text-slate-600 leading-relaxed">事実を答えるだけでなく、専門家としての「ネクストアクション」「リスクの指摘」など、一歩踏み込んだ有益な示唆が含まれているか。</p>
+        </div>
+        <div class="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+          <h4 class="font-bold text-teal-700 mb-1.5 text-sm md:text-base">2. Faithfulness（事実への忠実性）</h4>
+          <p class="text-xs md:text-sm text-slate-600 leading-relaxed">生成された回答が、インポートされた資料の内容のみに基づいているか。外部知識によるハルシネーション（幻覚）が混入していないか。</p>
+        </div>
+        <div class="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+          <h4 class="font-bold text-blue-700 mb-1.5 text-sm md:text-base">3. Answer Relevance（的確性・網羅性）</h4>
+          <p class="text-xs md:text-sm text-slate-600 leading-relaxed">ユーザーが投げかけた質問の「すべての要素」に対して、真正面から過不足なく答えているか。論点がずれていないか。</p>
+        </div>
+        <div class="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+          <h4 class="font-bold text-amber-700 mb-1.5 text-sm md:text-base">4. Clarity（構造化・可読性）</h4>
+          <p class="text-xs md:text-sm text-slate-600 leading-relaxed">専門用語が正しく使われているか。Markdownを用いて技術者が直感的に読みやすい構成になっているか。</p>
+        </div>
+      </div>
+
+      <h2 class="text-xl font-semibold sub-section text-slate-800 border-l-4 border-violet-500 pl-3 mb-4">11.2 自己修正（Self-Correction）ループの処理シーケンス</h2>
+      <div class="mermaid-container mb-6">
+        <div class="mermaid">
+sequenceDiagram
+    autonumber
+    participant UI as Web UI
+    participant API as API (chat.php)
+    participant DB as MySQL (evaluations)
+    participant Judge as 評価役AI (LLM-as-a-Judge)
+    participant Gen as 統合役AI (GPT/Gemma)
+
+    Note over API, Gen: 既存のフル思考ロジックによる「第1稿」生成完了
+    
+    API->>Judge: 第1稿、元資料、ユーザー質問を送信し「4つの観点」での評価を要求
+    Note over Judge: 1. Proactivity (提案力)<br/>2. Faithfulness (忠実性)<br/>3. Answer Relevance (的確性)<br/>4. Clarity (可読性)
+    Judge-->>API: JSON形式で各スコア(0-100)とフィードバック(改善点)を返却
+    
+    alt 総合スコアが閾値(例:80点)未満、かつリトライ回数上限内
+        API->>Gen: 評価フィードバックを渡し、「一歩進んだ提案を含めた第1稿の修正」を要求
+        Gen-->>API: 改善・提案が追加された「第2稿(リファイン版)」を返却
+        API->>API: 第2稿を最終回答として採用
+    else スコアが閾値以上、または上限回数到達
+        API->>API: 現在の原稿を最終回答として採用
+    end
+    
+    API->>DB: 分析用として評価スコア・改善履歴を chat_evaluations に蓄積
+    API-->>UI: 最終回答をストリーム出力
+        </div>
+      </div>
+    </section>
+
+    <section id="section-12" class="doc-section">
+      <h1 class="text-2xl md:text-3xl font-bold text-slate-900 section-header">
+        <span class="section-number">12</span>システム名称候補
+      </h1>
+      <p class="text-slate-700 mb-6 text-sm md:text-base leading-relaxed">
+        現在仮称となっている「TEPSCO Routines」以外の、本システムのコンセプトをより強調する代替ネーミング案です。
+      </p>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
+        <div class="bg-white border border-slate-200 rounded-xl p-6 shadow-sm border-t-4 border-t-[#4F5D95] hover:shadow-md transition">
+          <h3 class="text-base font-bold text-slate-800 mb-3 flex items-center">
+            <span class="w-2 h-2 rounded-full bg-[#4F5D95] mr-2"></span>1. 知見・ナレッジの統合を強調
+          </h3>
+          <ul class="space-y-4 text-xs md:text-sm text-slate-600 leading-relaxed">
+            <li><strong class="text-[#4F5D95] text-sm md:text-base block mb-0.5">TEPSCO Brain</strong>会社のノウハウが蓄積され、AIが思考する「会社の頭脳」であることを表現。</li>
+            <li><strong class="text-[#4F5D95] text-sm md:text-base block mb-0.5">TEPSCO Insight</strong>図面や報告書から深い「洞察（インサイト）」を導き出すシステム。</li>
+          </ul>
+        </div>
+
+        <div class="bg-white border border-slate-200 rounded-xl p-6 shadow-sm border-t-4 border-t-[#00758F] hover:shadow-md transition">
+          <h3 class="text-base font-bold text-slate-800 mb-3 flex items-center">
+            <span class="w-2 h-2 rounded-full bg-[#00758F] mr-2"></span>2. AIパートナー・協働を強調
+          </h3>
+          <ul class="space-y-4 text-xs md:text-sm text-slate-600 leading-relaxed">
+            <li><strong class="text-[#00758F] text-sm md:text-base block mb-0.5">TEPSCO Buddy</strong>技術者の横に常に寄り添い、業務をサポートする「相棒」のような存在。</li>
+            <li><strong class="text-[#00758F] text-sm md:text-base block mb-0.5">TEPSCO Navigator</strong>膨大な過去資料から正しい答えへと「導いてくれる」役割を強調。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <footer class="mt-24 pt-6 border-t border-slate-200 text-center text-slate-400 text-xs">
+      
+    </footer>
+
+  </main>
+</div>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'neutral', 
+    securityLevel: 'loose',
+    themeVariables: {
+      fontFamily: 'Segoe UI, Meiryo, sans-serif',
+      lineColor: '#64748b'
+    },
+    flowchart: {
+      htmlLabels: true,
+      useMaxWidth: true, 
+      curve: 'basis'
+    }
+  });
+</script>
+</body>
+</html>
