@@ -59,7 +59,7 @@ class SqlExecutionEngine {
             if (!$audit['success']) {
                 return [
                     'success' => false,
-                    'error'   => $audit['error']
+                    'error'   => $audit['error'] . "\n\n" . $this->buildRepairGuidance($sql, $audit['error'])
                 ];
             }
 
@@ -84,7 +84,7 @@ class SqlExecutionEngine {
         } catch (Exception $e) {
             return [
                 'success' => false,
-                'error'   => 'SQL実行中にエラーが発生しました: ' . $e->getMessage()
+                'error'   => 'SQL実行中にエラーが発生しました: ' . $e->getMessage() . "\n\n" . $this->buildRepairGuidance($rawSql, $e->getMessage())
             ];
         }
     }
@@ -374,6 +374,10 @@ class SqlExecutionEngine {
             return ['success' => false, 'error' => '拒否理由: 安全性確保のため、クエリはSELECT文で開始する必要があります。'];
         }
 
+        if (!preg_match('/\bFROM\b/i', $sql)) {
+            return ['success' => false, 'error' => '拒否理由: 実データを参照しないダミーSQLです。SELECTには必ず実在テーブルのFROM句が必要です。'];
+        }
+
         // 2-2. 破壊的・書き換え系キーワードの全量検知
         if (preg_match('/\b(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|EXECUTE)\b/i', $sql)) {
             return ['success' => false, 'error' => '拒否理由: 破壊的またはデータ変更を伴う非許可キーワードが検出されました。'];
@@ -408,6 +412,83 @@ class SqlExecutionEngine {
         }
 
         return ['success' => true];
+    }
+
+    /**
+     * AIの自己修復ループへ渡す、実在スキーマ・定番SQLパターン・禁止事項の短い誘導文を生成する。
+     */
+    public function buildRepairGuidance(string $failedSql = '', string $error = '', string $task = ''): string {
+        $schemaLines = [];
+        $allowed = implode(', ', self::$allowedTables);
+
+        try {
+            foreach (self::$allowedTables as $table) {
+                $stmt = $this->pdo->query("SHOW COLUMNS FROM `{$table}`");
+                $cols = [];
+                foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $col) {
+                    $cols[] = $col['Field'];
+                }
+                $schemaLines[] = "- {$table}: " . implode(', ', $cols);
+            }
+        } catch (Throwable $e) {
+            $schemaLines[] = "- 許可テーブル: {$allowed}";
+        }
+
+        $csvHints = [];
+        if ($this->projectId > 0) {
+            try {
+                $stmtCsv = $this->pdo->prepare("SELECT id, file_name, column_headers, row_count FROM project_csv_files WHERE project_id = ? ORDER BY id ASC");
+                $stmtCsv->execute([$this->projectId]);
+                foreach ($stmtCsv->fetchAll(PDO::FETCH_ASSOC) as $csv) {
+                    $headers = json_decode((string)$csv['column_headers'], true);
+                    if (!is_array($headers)) {
+                        $headers = array_filter(array_map('trim', explode(',', (string)$csv['column_headers'])));
+                    }
+                    $csvHints[] = "- csv_file_id={$csv['id']} / {$csv['file_name']} / rows={$csv['row_count']} / row_data keys: " . implode(', ', $headers);
+                }
+            } catch (Throwable $e) {
+                $csvHints[] = "- CSV記憶の取得に失敗しました: " . $e->getMessage();
+            }
+        }
+
+        return "【SQL自己修復ガイダンス】\n"
+            . "目的: {$task}\n"
+            . "前回エラー: {$error}\n"
+            . "前回SQL: {$failedSql}\n\n"
+            . "【使用可能な実在テーブル・物理カラム】\n" . implode("\n", $schemaLines) . "\n\n"
+            . "【この案件のCSV経験値】\n" . (empty($csvHints) ? "- CSV記憶なし\n" : implode("\n", $csvHints) . "\n") . "\n"
+            . "【正解へ近づく定番SQLパターン】\n"
+            . "- CSVファイル数と実データ行数: SELECT COUNT(DISTINCT f.id) AS total_csv_files, COUNT(r.id) AS total_csv_rows FROM project_csv_files f LEFT JOIN project_csv_rows r ON f.id = r.csv_file_id\n"
+            . "- CSV本文のキー抽出: JSON_UNQUOTE(JSON_EXTRACT(r.row_data, '$.\"実在キー名\"'))\n"
+            . "- CSVキー別集計: SELECT JSON_UNQUOTE(JSON_EXTRACT(r.row_data, '$.\"実在キー名\"')) AS item, COUNT(*) AS cnt FROM project_csv_rows r GROUP BY item ORDER BY cnt DESC\n"
+            . "- 会話履歴要約用抽出: SELECT role, message, created_at FROM chat_history ORDER BY created_at ASC LIMIT 50\n"
+            . "- PDF本文抽出: SELECT d.title, c.page_number, c.chunk_text FROM doc_chunks c JOIN documents d ON c.doc_id = d.id LIMIT 30\n\n"
+            . "【禁止】\n"
+            . "- 許可リスト外の架空テーブル・架空カラムを作らない。\n"
+            . "- SELECT '文字列' のような実テーブルを読まないダミーSQLで突破しない。\n"
+            . "- project_csv_rows.row_count は存在しない。行数は COUNT(project_csv_rows.id) を使う。\n"
+            . "- row_data->>$.日本語キー は禁止。JSON_UNQUOTE(JSON_EXTRACT(..., '$.\"キー\"')) を使う。\n";
+    }
+
+    /**
+     * AIが3回迷った場合に、目的文から安全な定番SQLを提案する最終救済。
+     */
+    public function suggestFallbackSql(string $task, string $failedSql = ''): ?string {
+        $text = $task . "\n" . $failedSql;
+
+        if (preg_match('/(CSV|csv|集計|概要|総数|件数|行数|レコード数)/u', $text)) {
+            return "SELECT COUNT(DISTINCT f.id) AS total_csv_files, COUNT(r.id) AS total_csv_rows FROM project_csv_files f LEFT JOIN project_csv_rows r ON f.id = r.csv_file_id";
+        }
+
+        if (preg_match('/(会話|履歴|チャット|これまで|まとめ|要約)/u', $text)) {
+            return "SELECT role, message, created_at FROM chat_history ORDER BY created_at ASC LIMIT 50";
+        }
+
+        if (preg_match('/(PDF|資料|文書|留意点|抽出|内容)/u', $text)) {
+            return "SELECT d.title, c.page_number, c.chunk_text FROM doc_chunks c JOIN documents d ON c.doc_id = d.id LIMIT 30";
+        }
+
+        return null;
     }
 
     /**

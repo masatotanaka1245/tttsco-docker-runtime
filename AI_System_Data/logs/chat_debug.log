@@ -1233,3 +1233,187 @@ SQL実行中にエラーが発生しました: SQLSTATE[42000]: Syntax error or 
 [2026-06-02 06:34:31] [CHAT_STREAM] [DEBUG] chat_evaluations へ品質審査スコアを一元トランザクション内で同期登録しました。
 [2026-06-02 06:34:31] [CHAT_STREAM] [DEBUG] DBトランザクションコミット成功。すべての書き込みデータ整合性を完全保護しました。
 [2026-06-02 06:34:31] [CHAT_STREAM] === [MoA大統合ハブコントローラー] ハイブリッド並列多重推論パイプライン全線開通・処理完了 ===
+[2026-06-02 09:37:54] [CHAT_STREAM] === 新着チャット受信 | Host: http://host.docker.internal:11434 | Model: gemma4:e4b ===
+[2026-06-02 09:37:54] [CHAT_STREAM] ユーザー: admin (ID: 1) | 案件ID: 4
+[2026-06-02 09:37:54] [CHAT_STREAM] 質問内容: 登録済みのCSVデータを集計して概要を教えてください。
+[2026-06-02 09:37:54] [CHAT_STREAM] [SMART-ROUTER] 純粋なデータ集計要求を検知。単発の「データ分析エージェント(chat_analysis.php)」を起動します。
+[2026-06-02 09:37:54] [CHAT_STREAM] >>> [データ分析ルート] 動的スキーマ監査型 多段階集計エージェントを起動します
+[2026-06-02 09:37:54] [CHAT_STREAM] [DEBUG] 引数情報 - Host: http://host.docker.internal:11434 | Model: gemma4:e4b | UserID: 1 | Role: admin
+[2026-06-02 09:37:54] [CHAT_STREAM] [DEBUG] 生成されたデータ分析セッションID (reasoningId): sql-reason_6a1e25e2175fd-5548
+[2026-06-02 09:37:54] [CHAT_STREAM] [DEBUG] データベースの実在スキーマ構造を動的に解析・スキャンします...
+[2026-06-02 09:37:54] [CHAT_STREAM] 網羅調査完了 - CSV行数: 10件, コメント: 0件, FAQ: 0件
+[2026-06-02 09:37:54] [CHAT_STREAM] [DEBUG] 動的スキーマ情報およびデータ総数マトリクスの構築完了。文字数: 5619文字
+[2026-06-02 09:37:54] [CHAT_STREAM] [DEBUG] 質問の因数分解を開始します。質問: 登録済みのCSVデータを集計して概要を教えてください。
+[2026-06-02 09:37:54] [CHAT_STREAM] [DEBUG] Ollama因数分解API呼び出し送信前...
+[2026-06-02 09:39:02] [CHAT_STREAM] [DEBUG] Ollama因数分解API応答受信 raw: {"query": "プロジェクトに登録されているCSVファイルの総数と、それらのファイルが持つ全行の総レコード数（`project_csv_files`と`project_csv_rows`の集計）を把握する。"}
+[2026-06-02 09:39:02] [CHAT_STREAM] [FORMAT-RECOVERY] 単一の分析オブジェクトを配列構造に自動ラップ救済しました。
+[2026-06-02 09:39:02] [CHAT_STREAM] [DEBUG] サブクエリのパースに成功。サブ質問数: 1
+[2026-06-02 09:39:02] [CHAT_STREAM] 【データ分析】ステップ 1: 観点「プロジェクトに登録されているCSVファイルの総数と、それらのファイルが持つ全行の総レコード数（`project_csv_files`と`project_csv_rows`の集計）を把握する。」のSQL生成中...
+[2026-06-02 09:39:52] [CHAT_STREAM] [OLLAMA-RAW-RESPONSE] (試行 0/3) Ollama側からの受信生データ:
+{"sql": "SELECT COUNT(T1.id) AS total_csv_files, SUM(T2.row_count) AS total_csv_rows FROM project_csv_files T1 JOIN project_csv_rows T2 ON T1.id = T2.csv_file_id"}
+[2026-06-02 09:39:52] [CHAT_STREAM] [Text-to-SQL-BEFORE] (試行 0/3) プログラム補正前の素のSQL: SELECT COUNT(T1.id) AS total_csv_files, SUM(T2.row_count) AS total_csv_rows FROM project_csv_files T1 JOIN project_csv_rows T2 ON T1.id = T2.csv_file_id
+[2026-06-02 09:39:52] [CHAT_STREAM] [Text-to-SQL-AFTER]  (試行 0/3) プログラム補正後の最終実行SQL: SELECT COUNT(T1.id) AS total_csv_files, SUM(T2.row_count) AS total_csv_rows FROM project_csv_files T1 JOIN project_csv_rows T2 ON T1.id = T2.csv_file_id
+[2026-06-02 09:39:52] [CHAT_STREAM] [SECURITY APPROVED] AIが自律特定したテーブル 'project_csv_files' は動的ホワイトリストに存在するため、監査パスを安全承認します。
+[2026-06-02 09:39:52] [CHAT_STREAM] [DEBUG-LOOP] 成功！ 試行 0 回目にしてSQLの正常実行開通を確認しました。
+[2026-06-02 09:39:52] [CHAT_STREAM] [DEBUG] バッチスライス巡回中... (1/1)
+[2026-06-02 09:40:53] [CHAT_STREAM] [DEBUG] cURLによるOllama最終ストリーミング(api/generate)接続処理を開始します...
+[2026-06-02 09:40:53] [CHAT_STREAM] [DEBUG] cURL送信・接続実行...
+[2026-06-02 09:42:08] [CHAT_STREAM]   [ストリーム進行中] パケット受信数: 41回 | 累積文字数: 101文字
+[2026-06-02 09:42:13] [CHAT_STREAM]   [ストリーム進行中] パケット受信数: 98回 | 累積文字数: 202文字
+[2026-06-02 09:42:17] [CHAT_STREAM]   [ストリーム進行中] パケット受信数: 154回 | 累積文字数: 303文字
+[2026-06-02 09:42:21] [CHAT_STREAM]   [ストリーム進行中] パケット受信数: 202回 | 累積文字数: 404文字
+[2026-06-02 09:42:25] [CHAT_STREAM]   [ストリーム進行中] パケット受信数: 252回 | 累積文字数: 511文字
+[2026-06-02 09:42:28] [CHAT_STREAM]   [ストリーム進行中] パケット受信数: 306回 | 累積文字数: 614文字
+[2026-06-02 09:42:32] [CHAT_STREAM]   [ストリーム進行中] パケット受信数: 361回 | 累積文字数: 715文字
+[2026-06-02 09:42:35] [CHAT_STREAM]   [ストリーム進行中] パケット受信数: 412回 | 累積文字数: 816文字
+[2026-06-02 09:42:39] [CHAT_STREAM]   [ストリーム進行中] パケット受信数: 469回 | 累積文字数: 918文字
+[2026-06-02 09:42:43] [CHAT_STREAM]   [ストリーム進行中] パケット受信数: 518回 | 累積文字数: 1019文字
+[2026-06-02 09:42:46] [CHAT_STREAM]   [ストリーム進行中] パケット受信数: 567回 | 累積文字数: 1121文字
+[2026-06-02 09:42:50] [CHAT_STREAM]   [ストリーム進行中] パケット受信数: 626回 | 累積文字数: 1221文字
+[2026-06-02 09:42:52] [CHAT_STREAM]   [ストリーム進行中] パケット受信数: 670回 | 累積文字数: 1324文字
+[2026-06-02 09:42:56] [CHAT_STREAM]   [ストリーム進行中] パケット受信数: 719回 | 累積文字数: 1424文字
+[2026-06-02 09:42:58] [CHAT_STREAM]   [ストリーム進行中] パケット受信数: 760回 | 累積文字数: 1524文字
+[2026-06-02 09:43:03] [CHAT_STREAM]   [ストリーム進行中] パケット受信数: 805回 | 累積文字数: 1624文字
+[2026-06-02 09:43:06] [CHAT_STREAM]   [ストリーム進行中] パケット受信数: 854回 | 累積文字数: 1726文字
+[2026-06-02 09:43:09] [CHAT_STREAM]   [ストリーム進行中] パケット受信数: 907回 | 累積文字数: 1828文字
+[2026-06-02 09:43:12] [CHAT_STREAM]   [ストリーム進行中] パケット受信数: 955回 | 累積文字数: 1930文字
+[2026-06-02 09:43:13] [CHAT_STREAM] [DEBUG] cURL通信完了。HTTPコード: 200 | cURLエラー: なし
+[2026-06-02 09:43:13] [CHAT_STREAM] [DEBUG] 生成された最終回答文字数: 1944文字
+[2026-06-02 09:44:43] [CHAT_STREAM] [DEBUG] ChatEvaluator 品質審査完了。
+[2026-06-02 09:44:43] [CHAT_STREAM] [EVAL-OK] 門番の審査をパスしました（試行回数: 0）。
+[2026-06-02 09:44:43] [CHAT_STREAM] [DEBUG] DBトランザクションを開始し、ステップ99・対話ログ・評価スコアを一元コミットします...
+[2026-06-02 09:44:43] [CHAT_STREAM] [DEBUG] chat_reasoning_steps の最終ステップ(99)を完了状態に更新しました。
+[2026-06-02 09:44:43] [CHAT_STREAM] [DEBUG] chat_history 登録成功. ID: 30
+[2026-06-02 09:44:43] [CHAT_STREAM] [DEBUG] chat_reasoning_steps のセッションを chat_history_id: 30 にバインド完了。
+[2026-06-02 09:44:43] [CHAT_STREAM] [DEBUG] chat_evaluations へ品質審査スコアを正常に登録・同期しました。
+[2026-06-02 09:44:43] [CHAT_STREAM] [DEBUG] DBトランザクションコミット成功。すべての書き込みデータ整合性を完全保護しました。
+[2026-06-02 09:44:43] [CHAT_STREAM] === Text-to-SQL 自律修復型分析パイプライン完了 ===
+[2026-06-02 09:58:12] [CHAT_STREAM] === 新着チャット受信 | Host: http://host.docker.internal:11434 | Model: gemma4:e4b ===
+[2026-06-02 09:58:12] [CHAT_STREAM] ユーザー: admin (ID: 1) | 案件ID: 4
+[2026-06-02 09:58:12] [CHAT_STREAM] 質問内容: このCSVにはどんな項目が入っていますか。
+[2026-06-02 09:58:12] [CHAT_STREAM] [SMART-ROUTER] CSV証拠読解に適した質問を検知。CSV全件証拠収集ルートを優先します。
+[2026-06-02 09:58:12] [CHAT_STREAM] >>> [データ分析ルート] 動的スキーマ監査型 多段階集計エージェントを起動します
+[2026-06-02 09:58:12] [CHAT_STREAM] [DEBUG] 引数情報 - Host: http://host.docker.internal:11434 | Model: gemma4:e4b | UserID: 1 | Role: admin
+[2026-06-02 09:58:12] [CHAT_STREAM] [DEBUG] 生成されたデータ分析セッションID (reasoningId): sql-reason_6a1e2aa4c5dd3-1801
+[2026-06-02 09:58:12] [CHAT_STREAM] [DEBUG] データベースの実在スキーマ構造を動的に解析・スキャンします...
+[2026-06-02 09:58:12] [CHAT_STREAM] 網羅調査完了 - CSV行数: 10件, コメント: 0件, FAQ: 0件
+[2026-06-02 09:58:12] [CHAT_STREAM] [DEBUG] 動的スキーマ情報およびデータ総数マトリクスの構築完了。文字数: 5619文字
+[2026-06-02 09:58:12] [CHAT_STREAM] [CSV-EVIDENCE] CSV証拠全件読解ルートを起動します。対象行数: 10
+[2026-06-02 10:01:44] [CHAT_STREAM] [DEBUG] DBトランザクションを開始し、ステップ99・対話ログ・評価スコアを一元コミットします...
+[2026-06-02 10:01:44] [CHAT_STREAM] [DEBUG] chat_reasoning_steps の最終ステップ(99)を完了状態に更新しました。
+[2026-06-02 10:01:44] [CHAT_STREAM] [DEBUG] chat_history 登録成功. ID: 32
+[2026-06-02 10:01:44] [CHAT_STREAM] [DEBUG] chat_reasoning_steps のセッションを chat_history_id: 32 にバインド完了。
+[2026-06-02 10:01:44] [CHAT_STREAM] [DEBUG] DBトランザクションコミット成功。すべての書き込みデータ整合性を完全保護しました。
+[2026-06-02 10:01:44] [CHAT_STREAM] === Text-to-SQL 自律修復型分析パイプライン完了 ===
+[2026-06-02 10:01:44] [CHAT_STREAM] [CSV-EVIDENCE] CSV証拠全件読解ルートが完了しました。
+[2026-06-02 10:05:01] [CHAT_STREAM] === 新着チャット受信 | Host: http://host.docker.internal:11434 | Model: gemma4:e4b ===
+[2026-06-02 10:05:01] [CHAT_STREAM] ユーザー: admin (ID: 1) | 案件ID: 4
+[2026-06-02 10:05:01] [CHAT_STREAM] 質問内容: CSVの内容をまとめてください。
+[2026-06-02 10:05:01] [CHAT_STREAM] [SMART-ROUTER] CSV証拠読解に適した質問を検知。CSV全件証拠収集ルートを優先します。
+[2026-06-02 10:05:01] [CHAT_STREAM] >>> [データ分析ルート] 動的スキーマ監査型 多段階集計エージェントを起動します
+[2026-06-02 10:05:01] [CHAT_STREAM] [DEBUG] 引数情報 - Host: http://host.docker.internal:11434 | Model: gemma4:e4b | UserID: 1 | Role: admin
+[2026-06-02 10:05:01] [CHAT_STREAM] [DEBUG] 生成されたデータ分析セッションID (reasoningId): sql-reason_6a1e2c3d3c563-5657
+[2026-06-02 10:05:01] [CHAT_STREAM] [DEBUG] データベースの実在スキーマ構造を動的に解析・スキャンします...
+[2026-06-02 10:05:01] [CHAT_STREAM] 網羅調査完了 - CSV行数: 10件, コメント: 0件, FAQ: 0件
+[2026-06-02 10:05:01] [CHAT_STREAM] [DEBUG] 動的スキーマ情報およびデータ総数マトリクスの構築完了。文字数: 5619文字
+[2026-06-02 10:05:01] [CHAT_STREAM] [CSV-EVIDENCE] CSV証拠全件読解ルートを起動します。対象行数: 10
+[2026-06-02 10:09:35] [CHAT_STREAM] [DEBUG] DBトランザクションを開始し、ステップ99・対話ログ・評価スコアを一元コミットします...
+[2026-06-02 10:09:35] [CHAT_STREAM] [DEBUG] chat_reasoning_steps の最終ステップ(99)を完了状態に更新しました。
+[2026-06-02 10:09:35] [CHAT_STREAM] [DEBUG] chat_history 登録成功. ID: 34
+[2026-06-02 10:09:35] [CHAT_STREAM] [DEBUG] chat_reasoning_steps のセッションを chat_history_id: 34 にバインド完了。
+[2026-06-02 10:09:35] [CHAT_STREAM] [DEBUG] DBトランザクションコミット成功。すべての書き込みデータ整合性を完全保護しました。
+[2026-06-02 10:09:35] [CHAT_STREAM] === Text-to-SQL 自律修復型分析パイプライン完了 ===
+[2026-06-02 10:09:35] [CHAT_STREAM] [CSV-EVIDENCE] CSV証拠全件読解ルートが完了しました。
+[2026-06-02 10:20:09] [CHAT_STREAM] === 新着チャット受信 | Host: http://host.docker.internal:11434 | Model: gemma4:e4b ===
+[2026-06-02 10:20:09] [CHAT_STREAM] ユーザー: admin (ID: 1) | 案件ID: 4
+[2026-06-02 10:20:09] [CHAT_STREAM] 質問内容: これまでの会話内容を簡潔にまとめてください。
+[2026-06-02 10:20:09] [CHAT_STREAM] [SMART-ROUTER] 高度なマルチタスク文脈を検知。最優先で「ハイブリッド多重推論統合ハブ(chat_advanced.php Colonial)」をキックします。
+[2026-06-02 10:20:09] [CHAT_STREAM] [SMART-ROUTER] 自律生成推論セッションID: auto-reason_6a1e2fc9d43e1-9999
+[2026-06-02 10:20:09] [CHAT_STREAM] >>> [MoAハイブリッド多重推論要塞] 統合ハブコントローラーを起動します
+[2026-06-02 10:20:09] [CHAT_STREAM] [DEBUG] 引数情報 - Host: http://host.docker.internal:11434 | Model: gemma4:e4b | UserID: 1 | Role: admin
+[2026-06-02 10:20:09] [CHAT_STREAM] [DEBUG] データベースの実在スキーマ構造を動的に解析・スキャンします...
+[2026-06-02 10:20:09] [CHAT_STREAM] 網羅調査完了 - CSV行数: 10件, コメント: 0件, FAQ: 0件
+[2026-06-02 10:20:09] [CHAT_STREAM] [DEBUG] 動的スキーマ情報およびデータ総数マトリクスの構築完了。文字数: 5619文字
+[2026-06-02 10:20:09] [CHAT_STREAM] [DEBUG] 生成されたデータ分析セッションID (reasoningId): auto-reason_6a1e2fc9d43e1-9999
+[2026-06-02 10:20:09] [CHAT_STREAM] [DEBUG] 質問の因数分解を開始します。質問: これまでの会話内容を簡潔にまとめてください。
+[2026-06-02 10:20:09] [CHAT_STREAM] [DEBUG] Ollama因数分解API呼び出し送信前...
+[2026-06-02 10:21:16] [CHAT_STREAM] [DEBUG] Ollama因数分解API応答受信 raw: {
+    "query": "この質問は、過去の会話履歴（`chat_history`テーブル）の内容を要約する要求であり、特定の集計や分析観点が存在しないため、単に最新の会話履歴の概要を把握するためのデータ取得手順を提案する。"
+}
+[2026-06-02 10:21:16] [CHAT_STREAM] [FORMAT-RECOVERY] 単一の分析オブジェクトを配列構造に自動ラップ救済しました。
+[2026-06-02 10:21:16] [CHAT_STREAM] [DEBUG] サブクエリのパースに成功。サブ質問数: 1
+[2026-06-02 10:21:16] [CHAT_STREAM] 【データ分析】ステップ 1: 観点「この質問は、過去の会話履歴（`chat_history`テーブル）の内容を要約する要求であり、特定の集計や分析観点が存在しないため、単に最新の会話履歴の概要を把握するためのデータ取得手順を提案する。」のSQL生成中...
+[2026-06-02 10:22:57] [CHAT_STREAM] [OLLAMA-RAW-RESPONSE] (集計試行 0/3) 受信生データ:
+{"sql": "SELECT T1.message, T1.role, T1.created_at FROM chat_history T1 ORDER BY T1.created_at DESC LIMIT 10"}
+[2026-06-02 10:22:57] [CHAT_STREAM] [Text-to-SQL-AFTER] (集計試行 0/3) 補正後実行SQL: SELECT T1.message, T1.role, T1.created_at FROM chat_history T1 ORDER BY T1.created_at DESC LIMIT 10
+[2026-06-02 10:22:57] [CHAT_STREAM] [SECURITY APPROVED] 動的ホワイトリスト監査パスを安全承認します。
+[2026-06-02 10:22:57] [CHAT_STREAM] [DEBUG-LOOP] SQLの正常実行開通を確認しました。
+[2026-06-02 10:22:57] [CHAT_STREAM] [DEBUG] バッチスライス巡回中... (1/1)
+[2026-06-02 10:24:50] [CHAT_STREAM] [PLANNER-RAW-RESPONSE] Ollamaから受信した生の計画データ:
+{"step": 1, "table": "chat_history", "purpose": "ユーザーとAIの過去の対話履歴全体を検索し、その内容を要約するための基礎情報とする。"}
+[2026-06-02 10:24:50] [CHAT_STREAM] [FORMAT-RECOVERY] 単一の計画オブジェクトを配列構造に自動ラップ救済しました。
+[2026-06-02 10:24:50] [CHAT_STREAM] 策定された実行計画ステップ数: 1
+[2026-06-02 10:24:50] [CHAT_STREAM] 【フル思考】フェーズ2.1: テーブル「chat_history」の動的マスキングスキャン実行中...
+[2026-06-02 10:25:19] [CHAT_STREAM] [AUTO-SQL-RAW] (ステップ 1) 受信生クエリデータ: {"sql": "SELECT role, message FROM chat_history WHERE project_id = 4 ORDER BY created_at DESC"}
+[2026-06-02 10:25:19] [CHAT_STREAM] [AGENT-SQL-BEFORE] (ステップ 1) プログラム補正前の素のSQL: SELECT role, message FROM chat_history WHERE project_id = 4 ORDER BY created_at DESC
+[2026-06-02 10:25:19] [CHAT_STREAM] [AGENT-SQL-AFTER]  (ステップ 1) プログラム補正後の最終実行SQL: SELECT role, message FROM chat_history WHERE project_id = 4 ORDER BY created_at DESC
+[2026-06-02 10:26:07] [CHAT_STREAM] ==================================================
+[2026-06-02 10:26:07] [CHAT_STREAM] 【フル思考フェーズ3】バルクMap-Reduce超解像度ループを起動します。
+[2026-06-02 10:26:07] [CHAT_STREAM] ==================================================
+[2026-06-02 10:26:07] [CHAT_STREAM] 【物理全件検知】プロジェクトID: 4 から合計 10 件の生レコードをロードしました。
+[2026-06-02 10:27:24] [CHAT_STREAM] [BATCH-MAP-SUCCESS] スライス巡回成功 [塊: 1/1]
+[2026-06-02 10:29:32] [CHAT_STREAM] [DEBUG] ChatEvaluator 品質審査完了。
+[2026-06-02 10:29:32] [CHAT_STREAM] [CRITIC-PASS] 門番のスパルタ審査を105%完全クリアしました（総反省周回: 0回）。
+[2026-06-02 10:29:32] [CHAT_STREAM] [DEBUG] DBトランザクションを開始し、ステップ99・対話ログ・評価スコアを一元コミットします...
+[2026-06-02 10:29:32] [CHAT_STREAM] [DEBUG] chat_reasoning_steps の最終ステップ(99)をトランザクション内で正常に完了記録しました。
+[2026-06-02 10:29:32] [CHAT_STREAM] [DEBUG] chat_history 登録成功。ID: 36
+[2026-06-02 10:29:32] [CHAT_STREAM] [DEBUG] chat_evaluations へ品質審査スコアを一元トランザクション内で同期登録しました。
+[2026-06-02 10:29:32] [CHAT_STREAM] [DEBUG] DBトランザクションコミット成功。すべての書き込みデータ整合性を完全保護しました。
+[2026-06-02 10:29:32] [CHAT_STREAM] === [MoA大統合ハブコントローラー] ハイブリッド並列多重推論パイプライン全線開通・処理完了 ===
+[2026-06-02 10:34:47] [CHAT_STREAM] === 新着チャット受信 | Host: http://host.docker.internal:11434 | Model: gemma4:e4b ===
+[2026-06-02 10:34:47] [CHAT_STREAM] ユーザー: admin (ID: 1) | 案件ID: 4
+[2026-06-02 10:34:47] [CHAT_STREAM] 質問内容: グラフにできますか。
+[2026-06-02 10:34:47] [CHAT_STREAM] [SMART-ROUTER] 純粋なデータ集計要求を検知。単発の「データ分析エージェント(chat_analysis.php)」を起動します。
+[2026-06-02 10:34:47] [CHAT_STREAM] >>> [データ分析ルート] 動的スキーマ監査型 多段階集計エージェントを起動します
+[2026-06-02 10:34:47] [CHAT_STREAM] [DEBUG] 引数情報 - Host: http://host.docker.internal:11434 | Model: gemma4:e4b | UserID: 1 | Role: admin
+[2026-06-02 10:34:47] [CHAT_STREAM] [DEBUG] 生成されたデータ分析セッションID (reasoningId): sql-reason_6a1e3337c1549-9436
+[2026-06-02 10:34:47] [CHAT_STREAM] [DEBUG] データベースの実在スキーマ構造を動的に解析・スキャンします...
+[2026-06-02 10:34:47] [CHAT_STREAM] 網羅調査完了 - CSV行数: 10件, コメント: 0件, FAQ: 0件
+[2026-06-02 10:34:47] [CHAT_STREAM] [DEBUG] 動的スキーマ情報およびデータ総数マトリクスの構築完了。文字数: 5619文字
+[2026-06-02 10:34:47] [CHAT_STREAM] [DEBUG] 質問の因数分解を開始します。質問: グラフにできますか。
+[2026-06-02 10:34:47] [CHAT_STREAM] [DEBUG] Ollama因数分解API呼び出し送信前...
+[2026-06-02 10:35:46] [CHAT_STREAM] [DEBUG] Ollama因数分解API応答受信 raw: {"query": "ユーザーの質問が「グラフにできますか」という極めて抽象的な問いであるため、具体的なデータ集計の指示がありません。まずは、プロジェクトの全体的なデータ量や、主要なデータテーブル（例：`project_csv_rows`）の基本的な概要把握（レコード数や最新のデータ傾向）を行うための手順に分解します。"}
+[2026-06-02 10:35:46] [CHAT_STREAM] [FORMAT-RECOVERY] 単一の分析オブジェクトを配列構造に自動ラップ救済しました。
+[2026-06-02 10:35:46] [CHAT_STREAM] [DEBUG] サブクエリのパースに成功。サブ質問数: 1
+[2026-06-02 10:35:46] [CHAT_STREAM] 【データ分析】ステップ 1: 観点「ユーザーの質問が「グラフにできますか」という極めて抽象的な問いであるため、具体的なデータ集計の指示がありません。まずは、プロジェクトの全体的なデータ量や、主要なデータテーブル（例：`project_csv_rows`）の基本的な概要把握（レコード数や最新のデータ傾向）を行うための手順に分解します。」のSQL生成中...
+[2026-06-02 10:37:29] [CHAT_STREAM] [OLLAMA-RAW-RESPONSE] (試行 0/3) Ollama側からの受信生データ:
+{"sql": "SELECT COUNT(T1.id) AS total_csv_rows, COUNT(T2.id) AS total_chat_history, COUNT(T3.id) AS total_doc_chunks, COUNT(T4.id) AS total_project_comments FROM project_csv_rows T1 LEFT JOIN chat_history T2 ON 1=1 LEFT JOIN doc_chunks T3 ON 1=1 LEFT JOIN project_comments T4 ON 1=1"}
+[2026-06-02 10:37:29] [CHAT_STREAM] [Text-to-SQL-BEFORE] (試行 0/3) プログラム補正前の素のSQL: SELECT COUNT(T1.id) AS total_csv_rows, COUNT(T2.id) AS total_chat_history, COUNT(T3.id) AS total_doc_chunks, COUNT(T4.id) AS total_project_comments FROM project_csv_rows T1 LEFT JOIN chat_history T2 ON 1=1 LEFT JOIN doc_chunks T3 ON 1=1 LEFT JOIN project_comments T4 ON 1=1
+[2026-06-02 10:37:29] [CHAT_STREAM] [Text-to-SQL-AFTER]  (試行 0/3) プログラム補正後の最終実行SQL: SELECT COUNT(T1.id) AS total_csv_rows, COUNT(T2.id) AS total_chat_history, COUNT(T3.id) AS total_doc_chunks, COUNT(T4.id) AS total_project_comments FROM project_csv_rows T1 LEFT JOIN chat_history T2 ON 1=1 LEFT JOIN doc_chunks T3 ON 1=1 LEFT JOIN project_comments T4 ON 1=1
+[2026-06-02 10:37:29] [CHAT_STREAM] [SECURITY APPROVED] AIが自律特定したテーブル 'project_csv_rows' は動的ホワイトリストに存在するため、監査パスを安全承認します。
+[2026-06-02 10:37:29] [CHAT_STREAM] [DEBUG-LOOP] 成功！ 試行 0 回目にしてSQLの正常実行開通を確認しました。
+[2026-06-02 10:37:29] [CHAT_STREAM] [DEBUG] バッチスライス巡回中... (1/1)
+[2026-06-02 10:38:48] [CHAT_STREAM] [DEBUG] cURLによるOllama最終ストリーミング(api/generate)接続処理を開始します...
+[2026-06-02 10:38:48] [CHAT_STREAM] [DEBUG] cURL送信・接続実行...
+[2026-06-02 10:39:54] [CHAT_STREAM]   [ストリーム進行中] パケット受信数: 46回 | 累積文字数: 101文字
+[2026-06-02 10:39:58] [CHAT_STREAM]   [ストリーム進行中] パケット受信数: 96回 | 累積文字数: 202文字
+[2026-06-02 10:40:01] [CHAT_STREAM]   [ストリーム進行中] パケット受信数: 147回 | 累積文字数: 303文字
+[2026-06-02 10:40:04] [CHAT_STREAM]   [ストリーム進行中] パケット受信数: 199回 | 累積文字数: 403文字
+[2026-06-02 10:40:08] [CHAT_STREAM]   [ストリーム進行中] パケット受信数: 251回 | 累積文字数: 504文字
+[2026-06-02 10:40:11] [CHAT_STREAM]   [ストリーム進行中] パケット受信数: 301回 | 累積文字数: 605文字
+[2026-06-02 10:40:14] [CHAT_STREAM]   [ストリーム進行中] パケット受信数: 353回 | 累積文字数: 705文字
+[2026-06-02 10:40:17] [CHAT_STREAM]   [ストリーム進行中] パケット受信数: 393回 | 累積文字数: 805文字
+[2026-06-02 10:40:20] [CHAT_STREAM]   [ストリーム進行中] パケット受信数: 443回 | 累積文字数: 909文字
+[2026-06-02 10:40:24] [CHAT_STREAM]   [ストリーム進行中] パケット受信数: 492回 | 累積文字数: 1011文字
+[2026-06-02 10:40:27] [CHAT_STREAM]   [ストリーム進行中] パケット受信数: 539回 | 累積文字数: 1114文字
+[2026-06-02 10:40:30] [CHAT_STREAM]   [ストリーム進行中] パケット受信数: 598回 | 累積文字数: 1214文字
+[2026-06-02 10:40:34] [CHAT_STREAM]   [ストリーム進行中] パケット受信数: 650回 | 累積文字数: 1314文字
+[2026-06-02 10:40:39] [CHAT_STREAM]   [ストリーム進行中] パケット受信数: 706回 | 累積文字数: 1414文字
+[2026-06-02 10:40:44] [CHAT_STREAM]   [ストリーム進行中] パケット受信数: 759回 | 累積文字数: 1517文字
+[2026-06-02 10:40:48] [CHAT_STREAM]   [ストリーム進行中] パケット受信数: 805回 | 累積文字数: 1619文字
+[2026-06-02 10:40:51] [CHAT_STREAM]   [ストリーム進行中] パケット受信数: 852回 | 累積文字数: 1720文字
+[2026-06-02 10:40:56] [CHAT_STREAM]   [ストリーム進行中] パケット受信数: 899回 | 累積文字数: 1821文字
+[2026-06-02 10:41:00] [CHAT_STREAM]   [ストリーム進行中] パケット受信数: 947回 | 累積文字数: 1922文字
+[2026-06-02 10:41:03] [CHAT_STREAM]   [ストリーム進行中] パケット受信数: 999回 | 累積文字数: 2023文字
+[2026-06-02 10:41:05] [CHAT_STREAM] [DEBUG] cURL通信完了。HTTPコード: 200 | cURLエラー: なし
+[2026-06-02 10:41:05] [CHAT_STREAM] [DEBUG] 生成された最終回答文字数: 2084文字

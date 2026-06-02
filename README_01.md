@@ -10,6 +10,42 @@ Ollama	0.3.x (LLM)
 Leaflet.js	1.9.4
 Tailwind CSS	3.x
 
+現行仕様サマリー（2026/06/02時点）
+
+本システムは、Windows本番環境（PHP 8.2.8 / MySQL 8.0.33 / Apache 2.4.57）上で動作する、案件単位のAI業務支援プラットフォームです。`AI_System_Data/public` をWeb公開ルートとし、PDF資料、CSV/TSVデータ、案件コメント、FAQ、メンバー情報をMySQLに保存します。AI推論はOllama APIを利用し、ユーザーごとに接続先URL、既定モデル、サブモデルを設定できます。
+
+主な現行機能
+
+機能	内容	主要ファイル
+ログイン・ユーザー管理	`users` テーブルの `password_hash` による認証、admin/user権限、部署、既定プロンプト・言語・モデル・Ollama接続先の保存	public/login.php, public/user_management.php, public/api/save_user_settings.php
+案件管理	案件の作成、編集、削除、住所・座標・期間・ステータス管理。一般ユーザーは作成案件または参加案件のみ参照可能	public/support.php, public/api/add_project.php, public/api/update_project.php, src/ProjectAccess.php
+案件メンバー管理	案件ごとに manager/member/viewer を割り当て、操作権限を制御	public/api/add_project_member.php, public/api/remove_project_member.php
+PDF登録・RAG化	PDFを案件配下に保存し、テキスト抽出、必要に応じた画像/VLM解析、チャンク化、Embedding生成、`doc_chunks` 登録を実行	public/api/upload.php, src/EmbeddingEngine.php
+CSV/TSV登録	CSV/TSVを `project_csv_files` / `project_csv_rows` に保存し、同時に自然言語チャンクとして `doc_chunks` に登録	public/api/upload_csv.php, public/api/get_csv_data.php, public/api/delete_csv.php
+外部PostgreSQL取込	外部PostgreSQLの抽出結果をCSV同等の構造で案件DBへ登録	public/api/import_postgresql.php
+AIチャット	`chat.php` を入口に、通常RAG、フル思考、Text-to-SQL分析、CSV証拠読解、admin向け全社横断調査へスマートルーティング	public/api/chat.php, chat_normal.php, chat_advanced.php, chat_analysis.php, chat_global.php
+CSV高速サマリー	小規模CSV（100行以下）の「内容まとめ」「概要」「要約」系質問は、Ollamaを呼ばずDBレコードから即時サマリーを生成	public/api/chat_analysis.php
+Text-to-SQL分析	AI生成SQLを `SqlExecutionEngine` で監査し、実在テーブル・カラム、案件スコープ、SELECT系SQLのみ実行。失敗時は修復ガイダンスとフォールバックSQLで正解に誘導	src/SqlExecutionEngine.php, public/api/chat_analysis.php
+回答品質評価	LLM-as-a-Judgeで回答を評価し、必要に応じて追加抽出・再生成を行い、評価結果を `chat_evaluations` に保存	src/ChatEvaluator.php, public/api/chat_advanced.php, public/api/chat_analysis.php
+チャットUI描画	SSEストリームで回答を逐次表示し、Markdown、Chart.js用 `json:chart`、Mermaid図をチャット内に描画。ブラウザ更新後も推論プロセスを再表示	public/assets/js/modules/chat.js, public/assets/js/modules/aiRenderer.js, public/support.php
+詳細ログ	`chat_debug.log` にルート判定、DB収集、Ollama呼び出し、SQL修復、評価、保存処理の詳細ログを出力。support.php上でリアルタイムtail表示可能	logs/chat_debug.log, public/api/chat_debug_tail.php, src/AppLogger.php
+
+チャット回答生成のルート概要
+
+1. `public/api/chat.php` が質問文、案件ID、モデル、プロンプト、フル思考指定を受け取る。
+2. 質問意図により、通常RAG、CSV証拠読解、Text-to-SQL、フル思考、全社横断調査へ分岐する。
+3. PDF/CSV/コメント/FAQ/会話履歴などの関連データをMySQLから取得する。
+4. 必要に応じてOllamaで回答生成、SQL生成、推論統合、品質評価を行う。
+5. 回答本文、推論ステップ、評価スコアを `chat_history`、`chat_reasoning_steps`、`chat_evaluations` に保存する。
+6. フロントエンドはSSEで受信した本文をリアルタイム描画し、Chart.js / Mermaid の図表も描画する。
+
+運用上の注意
+
+- 本番環境はDocker前提ではなく、Windows + Apache + PHP + MySQL の構成を基準とする。
+- Ollama接続先はユーザー設定の `ollama_host` を優先し、Docker利用時のみ `host.docker.internal:11434` のような接続先を使う。
+- `logs/chat_debug.log` は詳細調査に有効だが、運用時はログ肥大化に注意する。
+- Chart.js用グラフは ` ```json:chart ` コードブロック、業務フロー図は ` ```mermaid ` コードブロックとして回答に含める。
+
 1. 要件定義書
 1.1 システムの目的
 建設コンサルタント業（全11分野）の共通業務を、PHP 8.2.8 と MySQL 8.0.33 を活用して効率化する。

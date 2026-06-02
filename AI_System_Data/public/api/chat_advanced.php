@@ -411,6 +411,7 @@ class AdvancedReasoningRouteProcessor {
             }
 
             chatLogger("[SQL-EXEC-FAILED] (集計試行 {$retry_count}/3) MySQL生エラー文: " . ($execResult['error'] ?? 'Unknown Error'));
+            $repairGuidance = $sqlEngine->buildRepairGuidance($generated_sql, (string)($execResult['error'] ?? 'Unknown Error'), $subQ);
 
             $retry_count++;
             if ($retry_count > $max_retries) {
@@ -421,19 +422,34 @@ class AdvancedReasoningRouteProcessor {
             // 自己反省（Self-Reflection）デバッグプロンプト構築
             $debug_sys_prompt = "高度なMySQL 8.0のエキスパートシステムとして、提示された【失敗したクエリ】と、MySQLサーバーが返した【生の構成エラー文】を深く自己反省（Self-Reflection）してください。\n"
                               . "出力は必ず、修正・デバッグされた実行可能なSQL文字列1つのみを内包したJSON形式【のみ】を出力してください。\n"
+                              . "SELECT '説明文' のような実テーブルを読まないダミーSQLは禁止です。必ずFROM句で実在テーブルを参照してください。\n"
                               . '{"sql": "SELECT ..."}';
 
             $debug_sys_prompt = $this->databaseMemoryPrompt . "\n" . $debug_sys_prompt;
             $debug_user_context = "【動的INFORMATION_SCHEMA構成】\n" . $this->schemaInfo . "\n\n"
                                 . "【この分析タスクの本来の目的】\n" . $subQ . "\n\n"
                                 . "❌ 【前回失敗した不正なSQL】\n" . $generated_sql . "\n\n"
-                                . "⚠️ 【MySQLから返された生のエラー文】\n" . ($execResult['error'] ?? 'Unknown Error');
+                                . "⚠️ 【MySQLから返された生のエラー文】\n" . ($execResult['error'] ?? 'Unknown Error') . "\n\n"
+                                . $repairGuidance;
 
             $sqlJsonStr = callOllamaChat($this->ollama_host, $this->reasoningModel, $debug_sys_prompt, $debug_user_context, 'json', ["temperature" => 0.0, "top_p" => 0.1, "num_ctx" => 4096]);
         }
 
         if (!$execResult['success']) {
             chatLogger("[WARN] 自律修復上限超過：最終SQLのエラーが解消されませんでした。");
+            $fallbackSql = $sqlEngine->suggestFallbackSql($subQ, $generated_sql ?? '');
+            if ($fallbackSql) {
+                chatLogger("[FALLBACK-SQL] 自律修復上限後、実在スキーマに基づく定番SQLで最終救済を試行します: " . $fallbackSql);
+                $fallbackResult = $sqlEngine->execute($fallbackSql);
+                if (($fallbackResult['success'] ?? false) === true) {
+                    $generated_sql = $fallbackResult['sql'] ?? $fallbackSql;
+                    $execResult = $fallbackResult;
+                    chatLogger("[FALLBACK-SQL-SUCCESS] 定番SQLによる救済に成功しました。");
+                }
+            }
+        }
+
+        if (!$execResult['success']) {
             return "⚠️ **3回自律修復を試みましたが、集計を完了できませんでした。**\n\n最終エラー詳細: " . ($execResult['error'] ?? '不明なエラー。') . "\n\nデバッグ対象クエリ: `{$generated_sql}`";
         }
 
@@ -729,6 +745,22 @@ class AdvancedReasoningRouteProcessor {
 
                     if (!$execResult['success']) {
                         chatLogger("[AGENT-EXEC-FAILED] (ステップ {$stepCounter}) 監査拒否または生エラー: " . ($execResult['error'] ?? 'Unknown Error'));
+                        $repairGuidance = $sqlEngine->buildRepairGuidance($generatedSql, (string)($execResult['error'] ?? 'Unknown Error'), $purpose);
+                        chatLogger("[AGENT-REPAIR-GUIDANCE] (ステップ {$stepCounter}) 正解誘導ヒント:\n" . $repairGuidance);
+
+                        $fallbackSql = $sqlEngine->suggestFallbackSql($purpose, $generatedSql);
+                        if ($fallbackSql) {
+                            chatLogger("[AGENT-FALLBACK-SQL] (ステップ {$stepCounter}) 実在スキーマに基づく定番SQLで救済試行: " . $fallbackSql);
+                            $fallbackResult = $sqlEngine->execute($fallbackSql);
+                            if (($fallbackResult['success'] ?? false) === true) {
+                                $generatedSql = $fallbackResult['sql'] ?? $fallbackSql;
+                                $execResult = $fallbackResult;
+                                chatLogger("[AGENT-FALLBACK-SQL-SUCCESS] (ステップ {$stepCounter}) 定番SQLによる救済に成功しました。");
+                            }
+                        }
+                    }
+
+                    if (!$execResult['success']) {
                         $subAnsText = "⚠️ クエリの実行がセキュリティまたは構文監査により遮断されました。理由: " . ($execResult['error'] ?? '不明な拒否。');
                     } else {
                         $rows = $execResult['data'] ?? [];

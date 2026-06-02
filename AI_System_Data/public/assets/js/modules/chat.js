@@ -8,7 +8,7 @@
  */
 import { secureFetch, getConfig } from './api.js?v=4';
 import { scrollToBottom } from './ui.js?v=4';
-import { AiRenderer } from './aiRenderer.js?v=2';
+import { AiRenderer } from './aiRenderer.js?v=4';
 
 // 生成された Chart.js のインスタンスを保持し、メモリリークや二重描画を防ぐグローバル管理マップ
 window.chartInstances = window.chartInstances || {};
@@ -58,6 +58,16 @@ function escapeHTML(str) {
         .replace(/'/g, '&#39;');
 }
 
+function normalizeAiText(value) {
+    if (value == null) return '';
+    if (typeof value === 'string') return value;
+    if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+    if (typeof value === 'object') {
+        return String(value.text ?? value.content ?? value.response ?? value.message ?? JSON.stringify(value));
+    }
+    return String(value);
+}
+
 /**
  * チャット表示用の日時フォーマット整形
  */
@@ -90,15 +100,55 @@ function getLogTimestamp() {
 function parseMarkdownToHtml(content, renderer = null) {
     const options = { breaks: true };
     if (renderer) options.renderer = renderer;
-    
-    const rawHtml = marked.parse(content, options);
-    return typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(rawHtml) : rawHtml;
+
+    const rawHtml = marked.parse(normalizeAiText(content), options);
+    return sanitizeMarkdownHtml(rawHtml);
+}
+
+function sanitizeMarkdownHtml(rawHtml) {
+    if (typeof DOMPurify === 'undefined') return rawHtml;
+    return DOMPurify.sanitize(rawHtml, {
+        ADD_TAGS: ['canvas'],
+        ADD_ATTR: ['data-chart-id', 'data-canvas-id', 'data-chart-config', 'data-mermaid-id', 'data-mermaid-source']
+    });
+}
+
+function normalizeMarkedCodeArgs(code, infostring = '') {
+    if (code && typeof code === 'object') {
+        return {
+            code: String(code.text ?? code.raw ?? code.code ?? ''),
+            info: String(code.lang ?? code.infostring ?? code.info ?? '').trim()
+        };
+    }
+    return {
+        code: String(code ?? ''),
+        info: String(infostring ?? '').trim()
+    };
+}
+
+function normalizeChartConfig(config) {
+    if (!config || typeof config !== 'object') {
+        return { type: 'bar', labels: [], datasets: [] };
+    }
+    if (config.data && typeof config.data === 'object') {
+        return {
+            ...config,
+            labels: Array.isArray(config.labels) ? config.labels : (config.data.labels || []),
+            datasets: Array.isArray(config.datasets) ? config.datasets : (config.data.datasets || [])
+        };
+    }
+    return {
+        ...config,
+        labels: Array.isArray(config.labels) ? config.labels : [],
+        datasets: Array.isArray(config.datasets) ? config.datasets : []
+    };
 }
 
 /**
  * Chart.jsの設定オブジェクトをインテリジェントに動的生成
  */
 function generateChartConfig(config, isModal = false) {
+    config = normalizeChartConfig(config);
     const isLine = config.type === 'line';
     const isPie = config.type === 'pie';
     
@@ -188,11 +238,11 @@ function renderChartsInContainer(parentContainer) {
     if (!parentContainer) return;
 
     parentContainer.querySelectorAll('.chart-card-wrapper').forEach(wrapper => {
-        const chartId = wrapper.dataset.chartId;
+        const chartId = wrapper.dataset.chartId || wrapper.dataset.canvasId;
         const configStr = wrapper.dataset.chartConfig;
-        
+
         try {
-            const config = JSON.parse(configStr);
+            const config = normalizeChartConfig(JSON.parse(configStr));
             const canvasElement = document.getElementById(chartId);
             
             if (canvasElement) {
@@ -234,11 +284,20 @@ function ensureMermaidReady() {
     if (mermaidInitialized) return true;
 
     try {
-        mermaid.initialize({
-            startOnLoad: false,
-            securityLevel: 'strict',
-            theme: 'default'
-        });
+        if (typeof window.__tepscoInitMermaid === 'function') {
+            if (!window.__tepscoInitMermaid()) return false;
+        } else {
+            mermaid.parseError = function(err) {
+                console.warn('[Mermaid skipped]', err && err.message ? err.message : err);
+            };
+            mermaid.initialize({
+                startOnLoad: false,
+                securityLevel: 'strict',
+                theme: 'default',
+                logLevel: 'fatal',
+                suppressErrorRendering: true
+            });
+        }
         mermaidInitialized = true;
         return true;
     } catch (err) {
@@ -279,29 +338,46 @@ function renderMermaidInContainer(parentContainer) {
         if (!mermaidId || !source || !target) return;
 
         wrapper.dataset.rendered = 'pending';
-        mermaid.render(`${mermaidId}-svg`, source)
+        const parsePromise = typeof mermaid.parse === 'function'
+            ? Promise.resolve(mermaid.parse(source, { suppressErrors: true }))
+            : Promise.resolve(true);
+
+        parsePromise
+            .then(isValid => {
+                if (isValid === false) {
+                    throw new Error('Invalid Mermaid syntax');
+                }
+                return mermaid.render(`${mermaidId}-svg`, source);
+            })
             .then(({ svg }) => {
                 target.innerHTML = svg;
                 wrapper.dataset.rendered = 'true';
             })
             .catch(err => {
-                target.textContent = '図表の描画に失敗しました。';
+                target.textContent = '図表は現在描画できません。';
                 wrapper.dataset.rendered = 'error';
-                console.error('Mermaid Render Error:', err);
+                console.warn('Mermaid Render Skipped:', err && err.message ? err.message : err);
             });
     });
 }
 
 // marked.js 用のカスタムレンダラー
 const customRenderer = new marked.Renderer();
-const originalCodeRenderer = customRenderer.code;
 
 customRenderer.code = function(code, infostring, escaped) {
-    const info = (infostring || '').trim();
+    const normalized = normalizeMarkedCodeArgs(code, infostring);
+    code = normalized.code;
+    const info = normalized.info;
     if (info === 'json:chart' || info === 'json:chart_data') {
         const chartId = 'chart-' + Math.random().toString(36).substring(2, 11);
+        let configStr = code;
+        try {
+            configStr = JSON.stringify(normalizeChartConfig(JSON.parse(code)));
+        } catch (err) {
+            configStr = code;
+        }
         return `
-            <div class="chart-card-wrapper cursor-pointer" data-chart-id="${chartId}" data-chart-config="${escapeHTML(code)}">
+            <div class="chart-card-wrapper cursor-pointer" data-chart-id="${chartId}" data-canvas-id="${chartId}" data-chart-config="${escapeHTML(configStr)}">
                 <div class="text-[9px] text-slate-400 font-bold mb-2.5 select-none flex justify-between items-center pr-1">
                     <span class="flex items-center gap-1">📊 Chart.js 自律視覚化グラフ</span>
                     <span class="text-[8px] bg-indigo-50 text-indigo-600 font-black px-1.5 py-0.5 rounded-md border border-indigo-100">💡 ダブルクリックで拡大</span>
@@ -315,7 +391,7 @@ customRenderer.code = function(code, infostring, escaped) {
     if (info === 'mermaid') {
         return createMermaidCard(code, 'Mermaid 図表');
     }
-    return originalCodeRenderer.call(this, code, infostring, escaped);
+    return `<pre class="bg-slate-50 p-3 rounded-xl border border-slate-200/60 overflow-x-auto my-2"><code class="text-[11px] font-mono text-slate-700">${escapeHTML(code)}</code></pre>`;
 };
 
 // グローバル空間へのモーダル展開関数の露出バインド（aiRenderer.jsからの協調キック用）
@@ -575,7 +651,7 @@ function handleChat(e) {
                                 bubbleCreated = true;
                             }
 
-                            streamContent += (sseData.text || sseData.word || '');
+                            streamContent += normalizeAiText(sseData.text ?? sseData.word ?? '');
                             
                             // 思考ログコンテナは上部に残したまま、その下部にMarkdown本文を美しくストリームレンダリング
                             aiRenderer.renderStream(targetMessageId, streamContent);
@@ -614,10 +690,7 @@ function handleChat(e) {
                                 }
                                 
                                 // オブジェクト直撃バグの完全閉塞ガード層
-                                let finalReportText = sseData.response;
-                                if (typeof finalReportText === 'object' && finalReportText !== null) {
-                                    finalReportText = finalReportText.text || finalReportText.content || JSON.stringify(finalReportText);
-                                }
+                                let finalReportText = normalizeAiText(sseData.response);
                                 
                                 const existingBubble = document.getElementById(targetMessageId);
                                 const liveLogText = existingBubble?.querySelector('.ai-thought-log')?.textContent || '';
@@ -816,7 +889,12 @@ function initExistingCharts() {
                 const cardWrapper = document.createElement('div');
                 cardWrapper.className = 'chart-card-wrapper cursor-pointer';
                 cardWrapper.dataset.chartId = chartId;
-                cardWrapper.dataset.chartConfig = content;
+                cardWrapper.dataset.canvasId = chartId;
+                try {
+                    cardWrapper.dataset.chartConfig = JSON.stringify(normalizeChartConfig(JSON.parse(content)));
+                } catch (err) {
+                    cardWrapper.dataset.chartConfig = content;
+                }
                 
                 cardWrapper.innerHTML = `
                     <div class="text-[9px] text-slate-400 font-bold mb-2.5 select-none flex justify-between items-center pr-1">

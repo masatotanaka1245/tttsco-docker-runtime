@@ -21,6 +21,27 @@ if (!function_exists('h')) {
     <script src="<?= !empty($URL_CHART_JS) ? h($URL_CHART_JS) : 'https://cdn.jsdelivr.net/npm/chart.js' ?>"></script>
     <script src="<?= !empty($URL_MERMAID) ? h($URL_MERMAID) : 'https://cdn.jsdelivr.net/npm/mermaid@10.9.5/dist/mermaid.min.js' ?>"></script>
     <script src="<?= !empty($URL_DOMPURIFY) ? h($URL_DOMPURIFY) : 'https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js' ?>"></script>
+    <script>
+        window.__tepscoMermaidReady = false;
+        window.__tepscoInitMermaid = function() {
+            if (typeof window.mermaid === 'undefined') return false;
+            if (window.__tepscoMermaidReady) return true;
+
+            window.mermaid.parseError = function(err) {
+                console.warn('[Mermaid skipped]', err && err.message ? err.message : err);
+            };
+
+            window.mermaid.initialize({
+                startOnLoad: false,
+                securityLevel: 'strict',
+                theme: 'default',
+                logLevel: 'fatal',
+                suppressErrorRendering: true
+            });
+            window.__tepscoMermaidReady = true;
+            return true;
+        };
+    </script>
     
     <link rel="stylesheet" href="<?= !empty($URL_LEAFLET_CSS) ? h($URL_LEAFLET_CSS) : 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css' ?>" />
     <script src="<?= !empty($URL_LEAFLET_JS) ? h($URL_LEAFLET_JS) : 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js' ?>"></script>
@@ -512,7 +533,7 @@ if (!function_exists('h')) {
 
     // ★ 究極の安全設計: import * as 構文を使用し、1096エラー(SyntaxError)を原理的に100%防止
     // ✨ ここを ?v=4 から ?v=5 へ書き換えてキャッシュを強制粉砕！
-    import * as Support from './assets/js/support.js?v=7';
+    import * as Support from './assets/js/support.js?v=9';
 
     // ★要件4: 隔離コンテナ内のJSONデータを仲介して安全にマウント・パースするイベントハンドラの実装
     window.openProjectEditModal = (lat, lng) => {

@@ -166,11 +166,13 @@ export class AiRenderer {
         const self = this;
 
         renderer.code = function(code, infostring, escaped) {
-            const info = (infostring || '').trim();
+            const normalized = self.normalizeMarkedCodeArgs(code, infostring);
+            code = normalized.code;
+            const info = normalized.info;
             if (info === 'json:chart' || info === 'json:chart_data') {
                 chartIndex++;
                 const canvasId = `canvas-${messageId}-${chartIndex}`;
-                
+
                 try {
                     let sanitizedJson = code.trim();
                     if (!sanitizedJson.endsWith('}')) {
@@ -178,8 +180,8 @@ export class AiRenderer {
                         sanitizedJson += '}';
                     }
 
-                    const config = JSON.parse(sanitizedJson);
-                    if (!config.type || !config.labels || !config.datasets) {
+                    const config = self.normalizeChartConfig(JSON.parse(sanitizedJson));
+                    if (!config.type || !Array.isArray(config.labels) || !Array.isArray(config.datasets)) {
                         throw new Error("Incomplete JSON Structure");
                     }
 
@@ -222,7 +224,10 @@ export class AiRenderer {
         
         // ✨【修正項目1】二段階サニタイズ制御：ストリームの途中（isFinal=false）はそのまま返し、最終確定の瞬間のみDOMPurifyを実行
         if (isFinal === true && typeof DOMPurify !== 'undefined') {
-            return DOMPurify.sanitize(rawHtml);
+            return DOMPurify.sanitize(rawHtml, {
+                ADD_TAGS: ['canvas'],
+                ADD_ATTR: ['data-chart-id', 'data-canvas-id', 'data-chart-config', 'data-mermaid-id', 'data-mermaid-source']
+            });
         }
         return rawHtml;
     }
@@ -328,11 +333,20 @@ export class AiRenderer {
 
         if (!this.mermaidInitialized) {
             try {
-                mermaid.initialize({
-                    startOnLoad: false,
-                    securityLevel: 'strict',
-                    theme: 'default'
-                });
+                if (typeof window.__tepscoInitMermaid === 'function') {
+                    if (!window.__tepscoInitMermaid()) return;
+                } else {
+                    mermaid.parseError = function(err) {
+                        console.warn('[Mermaid skipped]', err && err.message ? err.message : err);
+                    };
+                    mermaid.initialize({
+                        startOnLoad: false,
+                        securityLevel: 'strict',
+                        theme: 'default',
+                        logLevel: 'fatal',
+                        suppressErrorRendering: true
+                    });
+                }
                 this.mermaidInitialized = true;
             } catch (err) {
                 console.error("Mermaid Initialize Error:", err);
@@ -348,15 +362,25 @@ export class AiRenderer {
             if (!mermaidId || !source || !target) return;
 
             wrapper.dataset.rendered = 'pending';
-            mermaid.render(`${mermaidId}-svg`, source)
+            const parsePromise = typeof mermaid.parse === 'function'
+                ? Promise.resolve(mermaid.parse(source, { suppressErrors: true }))
+                : Promise.resolve(true);
+
+            parsePromise
+                .then(isValid => {
+                    if (isValid === false) {
+                        throw new Error('Invalid Mermaid syntax');
+                    }
+                    return mermaid.render(`${mermaidId}-svg`, source);
+                })
                 .then(({ svg }) => {
                     target.innerHTML = svg;
                     wrapper.dataset.rendered = 'true';
                 })
                 .catch(err => {
-                    target.textContent = '図表の描画に失敗しました。';
+                    target.textContent = '図表は現在描画できません。';
                     wrapper.dataset.rendered = 'error';
-                    console.error("Mermaid Render Error:", err);
+                    console.warn("Mermaid Render Skipped:", err && err.message ? err.message : err);
                 });
         });
     }
@@ -365,6 +389,7 @@ export class AiRenderer {
      * Chart.js の設定オブジェクト構造体を動的ビルド
      */
     buildChartJSConfig(config) {
+        config = this.normalizeChartConfig(config);
         const isLine = config.type === 'line';
         const isPie = config.type === 'pie';
 
@@ -440,6 +465,37 @@ export class AiRenderer {
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#39;');
+    }
+
+    normalizeMarkedCodeArgs(code, infostring = '') {
+        if (code && typeof code === 'object') {
+            return {
+                code: String(code.text ?? code.raw ?? code.code ?? ''),
+                info: String(code.lang ?? code.infostring ?? code.info ?? '').trim()
+            };
+        }
+        return {
+            code: String(code ?? ''),
+            info: String(infostring ?? '').trim()
+        };
+    }
+
+    normalizeChartConfig(config) {
+        if (!config || typeof config !== 'object') {
+            return { type: 'bar', labels: [], datasets: [] };
+        }
+        if (config.data && typeof config.data === 'object') {
+            return {
+                ...config,
+                labels: Array.isArray(config.labels) ? config.labels : (config.data.labels || []),
+                datasets: Array.isArray(config.datasets) ? config.datasets : (config.data.datasets || [])
+            };
+        }
+        return {
+            ...config,
+            labels: Array.isArray(config.labels) ? config.labels : [],
+            datasets: Array.isArray(config.datasets) ? config.datasets : []
+        };
     }
 
     /**

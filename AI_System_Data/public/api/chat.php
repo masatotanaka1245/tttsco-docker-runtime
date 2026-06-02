@@ -300,15 +300,33 @@ try {
     // 🧠 自律型スマート・ルーティング (Smart Routing) ──【ハイブリッド要塞・完全調和版】
     $advanced_reasoning = false;
     $is_analysis_mode   = false;
-    
+    $is_history_summary_mode = false;
+
     $complex_pattern  = '/(比較|違い|相違|対比|網羅|分析|解析|詳細|詳しく|まとめ|総括|検討|留意点|評価|影響|検証|整合性|关系|どう違う|解説して)/u';
     $analysis_pattern = '/(集計|何種類|割合|平均|カウント|件数|グラフ|チャート|分布|推移|合計)/u';
-    
-    // 🔥【絶対防衛線】フロントからの明示的指定、または長文・複雑な質問の場合は「ハイブリッド脳」を絶対最優先する
-    if ((isset($input['advanced_reasoning']) && $input['advanced_reasoning'] === true) || 
-        preg_match($complex_pattern, $message) || 
+    $csv_evidence_pattern = '/(CSV|csv|登録済み.*データ|データ.*(内容|概要|項目|列|カラム|入って)|列には|カラムには|項目には)/u';
+    $history_summary_pattern = '/((これまで|今まで|過去|直近).*(会話|やりとり|チャット|履歴).*(まとめ|要約|整理)|((会話|やりとり|チャット|履歴).*(まとめ|要約|整理)))/u';
+    $explicit_advanced = (isset($input['advanced_reasoning']) && $input['advanced_reasoning'] === true);
+
+    // 🔥【絶対防衛線】フロントから明示指定された場合は「ハイブリッド脳」を最優先する
+    if ($explicit_advanced) {
+        $advanced_reasoning = true;
+        $is_analysis_mode   = false;
+        chatLogger("[SMART-ROUTER] フル思考モードの明示指定を検知。ハイブリッド多重推論統合ハブをキックします。");
+
+    } elseif (preg_match($history_summary_pattern, $message)) {
+        $is_history_summary_mode = true;
+        chatLogger("[SMART-ROUTER] 会話履歴要約要求を検知。軽量履歴サマリールートを優先します。");
+
+    } elseif ($project_id !== null && preg_match($csv_evidence_pattern, $message)) {
+        // CSVの内容・概要・項目確認は、SQL自由生成より先に「証拠全件読解」分析ルートへ流す
+        $is_analysis_mode = true;
+        chatLogger("[SMART-ROUTER] CSV証拠読解に適した質問を検知。CSV全件証拠収集ルートを優先します。");
+
+    } elseif (
+        preg_match($complex_pattern, $message) ||
         mb_strlen($message) >= 50) {
-        
+
         $advanced_reasoning = true;
         $is_analysis_mode   = false; 
         chatLogger("[SMART-ROUTER] 高度なマルチタスク文脈を検知。最優先で「ハイブリッド多重推論統合ハブ(chat_advanced.php Colonial)」をキックします。");
@@ -386,7 +404,12 @@ try {
     // 全社横断質問の誤判定を100%遮断する最上位ルーティング判定セーフティガード
     $global_cross_pattern = '/(全社|横断|データベース全体|すべての(案件|プロジェクト)|全体を見渡して|全システム|システム全体)/u';
 
-    if (preg_match($global_cross_pattern, $message)) {
+    if ($is_history_summary_mode) {
+        // ━━━━【軽量ルート: 会話履歴サマリー】━━━━
+        require_once __DIR__ . '/chat_history_summary.php';
+        runHistorySummaryRoute($pdo, $project_id, $message, $reasoning_model, $prompt_key, $user_id, $role);
+
+    } elseif (preg_match($global_cross_pattern, $message)) {
         chatLogger("[SMART-ROUTER] 明示的な全社横断キーワードを検出。強制的に「グローバル調査エージェント(ReAct)」をキックします。");
         
         require_once __DIR__ . '/chat_global.php';

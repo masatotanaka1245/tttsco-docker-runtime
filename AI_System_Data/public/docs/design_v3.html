@@ -122,6 +122,7 @@
     <header class="text-center mb-16 border-b border-slate-200 pb-12">
       <h1 class="text-4xl md:text-5xl font-black text-slate-900 tracking-tight mb-4">TEPSCOルーティンズ</h1>
       <p class="text-xl md:text-2xl text-slate-500 font-semibold tracking-wide">現行コード解析にもとづく統合仕様書</p>
+      <p class="text-xs md:text-sm text-slate-400 font-bold mt-2">最終更新: 2026/06/02 / 対象環境: Windows + Apache + PHP + MySQL</p>
       <div class="flex justify-center flex-wrap gap-3 mt-6">
         <span class="env-tag bg-indigo-100 text-indigo-700">PHP 8.2.8</span>
         <span class="env-tag bg-blue-100 text-blue-700">MySQL 8.0.33</span>
@@ -209,7 +210,7 @@
             </tr>
             <tr class="hover:bg-slate-50 transition">
               <td class="px-6 py-4 font-bold text-slate-700">フロントエンド</td>
-              <td class="px-6 py-4 text-slate-600">Tailwind CSS、Leaflet.js、Mermaid.js、モジュール化JavaScript（`support.js`、`modules/project.js`、`modules/csv.js`、`modules/chat.js`、`modules/map.js`）。</td>
+              <td class="px-6 py-4 text-slate-600">Tailwind CSS、Leaflet.js、Chart.js、Mermaid.js、Marked、DOMPurify、モジュール化JavaScript（`support.js`、`modules/project.js`、`modules/csv.js`、`modules/chat.js`、`modules/aiRenderer.js`、`modules/map.js`）。SSEで受け取ったMarkdown回答をリアルタイム描画し、`json:chart` ブロックと `mermaid` ブロックをチャット内に展開する。</td>
             </tr>
             <tr class="hover:bg-slate-50 transition">
               <td class="px-6 py-4 font-bold text-slate-700">セキュリティ</td>
@@ -322,7 +323,7 @@
             <tr><td class="font-bold">doc_chunks</td><td>AI検索対象の本文チャンク、ページ番号、embedding、画像説明</td><td>VectorSearch.php、chat_normal.php、upload.php、upload_csv.php</td></tr>
             <tr><td class="font-bold">project_csv_files / project_csv_rows</td><td>CSVメタデータと行データ。行データはJSONで保存し、表示とText-to-SQL分析に使用</td><td>upload_csv.php、get_csv_data.php、SqlExecutionEngine.php</td></tr>
             <tr><td class="font-bold">project_comments / project_faqs</td><td>案件メモ、申し送り、手動登録ナレッジ</td><td>add_comment.php、add_faq.php、support.php</td></tr>
-            <tr><td class="font-bold">chat_history / chat_reasoning_steps / chat_evaluations</td><td>対話履歴、推論ステップ、回答品質評価</td><td>chat_normal.php、chat_advanced.php、chat_analysis.php、ChatEvaluator.php</td></tr>
+            <tr><td class="font-bold">chat_history / chat_reasoning_steps / chat_evaluations</td><td>対話履歴、推論ステップ、回答品質評価。ブラウザ更新後も推論プロセスを再表示するため、最終回答と中間ステップを紐づけて保存する</td><td>chat_normal.php、chat_advanced.php、chat_analysis.php、SupportController.php、ChatEvaluator.php</td></tr>
             <tr><td class="font-bold">project_meta</td><td>案件ごとの可変メタ情報。AI用DBメモリも格納可能</td><td>SqlExecutionEngine.php</td></tr>
           </tbody>
         </table>
@@ -385,12 +386,31 @@
 
       <h2 class="text-xl font-semibold sub-section text-slate-800">4.5 AIチャット・分析モード</h2>
       <p class="text-sm md:text-base text-slate-700">
-        `chat.php` はSSE形式のチャットエントリーポイントで、質問内容に応じて通常RAG、フル思考、データ分析、全社横断調査の各ルートへ分岐する。通常RAGは `chat_normal.php`、多段階推論は `chat_advanced.php`、Text-to-SQL集計は `chat_analysis.php`、admin専用の全社横断調査は `chat_global.php` が担当する。回答と質問は `chat_history` に保存され、推論過程は `chat_reasoning_steps`、品質評価は `chat_evaluations` に保存される。
+        `chat.php` はSSE形式のチャットエントリーポイントで、質問内容に応じて通常RAG、フル思考、CSV証拠読解、Text-to-SQL分析、admin専用全社横断調査の各ルートへ分岐する。通常RAGは `chat_normal.php`、多段階推論は `chat_advanced.php`、CSV証拠読解とText-to-SQL集計は `chat_analysis.php`、admin専用の全社横断調査は `chat_global.php` が担当する。回答と質問は `chat_history` に保存され、推論過程は `chat_reasoning_steps`、品質評価は `chat_evaluations` に保存される。`SupportController.php` は保存済み推論ステップを再取得し、ブラウザ更新後もプロセス表示を復元する。
       </p>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm mt-4">
+        <div class="bg-indigo-50 border border-indigo-100 rounded-xl p-5">
+          <h3 class="font-bold text-indigo-800 mb-2">チャットUI描画</h3>
+          <ul class="list-disc list-inside text-slate-600 space-y-1">
+            <li>SSEの `status` / `chunk` / `result` を受信し、本文をリアルタイム描画</li>
+            <li>Markdown、Chart.js用 `json:chart`、Mermaid図をチャット内にJIT描画</li>
+            <li>Markedのコードブロック互換差異、DOMPurifyによる `canvas` / `data-*` 削除を考慮</li>
+          </ul>
+        </div>
+        <div class="bg-emerald-50 border border-emerald-100 rounded-xl p-5">
+          <h3 class="font-bold text-emerald-800 mb-2">CSV即答・証拠読解</h3>
+          <ul class="list-disc list-inside text-slate-600 space-y-1">
+            <li>100行以下のCSV概要質問はOllamaを呼ばず、DBレコードから即時サマリー生成</li>
+            <li>詳細読解が必要な場合はCSV全件をバッチ化し、中間読解結果を保存して統合</li>
+            <li>各段階の件数、文字数、Ollama呼び出し時間を `chat_debug.log` に記録</li>
+          </ul>
+        </div>
+      </div>
 
       <h2 class="text-xl font-semibold sub-section text-slate-800">4.6 ログ・運用設定</h2>
       <p class="text-sm md:text-base text-slate-700">
-        ログは `logs/` 配下に出力する。`upload_debug.log` はアップロードやCSV/PG取込の進捗、`chat_debug.log` はチャット関連の重要ログ、`app_error.log` はAPI内部エラーを記録する。本番では詳細例外を画面に出さず、チャット詳細ログは必要時のみ有効化する運用とする。
+        ログは `logs/` 配下に出力する。`upload_debug.log` はアップロードやCSV/PG取込の進捗、`chat_debug.log` はチャットのルート判定、DB収集、SQL生成・監査、Ollama送受信、評価、履歴保存までの詳細ログ、`app_error.log` はAPI内部エラーを記録する。support.phpにはadmin向けのリアルタイムログビューアがあり、`chat_debug_tail.php` で追記分をtail表示できる。本番では詳細例外を画面に出さず、ログ肥大化に注意して運用する。
       </p>
     </section>
 
@@ -962,7 +982,7 @@ sequenceDiagram
         <span class="section-number" style="background-color: #00758F;">9</span>データ分析エージェント (Text-to-SQL) ＆ グラフ自動生成
       </h1>
       <p class="text-slate-700 mb-6 text-sm md:text-base leading-relaxed">
-        本システムは、RAGによる「文章の検索・要約」だけでなく、構造化データ（CSV等）に対する「正確な数値集計」と「視覚的なグラフ化」をチャット上で行うデータ分析エージェントを搭載しています。`SqlExecutionEngine.php` が生成SQLを監査し、SELECT系の安全なSQLだけを案件スコープ内で実行することで、LLM特有の数値ハルシネーションを抑制します。
+        本システムは、RAGによる「文章の検索・要約」だけでなく、構造化データ（CSV等）に対する「正確な数値集計」「全件証拠読解」「視覚的なグラフ化」をチャット上で行うデータ分析エージェントを搭載しています。`SqlExecutionEngine.php` が生成SQLを監査し、SELECT系の安全なSQLだけを案件スコープ内で実行することで、LLM特有の数値ハルシネーションを抑制します。小規模CSVの概要質問では、AI推論を待たずにDBレコードから即時サマリーを生成します。
       </p>
 
       <h2 class="text-xl font-semibold sub-section text-slate-800 border-l-4 border-[#00758F] pl-3 mb-4">9.1 JSON動的スキーマとText-to-SQLの統合</h2>
@@ -972,7 +992,7 @@ sequenceDiagram
         </div>
         <div class="bg-slate-50 p-6 text-sm text-slate-700 leading-relaxed">
           <p class="mb-4">
-            任意の形式のCSVデータを <code>project_csv_rows</code> テーブルの <code>row_data</code> (JSON型) カラムに格納しています。AIには、MySQL 8.0 のJSON抽出関数（<code>-&gt;&gt;</code>）を用いたクエリ生成を強制します。
+            任意の形式のCSVデータを <code>project_csv_rows</code> テーブルの <code>row_data</code> (JSON型) カラムに格納しています。AIには、MySQL 8.0 の <code>JSON_UNQUOTE(JSON_EXTRACT(row_data, '$."キー"'))</code> 形式を基本とする安全なJSON抽出を指示し、日本語キーや記号入りキーでも構文エラーを避けるよう制約します。
           </p>
           <div class="bg-slate-900 text-green-400 font-mono p-4 rounded-xl overflow-x-auto shadow-inner text-xs md:text-sm leading-relaxed">
 <span class="text-gray-400 font-bold">// ユーザーの質問: 「土質区分ごとのN値の平均を計算して」</span><br>
@@ -996,33 +1016,58 @@ sequenceDiagram
     participant DB as MySQL (DB)
     participant AI as Ollama (gemma4 / gpt-oss)
 
-    User->>UI: 「集計して」「グラフ化して」と質問
+    User->>UI: 「集計して」「グラフ化して」「CSVをまとめて」と質問
     UI->>API: チャットリクエスト
-    
+
     rect rgb(240, 253, 250)
-    Note right of API: 【1. Text-to-SQL】
-    API->>API: 意図解析によりデータ分析モードに分岐
+    Note right of API: 【1. ルート判定】
+    API->>API: 意図解析によりCSV即答 / CSV証拠読解 / Text-to-SQLへ分岐
+    alt 小規模CSVの概要・要約質問
+      API->>DB: project_csv_files / project_csv_rows を取得
+      API->>API: PHP側で列、件数、値サンプル、内容概要を即時生成
+    else 集計・グラフ化質問
     API->>DB: 対象のCSVヘッダー(スキーマ情報)を取得
     API->>AI: スキーマ情報を渡し、集計SQLの作成を要求
     AI-->>API: 実行可能な SELECT クエリを返却
     end
-    
+    end
+
     rect rgb(255, 247, 237)
     Note right of API: 【2. 安全なSQL実行】
     API->>API: SqlExecutionEngineでSQL監査、案件ID/CSV IDの所有権検証
+    alt 架空テーブル・不正構文・ダミーSQL
+      API->>API: 実在スキーマ、失敗SQL、エラー文、修復ガイダンスを生成
+      API->>AI: 修復プロンプトを再投入
+    end
     API->>DB: SQLクエリを実行
     DB-->>API: 正確な集計結果(数値データ)を返却
     end
     
     rect rgb(238, 242, 255)
     Note right of API: 【3. レポート・グラフ生成】
-    API->>AI: 集計結果を渡し、解説とMermaid.jsグラフの作成を要求
-    AI-->>API: グラフコード(```mermaid)を含む回答を返却
+    API->>AI: 集計結果を渡し、解説とChart.js用JSONまたはMermaid図の作成を要求
+    AI-->>API: Markdown + ```json:chart または ```mermaid を含む回答を返却
     end
-    
-    API-->>UI: 回答とSQL実行履歴をレスポンス
-    UI->>UI: Mermaid.jsでチャット内にグラフを動的レンダリング
+
+    API-->>UI: SSEで回答、推論ステップ、評価結果をレスポンス
+    UI->>UI: Chart.js / Mermaid.jsでチャット内に図表を動的レンダリング
     UI->>User: グラフ付きの分析レポートを表示
+        </div>
+      </div>
+
+      <h2 class="text-xl font-semibold sub-section text-slate-800 border-l-4 border-[#00758F] pl-3 mb-4">9.3 SQL監査・自律修復・フォールバック</h2>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm mb-6">
+        <div class="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+          <h3 class="font-bold text-slate-800 mb-2">実在スキーマ誘導</h3>
+          <p class="text-xs md:text-sm text-slate-600 leading-relaxed">`INFORMATION_SCHEMA` とDBメモリから実在テーブル・カラムをAIへ提示し、架空テーブルや物理カラム誤認を抑制する。</p>
+        </div>
+        <div class="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+          <h3 class="font-bold text-slate-800 mb-2">監査拒否と修復</h3>
+          <p class="text-xs md:text-sm text-slate-600 leading-relaxed">不正構文、所有権不一致、SELECT以外、FROM句のないダミーSQLを拒否し、失敗SQLとMySQLエラーを修復プロンプトへ渡す。</p>
+        </div>
+        <div class="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+          <h3 class="font-bold text-slate-800 mb-2">定番SQLフォールバック</h3>
+          <p class="text-xs md:text-sm text-slate-600 leading-relaxed">3回の修復で解消しない場合でも、質問意図と実在スキーマから安全な定番SQLを提案し、単なる文字列返却での強行突破を避ける。</p>
         </div>
       </div>
     </section>
@@ -1081,12 +1126,19 @@ sequenceDiagram
         <div id="section-10-4" class="bg-white border border-slate-200 rounded-xl p-6 shadow-sm border-l-4 border-l-amber-500">
           <h3 class="text-lg font-bold text-slate-800 mb-2">10.5 CSV構造化データRAGの高速化・AI推論ボトルネック解消ロジック</h3>
           <p class="text-xs md:text-sm text-slate-600 mb-4 leading-relaxed">
-            同一ファイル由来の大量のCSV翻訳レコードがヒットした場合、精読ループ回数が肥大化し深刻な推論遅延ボトルネックとなっていました。この課題を解決するため、以下の機能をバックエンドAPIへ新規に設計・統合しました。
+            同一ファイル由来の大量のCSV翻訳レコードがヒットした場合、精読ループ回数が肥大化し深刻な推論遅延ボトルネックとなっていました。この課題を解決するため、質問意図に応じて「DB即答」「全件証拠読解」「Text-to-SQL集計」を切り替えるルーティングを実装しています。
           </p>
 
           <div class="space-y-4">
+            <div class="border-l-2 border-emerald-400 pl-4">
+              <h4 class="font-bold text-slate-800 text-xs md:text-sm mb-1">① 小規模CSV即答ルート (CSV-SUMMARY)</h4>
+              <p class="text-xs md:text-sm text-slate-600 mb-2 leading-relaxed">
+                「CSVの内容をまとめて」「どんなデータが入っているか」などの概要質問で、対象CSVが100行以下の場合はOllamaを呼ばず、<code>project_csv_files</code> と <code>project_csv_rows</code> からファイル数、行数、列名、値サンプル、内容の見立てをPHP側で生成します。これにより10件程度のデータでは数分のAI待ちを避け、DB取得と履歴保存だけで回答できます。
+              </p>
+            </div>
+
             <div class="border-l-2 border-amber-400 pl-4">
-              <h4 class="font-bold text-slate-800 text-xs md:text-sm mb-1">① 複数行チャンクの列同一性バルクアグリゲーション (Structured Bulk Compression)</h4>
+              <h4 class="font-bold text-slate-800 text-xs md:text-sm mb-1">② 複数行チャンクの列同一性バルクアグリゲーション (Structured Bulk Compression)</h4>
               <p class="text-xs md:text-sm text-slate-600 mb-2 leading-relaxed">
                 ベクトル検索によって「同一のCSVファイル」に属する複数の翻訳行チャンクがヒットした場合、PHP側で自動的に<strong>「元の1つのMarkdownデータテーブル（表組み）として統合・再圧縮」</strong>を行います。
               </p>
@@ -1106,7 +1158,7 @@ sequenceDiagram
             </div>
 
             <div class="border-l-2 border-amber-400 pl-4">
-              <h4 class="font-bold text-slate-800 text-xs md:text-sm mb-1">② CSV専用ダイナミック類似度トリアージ (Structured Dynamic Thresholding)</h4>
+              <h4 class="font-bold text-slate-800 text-xs md:text-sm mb-1">③ CSV専用ダイナミック類似度トリアージ (Structured Dynamic Thresholding)</h4>
               <p class="text-xs md:text-sm text-slate-600 mb-2 leading-relaxed">
                 CSVデータは定型記述が繰り返されるため、類似度スコアが高く算出されやすい特性を持ちます。データ氾濫を防ぐため、システムは以下の<strong>動的閾値分岐</strong>を適用します。
               </p>
@@ -1114,6 +1166,13 @@ sequenceDiagram
                 <li><strong>PDF文書データ:</strong> 類似度スコア `0.35` 以上を網羅（標準設定）</li>
                 <li><strong>CSV構造化データ:</strong> 類似度スコア閾値を **`0.50` 以上**へ自動引き上げ。データの完全性保証のため上限数は設けず全件対象とする。</li>
               </ul>
+            </div>
+
+            <div class="border-l-2 border-sky-400 pl-4">
+              <h4 class="font-bold text-slate-800 text-xs md:text-sm mb-1">④ CSV証拠読解ルートの詳細トレース</h4>
+              <p class="text-xs md:text-sm text-slate-600 mb-2 leading-relaxed">
+                AI読解が必要な場合でも、DBレコード収集、バッチ分割、バッチAI読解、統合AI回答、履歴保存の各段階で、対象行数、文字数、レスポンス文字数、経過秒を <code>chat_debug.log</code> に出力します。遅延がDB取得なのかOllama推論なのかをログから切り分けられます。
+              </p>
             </div>
           </div>
         </div>

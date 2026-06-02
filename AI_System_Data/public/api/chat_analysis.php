@@ -156,6 +156,10 @@ class AdvancedReasoningRouteProcessor {
         }
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+        if ($this->tryCsvEvidenceRoute()) {
+            return;
+        }
+
         // 2. ユーザーの質問を複数の具体的な分析観点（サブクエリ）へ因数分解
         $this->decomposeQuestion();
 
@@ -278,6 +282,526 @@ class AdvancedReasoningRouteProcessor {
         }
 
         return true;
+    }
+
+    /**
+     * CSV質問を「SQLで答えを作る」のではなく、「全CSVレコードを証拠として読解して答える」高速・高精度ルート。
+     */
+    private function tryCsvEvidenceRoute(): bool {
+        if (!$this->shouldUseCsvEvidenceRoute()) {
+            return false;
+        }
+
+        $routeStart = microtime(true);
+        if ($this->tryCsvMetadataRoute()) {
+            return true;
+        }
+
+        chatLogger("[CSV-EVIDENCE] CSV証拠ルート判定通過。DBレコード収集を開始します。");
+        $rows = $this->loadAllCsvEvidenceRows();
+        chatLogger("[CSV-EVIDENCE] DBレコード収集完了 - rows: " . count($rows) . " | elapsed: " . $this->elapsedSeconds($routeStart));
+        if (empty($rows)) {
+            return false;
+        }
+
+        if ($this->tryCsvSmallSummaryRoute($rows, $routeStart)) {
+            return true;
+        }
+
+        chatLogger("[CSV-EVIDENCE] CSV証拠全件読解ルートを起動します。対象行数: " . count($rows));
+        sendSSE('status', [
+            'step' => 2,
+            'message' => '📚 CSVデータベースレコードを全件収集し、質問に関係する証拠を分割読解しています...'
+        ]);
+
+        $this->insertReasoningStep(1, 'CSV証拠レコードの全件収集', $this->buildCsvCollectionSummary($rows));
+
+        $batches = $this->chunkCsvEvidenceRows($rows, 50, 9000);
+        chatLogger("[CSV-EVIDENCE] バッチ分割完了 - batches: " . count($batches) . " | maxRows: 50 | maxChars: 9000");
+        $batchFindings = [];
+        foreach ($batches as $idx => $batch) {
+            $batchNo = $idx + 1;
+            $total = count($batches);
+            $batchStart = microtime(true);
+            $batchChars = mb_strlen($this->formatCsvEvidenceBatch($batch));
+            chatLogger("[CSV-EVIDENCE] バッチAI読解開始 - batch: {$batchNo}/{$total} | rows: " . count($batch) . " | chars: {$batchChars}");
+            sendSSE('status', [
+                'step' => 3,
+                'message' => "🔎 CSV証拠を読解中 ({$batchNo}/{$total})..."
+            ]);
+
+            $finding = $this->analyzeCsvEvidenceBatch($batch, $batchNo, $total);
+            chatLogger("[CSV-EVIDENCE] バッチAI読解完了 - batch: {$batchNo}/{$total} | responseChars: " . mb_strlen($finding) . " | elapsed: " . $this->elapsedSeconds($batchStart));
+            $batchFindings[] = $finding;
+            $this->insertReasoningStep(10 + $idx, "CSV証拠バッチ読解 {$batchNo}/{$total}", $finding);
+        }
+
+        sendSSE('status', [
+            'step' => 4,
+            'message' => '🧾 保存済みのCSV読解結果を統合し、最終回答を生成しています...'
+        ]);
+
+        $synthesisStart = microtime(true);
+        chatLogger("[CSV-EVIDENCE] 統合AI回答生成開始 - findingCount: " . count($batchFindings));
+        $this->finalResponse = $this->synthesizeCsvEvidenceAnswer($rows, $batchFindings);
+        chatLogger("[CSV-EVIDENCE] 統合AI回答生成完了 - responseChars: " . mb_strlen($this->finalResponse) . " | elapsed: " . $this->elapsedSeconds($synthesisStart));
+        $this->subAnswers = $batchFindings;
+        $this->insertReasoningStep(90, 'CSV証拠読解結果の統合', $this->finalResponse);
+        $this->insertReasoningStep(99, '最終報告書・グラフの統合生成', '完了');
+
+        chatLogger("[CSV-EVIDENCE] 履歴保存開始 - totalElapsed: " . $this->elapsedSeconds($routeStart));
+        $this->saveHistoryAndEvaluations();
+        $this->sendFinalResult();
+        chatLogger("[CSV-EVIDENCE] CSV証拠全件読解ルートが完了しました。totalElapsed: " . $this->elapsedSeconds($routeStart));
+        return true;
+    }
+
+    /**
+     * 小規模CSVの「内容まとめ」はAI読解を挟まず、DB実データから即時サマリーを作る。
+     */
+    private function tryCsvSmallSummaryRoute(array $rows, float $routeStart): bool {
+        if (!$this->shouldUseCsvSmallSummaryRoute($rows)) {
+            return false;
+        }
+
+        chatLogger("[CSV-SUMMARY] 小規模CSV即答ルートを起動します。rows: " . count($rows));
+        sendSSE('status', [
+            'step' => 2,
+            'message' => '📊 CSVの内容をデータベースレコードから直接要約しています...'
+        ]);
+
+        $summaryStart = microtime(true);
+        $this->finalResponse = $this->buildCsvSmallSummaryAnswer($rows);
+        chatLogger("[CSV-SUMMARY] PHPサマリー生成完了 - responseChars: " . mb_strlen($this->finalResponse) . " | elapsed: " . $this->elapsedSeconds($summaryStart));
+
+        $this->insertReasoningStep(1, 'CSVレコードの全件収集', $this->buildCsvCollectionSummary($rows));
+        $this->insertReasoningStep(90, '小規模CSVサマリー即時生成', $this->finalResponse);
+        $this->insertReasoningStep(99, '最終報告書・グラフの統合生成', '完了');
+
+        chatLogger("[CSV-SUMMARY] 履歴保存開始 - totalElapsed: " . $this->elapsedSeconds($routeStart));
+        $this->saveHistoryAndEvaluations();
+        $this->sendFinalResult();
+        chatLogger("[CSV-SUMMARY] 小規模CSV即答ルートが完了しました。totalElapsed: " . $this->elapsedSeconds($routeStart));
+        return true;
+    }
+
+    /**
+     * 「どんな項目/列/カラムがあるか」はレコード読解せず、CSVメタデータだけで即答する。
+     */
+    private function tryCsvMetadataRoute(): bool {
+        if (!$this->shouldUseCsvMetadataRoute()) {
+            return false;
+        }
+
+        $files = $this->loadCsvMetadata();
+        if (empty($files)) {
+            return false;
+        }
+
+        chatLogger("[CSV-METADATA] CSV項目メタデータ即答ルートを起動します。対象ファイル数: " . count($files));
+        sendSSE('status', [
+            'step' => 2,
+            'message' => '📋 CSVの項目一覧をメタデータから確認しています...'
+        ]);
+
+        $this->finalResponse = $this->buildCsvMetadataAnswer($files);
+        $this->insertReasoningStep(1, 'CSVファイルの項目メタデータ確認', $this->finalResponse);
+        $this->insertReasoningStep(99, '最終報告書・グラフの統合生成', '完了');
+
+        $this->saveHistoryAndEvaluations();
+        $this->sendFinalResult();
+        chatLogger("[CSV-METADATA] CSV項目メタデータ即答ルートが完了しました。");
+        return true;
+    }
+
+    private function shouldUseCsvMetadataRoute(): bool {
+        $q = $this->originalMessage;
+        if (preg_match('/(「内容」|『内容』|内容列|内容カラム|内容項目)/u', $q)) {
+            return false;
+        }
+
+        return preg_match('/(どんな|何|なに).*(項目|列|カラム|ヘッダ|ヘッダー)|((項目|列|カラム|ヘッダ|ヘッダー).*(入って|あります|一覧|教えて))/u', $q) === 1;
+    }
+
+    private function shouldUseCsvSmallSummaryRoute(array $rows): bool {
+        if (count($rows) > 100) {
+            return false;
+        }
+
+        $q = $this->originalMessage;
+        if (preg_match('/(平均|中央値|標準偏差|相関|回帰|推移|時系列|ランキング|多い順|少ない順|TOP|トップ|詳しく分析|条件|抽出|検索|該当)/iu', $q)) {
+            return false;
+        }
+
+        return preg_match('/(CSV|csv|データ).*(内容|概要|まとめ|要約|どんな|入って)|((内容|概要|まとめ|要約).*(CSV|csv|データ))/u', $q) === 1;
+    }
+
+    private function loadCsvMetadata(): array {
+        $stmt = $this->pdo->prepare("
+            SELECT id, file_name, column_headers, row_count
+            FROM project_csv_files
+            WHERE project_id = ?
+            ORDER BY id ASC
+        ");
+        $stmt->execute([$this->projectId]);
+
+        $files = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $headers = $this->parseCsvHeaders((string)$row['column_headers']);
+            $files[] = [
+                'id' => (int)$row['id'],
+                'file_name' => (string)$row['file_name'],
+                'row_count' => (int)$row['row_count'],
+                'columns' => $headers,
+            ];
+        }
+
+        return $files;
+    }
+
+    private function parseCsvHeaders(string $rawHeaders): array {
+        $decoded = json_decode($rawHeaders, true);
+        $candidates = is_array($decoded) ? $decoded : [$rawHeaders];
+        $headers = [];
+
+        foreach ($candidates as $candidate) {
+            foreach (preg_split('/[,;]\s*/u', (string)$candidate) ?: [] as $header) {
+                $header = trim($header, " \t\n\r\0\x0B\"'");
+                if ($header !== '') {
+                    $headers[] = $header;
+                }
+            }
+        }
+
+        return array_values(array_unique($headers));
+    }
+
+    private function buildCsvMetadataAnswer(array $files): string {
+        $totalRows = array_sum(array_column($files, 'row_count'));
+        $allColumns = [];
+        foreach ($files as $file) {
+            foreach ($file['columns'] as $column) {
+                $allColumns[$column] = true;
+            }
+        }
+
+        $lines = [];
+        $lines[] = "登録済みCSVには、以下の項目が含まれています。";
+        $lines[] = "";
+        $lines[] = "- 対象CSVファイル数: " . count($files) . "件";
+        $lines[] = "- 登録行数: {$totalRows}件";
+        $lines[] = "- ユニーク項目数: " . count($allColumns) . "件";
+        $lines[] = "";
+
+        foreach ($files as $file) {
+            $lines[] = "### {$file['file_name']}";
+            $lines[] = "- 行数: {$file['row_count']}件";
+            $lines[] = "- 項目: " . (empty($file['columns']) ? "項目情報なし" : implode(" / ", $file['columns']));
+            $lines[] = "";
+        }
+
+        if ($allColumns) {
+            $lines[] = "### 全CSVを通した項目一覧";
+            foreach (array_keys($allColumns) as $column) {
+                $lines[] = "- {$column}";
+            }
+        }
+
+        return implode("\n", $lines);
+    }
+
+    private function buildCsvSmallSummaryAnswer(array $rows): string {
+        $files = $this->summarizeCsvRows($rows);
+        $totalRows = count($rows);
+        $allColumns = [];
+        foreach ($files as $file) {
+            foreach ($file['columns'] as $column) {
+                $allColumns[$column] = true;
+            }
+        }
+
+        $lines = [];
+        $lines[] = "登録済みCSVの内容を確認しました。";
+        $lines[] = "";
+        $lines[] = "- 対象CSVファイル数: " . count($files) . "件";
+        $lines[] = "- 対象レコード数: {$totalRows}件";
+        $lines[] = "- 確認できた項目数: " . count($allColumns) . "件";
+        $lines[] = "";
+
+        foreach ($files as $file) {
+            $lines[] = "### {$file['file_name']}";
+            $lines[] = "- 登録行数: {$file['collected_rows']}件";
+            $lines[] = "- 項目: " . (empty($file['columns']) ? "項目情報なし" : implode(" / ", $file['columns']));
+            $lines[] = "- 内容の概要: " . $this->describeCsvPurpose($file['columns']);
+
+            $sampleLines = [];
+            foreach ($file['samples'] as $column => $samples) {
+                if (!$samples) {
+                    continue;
+                }
+                $sampleLines[] = "{$column}=" . implode("、", $samples);
+                if (count($sampleLines) >= 4) {
+                    break;
+                }
+            }
+            if ($sampleLines) {
+                $lines[] = "- 値の例: " . implode(" / ", $sampleLines);
+            }
+            $lines[] = "";
+        }
+
+        $lines[] = "### 全体の見立て";
+        $lines[] = "このCSV群は、列名と登録値から見ると、ユーザーやアカウント識別、ログインメール、氏名、部署、言語設定などの管理情報を含むデータです。";
+        $lines[] = "現時点では全 {$totalRows} 件を対象に確認しており、特定列だけのランキングではなく、登録されているCSVレコード全体をもとに概要を作成しています。";
+
+        return implode("\n", $lines);
+    }
+
+    private function summarizeCsvRows(array $rows): array {
+        $files = [];
+        foreach ($rows as $row) {
+            $fileId = (int)$row['csv_file_id'];
+            if (!isset($files[$fileId])) {
+                $files[$fileId] = [
+                    'file_name' => (string)$row['file_name'],
+                    'declared_rows' => (int)$row['row_count'],
+                    'collected_rows' => 0,
+                    'columns' => $this->parseCsvHeaders((string)$row['column_headers']),
+                    'samples' => [],
+                ];
+            }
+
+            $files[$fileId]['collected_rows']++;
+            $data = json_decode((string)$row['row_data'], true);
+            if (!is_array($data)) {
+                continue;
+            }
+
+            foreach ($data as $column => $value) {
+                $valueText = trim(preg_replace('/\s+/u', ' ', (string)$value));
+                if ($valueText === '') {
+                    continue;
+                }
+                if (mb_strlen($valueText) > 60) {
+                    $valueText = mb_substr($valueText, 0, 60) . '...';
+                }
+                if (!isset($files[$fileId]['samples'][$column])) {
+                    $files[$fileId]['samples'][$column] = [];
+                }
+                if (count($files[$fileId]['samples'][$column]) < 3 && !in_array($valueText, $files[$fileId]['samples'][$column], true)) {
+                    $files[$fileId]['samples'][$column][] = $valueText;
+                }
+            }
+        }
+
+        return array_values($files);
+    }
+
+    private function describeCsvPurpose(array $columns): string {
+        $columnText = mb_strtolower(implode(' ', $columns));
+        $descriptions = [];
+        if (preg_match('/(username|login email|identifier|email|メール|ユーザー)/u', $columnText)) {
+            $descriptions[] = 'ユーザーやログインアカウントの識別情報';
+        }
+        if (preg_match('/(one-time password|recovery code|password|認証|復旧)/u', $columnText)) {
+            $descriptions[] = '認証・復旧に関する情報';
+        }
+        if (preg_match('/(language|locale|言語)/u', $columnText)) {
+            $descriptions[] = '言語設定やローカライズに関する情報';
+        }
+        if (preg_match('/(first name|last name|氏名|名前|department|部署)/u', $columnText)) {
+            $descriptions[] = '氏名や部署などの利用者属性';
+        }
+
+        if (!$descriptions) {
+            return 'CSVの各行に登録された項目値を管理する構造化データ';
+        }
+
+        return implode('、', array_unique($descriptions)) . 'を中心とした構造化データ';
+    }
+
+    private function shouldUseCsvEvidenceRoute(): bool {
+        $q = $this->originalMessage;
+        if (!preg_match('/(CSV|csv|データ|レコード|行|列|カラム|項目|内容|概要|傾向|まとめ|集計)/u', $q)) {
+            return false;
+        }
+        if (preg_match('/(平均|中央値|標準偏差|相関|回帰|推移|時系列|ランキング|多い順|少ない順|TOP|トップ)/iu', $q)) {
+            return false;
+        }
+        try {
+            $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM project_csv_rows WHERE csv_file_id IN (SELECT id FROM project_csv_files WHERE project_id = ?)");
+            $stmt->execute([$this->projectId]);
+            return (int)$stmt->fetchColumn() > 0;
+        } catch (Exception $e) {
+            chatLogger("[CSV-EVIDENCE] CSV行数判定に失敗: " . $e->getMessage());
+            return false;
+        }
+    }
+
+    private function loadAllCsvEvidenceRows(): array {
+        $stmt = $this->pdo->prepare("
+            SELECT
+                f.id AS csv_file_id,
+                f.file_name,
+                f.column_headers,
+                f.row_count,
+                r.id AS csv_row_id,
+                r.row_index,
+                r.row_data
+            FROM project_csv_files f
+            JOIN project_csv_rows r ON f.id = r.csv_file_id
+            WHERE f.project_id = ?
+            ORDER BY f.id ASC, r.row_index ASC
+        ");
+        $stmt->execute([$this->projectId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    private function buildCsvCollectionSummary(array $rows): string {
+        $files = [];
+        foreach ($rows as $row) {
+            $fileId = (int)$row['csv_file_id'];
+            if (!isset($files[$fileId])) {
+                $headers = $this->parseCsvHeaders((string)$row['column_headers']);
+                $files[$fileId] = [
+                    'file_name' => $row['file_name'],
+                    'declared_rows' => (int)$row['row_count'],
+                    'collected_rows' => 0,
+                    'columns' => $headers,
+                ];
+            }
+            $files[$fileId]['collected_rows']++;
+        }
+
+        return "【CSV証拠収集サマリー】\n"
+            . "- 対象CSVファイル数: " . count($files) . "\n"
+            . "- 対象CSVレコード数: " . count($rows) . "\n"
+            . "```json\n" . json_encode(array_values($files), JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . "\n```";
+    }
+
+    private function chunkCsvEvidenceRows(array $rows, int $maxRows, int $maxChars): array {
+        $chunks = [];
+        $current = [];
+        $chars = 0;
+
+        foreach ($rows as $row) {
+            $line = $this->formatCsvEvidenceRow($row);
+            $lineLen = mb_strlen($line);
+            if ($current && (count($current) >= $maxRows || ($chars + $lineLen) > $maxChars)) {
+                $chunks[] = $current;
+                $current = [];
+                $chars = 0;
+            }
+            $current[] = $row;
+            $chars += $lineLen;
+        }
+        if ($current) {
+            $chunks[] = $current;
+        }
+        return $chunks;
+    }
+
+    private function formatCsvEvidenceRow(array $row): string {
+        $data = json_decode((string)$row['row_data'], true);
+        if (!is_array($data)) {
+            $data = ['raw' => (string)$row['row_data']];
+        }
+
+        $pairs = [];
+        foreach ($data as $key => $value) {
+            $valueText = trim(preg_replace('/\s+/u', ' ', (string)$value));
+            if ($valueText === '') {
+                continue;
+            }
+            if (mb_strlen($valueText) > 180) {
+                $valueText = mb_substr($valueText, 0, 180) . '...';
+            }
+            $pairs[] = "{$key}={$valueText}";
+        }
+
+        return "#{$row['row_index']} {$row['file_name']} | " . implode('; ', $pairs);
+    }
+
+    private function formatCsvEvidenceBatch(array $batch): string {
+        return implode("\n", array_map(fn($row) => $this->formatCsvEvidenceRow($row), $batch));
+    }
+
+    private function elapsedSeconds(float $start): string {
+        return number_format(microtime(true) - $start, 2) . '秒';
+    }
+
+    private function analyzeCsvEvidenceBatch(array $batch, int $batchNo, int $totalBatches): string {
+        $callStart = microtime(true);
+        $batchText = $this->formatCsvEvidenceBatch($batch);
+        $system = "あなたはCSVデータベースレコードを精読する分析官です。\n"
+            . "SQL集計ではなく、提示された全レコードを証拠として読み、ユーザー質問に関係する情報だけを抽出してください。\n"
+            . "行番号・ファイル名を根拠として必ず残してください。存在しない列や値は作らないでください。\n"
+            . "出力はJSONのみです。";
+
+        $user = "【ユーザー質問】\n{$this->originalMessage}\n\n"
+            . "【バッチ情報】{$batchNo}/{$totalBatches}\n"
+            . "【CSV証拠レコード】\n{$batchText}\n\n"
+            . "以下のJSON形式で返してください。\n"
+            . '{"batch_summary":"このバッチで読み取れる要点","relevant_rows":[{"file":"ファイル名","row_index":1,"evidence":"根拠","reason":"質問との関係"}],"findings":["発見事項"],"unanswered":["このバッチだけでは判断できない点"]}';
+
+        try {
+            $thought = "";
+            chatLogger("[CSV-EVIDENCE] Ollamaバッチ読解API送信 - batch: {$batchNo}/{$totalBatches} | systemChars: " . mb_strlen($system) . " | userChars: " . mb_strlen($user));
+            $res = callOllamaChat($this->ollama_host, $this->model, $system, $user, 'json', ['temperature' => 0.0, 'top_p' => 0.1, 'num_ctx' => 8192], $thought);
+            chatLogger("[CSV-EVIDENCE] Ollamaバッチ読解API受信 - batch: {$batchNo}/{$totalBatches} | rawChars: " . mb_strlen($res) . " | elapsed: " . $this->elapsedSeconds($callStart));
+            $decoded = json_decode($res, true);
+            if (is_array($decoded)) {
+                return "```json\n" . json_encode($decoded, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . "\n```";
+            }
+            return $res;
+        } catch (Exception $e) {
+            chatLogger("[CSV-EVIDENCE] バッチ読解に失敗。簡易要約へフォールバック: " . $e->getMessage());
+            return "【バッチ{$batchNo}簡易証拠】\n" . mb_substr($batchText, 0, 4000);
+        }
+    }
+
+    private function synthesizeCsvEvidenceAnswer(array $rows, array $batchFindings): string {
+        $callStart = microtime(true);
+        $findingsText = implode("\n\n", $batchFindings);
+        if (mb_strlen($findingsText) > 12000) {
+            $findingsText = mb_substr($findingsText, 0, 12000) . "\n...[統合用に後半を省略]";
+        }
+
+        $system = PromptManager::getBasePrompt($this->promptKey) . "\n"
+            . "あなたはCSV証拠読解結果を統合して、ユーザーの質問に直接答える分析官です。\n"
+            . "対象データは全CSVレコードです。ランキングや列別内訳へ逃げず、質問意図に該当するデータ全体から回答してください。\n"
+            . "回答には、対象ファイル数・対象行数・主要な結論・根拠行・注意点を含めてください。\n"
+            . "根拠のない断定、存在しない列や値の作成は禁止です。";
+
+        $user = $this->projectContext . "\n\n"
+            . "【ユーザー質問】\n{$this->originalMessage}\n\n"
+            . "【対象CSVレコード数】" . count($rows) . "件\n"
+            . "【保存済みバッチ読解結果】\n{$findingsText}\n\n"
+            . "上記の保存済み分析結果を統合し、日本語Markdownで最終回答を作成してください。";
+
+        try {
+            $thought = "";
+            chatLogger("[CSV-EVIDENCE] Ollama統合回答API送信 - systemChars: " . mb_strlen($system) . " | userChars: " . mb_strlen($user));
+            $answer = callOllamaChat($this->ollama_host, $this->model, $system, $user, null, ['temperature' => 0.0, 'top_p' => 0.1, 'num_ctx' => 8192], $thought);
+            chatLogger("[CSV-EVIDENCE] Ollama統合回答API受信 - responseChars: " . mb_strlen($answer) . " | elapsed: " . $this->elapsedSeconds($callStart));
+            return trim($answer) ?: "CSVデータ {$this->projectId} の対象レコード " . count($rows) . "件を確認しましたが、回答文を生成できませんでした。";
+        } catch (Exception $e) {
+            chatLogger("[CSV-EVIDENCE] 統合回答生成に失敗: " . $e->getMessage());
+            return "CSVデータベースレコード全 " . count($rows) . "件を対象に読解しましたが、AI統合処理でエラーが発生しました。\n\n詳細: " . $e->getMessage();
+        }
+    }
+
+    private function insertReasoningStep(int $stepNumber, string $subQuery, string $subAnswer): void {
+        try {
+            $stmt = $this->pdo->prepare("
+                INSERT INTO chat_reasoning_steps
+                    (project_id, session_id, original_question, step_number, sub_query, sub_answer, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, NOW())
+            ");
+            $stmt->execute([$this->projectId, $this->reasoningId, $this->originalMessage, $stepNumber, $subQuery, $subAnswer]);
+        } catch (Exception $e) {
+            chatLogger("[CSV-EVIDENCE] reasoning step保存に失敗: " . $e->getMessage());
+        }
     }
 
     /**
@@ -596,6 +1120,7 @@ class AdvancedReasoningRouteProcessor {
 
             // 📢 [超詳細ログ4] 実行失敗時、セキュリティ監査の拒否理由やMySQLの生エラー文をダイレクトに記録
             chatLogger("[SQL-EXEC-FAILED] (試行 {$retry_count}/3) 監査拒否またはMySQL生エラー文: " . ($execResult['error'] ?? 'Unknown Error'));
+            $repairGuidance = $sqlEngine->buildRepairGuidance($generated_sql, (string)($execResult['error'] ?? 'Unknown Error'), $subQ);
 
             $retry_count++;
             if ($retry_count > $max_retries) {
@@ -609,6 +1134,7 @@ class AdvancedReasoningRouteProcessor {
                               . "指示スキーマに存在しない物理カラム名は勝手にでっち上げてはいけません。\n\n"
                               . "【絶対ルール】\n"
                               . "出力は必ず、修正・デバッグされた実行可能なSQL文字列1つのみを内包したJSON形式【のみ】を出力してください。挨拶やMarkdown、他の説明プロースは一切排除してください。\n"
+                              . "SELECT '説明文' のような実テーブルを読まないダミーSQLは禁止です。必ずFROM句で実在テーブルを参照してください。\n"
                               . '{"sql": "SELECT ..."}';
 
             // ✨【フェーズ4】自律修復（デバッグ）システムプロンプトの最先頭へ記憶プロンプトをインジェクト
@@ -617,7 +1143,8 @@ class AdvancedReasoningRouteProcessor {
             $debug_user_context = "【動的INFORMATION_SCHEMA構成】\n" . $this->schemaInfo . "\n\n"
                                 . "【この分析タスクの本来の目的】\n" . $subQ . "\n\n"
                                 . "❌ 【前回失敗した不正なSQL】\n" . $generated_sql . "\n\n"
-                                . "⚠️ 【MySQLから返された生のエラー文】\n" . ($execResult['error'] ?? 'Unknown Error');
+                                . "⚠️ 【MySQLから返された生のエラー文】\n" . ($execResult['error'] ?? 'Unknown Error') . "\n\n"
+                                . $repairGuidance;
 
             // 📢 [超詳細ログ5] 次の周回リトライに向けて、AIの脳みそへ叩き込む「反省用インジェクションデータ」をすべてダンプ
             chatLogger("[OLLAMA-REFLECT-INPUT] (次の一手: 試行 {$retry_count}/3) AIへ送り届ける自己反省材料:\n" . $debug_user_context);
@@ -634,6 +1161,19 @@ class AdvancedReasoningRouteProcessor {
         // 3回リトライしても安全に完走できなかった場合のフォールバック安全文言の返却
         if (!$execResult['success']) {
             chatLogger("[WARN] 自律修復上限超過：最終SQLの監査遮断またはエラーが解消されませんでした。");
+            $fallbackSql = $sqlEngine->suggestFallbackSql($subQ, $generated_sql ?? '');
+            if ($fallbackSql) {
+                chatLogger("[FALLBACK-SQL] 自律修復上限後、実在スキーマに基づく定番SQLで最終救済を試行します: " . $fallbackSql);
+                $fallbackResult = $sqlEngine->execute($fallbackSql);
+                if (($fallbackResult['success'] ?? false) === true) {
+                    $generated_sql = $fallbackResult['sql'] ?? $fallbackSql;
+                    $execResult = $fallbackResult;
+                    chatLogger("[FALLBACK-SQL-SUCCESS] 定番SQLによる救済に成功しました。");
+                }
+            }
+        }
+
+        if (!$execResult['success']) {
             return "⚠️ **3回自律修復を試みましたが、集計を完了できませんでした。条件を絞り込んで再度ご指示ください。**\n\n最終エラー詳細: " . ($execResult['error'] ?? '不明なエラー。') . "\n\nデバッグ対象クエリ: `{$generated_sql}`";
         }
 
