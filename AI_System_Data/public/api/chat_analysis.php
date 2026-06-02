@@ -45,9 +45,9 @@ if (!function_exists('chatLogger')) {
  * 外部からのエントリーポイント（インターフェース引数100%完全同期維持版・Freeze Protocol）
  * ✨【関数名シンクロ統合】：名前を chat.php 側の呼び出し名 「runAdvancedReasoningRoute」 へ完全同期！
  */
-function runAdvancedReasoningRoute($pdo, $ollama_host, $projectId, $originalMessage, $model, $promptKey, $projectContext, $historySummaryText, $user_id, $role) {
+function runAdvancedReasoningRoute($pdo, $ollama_host, $projectId, $originalMessage, $model, $promptKey, $projectContext, $historySummaryText, $user_id, $role, bool $reportMode = false, bool $diagramMode = false) {
     $processor = new AdvancedReasoningRouteProcessor(
-        $pdo, $ollama_host, $projectId, $originalMessage, $model, $promptKey, $projectContext, $historySummaryText, $user_id, $role
+        $pdo, $ollama_host, $projectId, $originalMessage, $model, $promptKey, $projectContext, $historySummaryText, $user_id, $role, $reportMode, $diagramMode
     );
     $processor->execute();
 }
@@ -67,6 +67,9 @@ class AdvancedReasoningRouteProcessor {
     private $historySummaryText;
     private $user_id;
     private $role;
+    private $reportMode = false;
+    private $diagramMode = false;
+    private $reportDocument = null;
 
     // 内部ステート管理
     private $reasoningId;
@@ -91,7 +94,7 @@ class AdvancedReasoningRouteProcessor {
     /**
      * コンストラクタ (完全DI化)
      */
-    public function __construct($pdo, $ollama_host, $projectId, $originalMessage, $model, $promptKey, $projectContext, $historySummaryText, $user_id, $role) {
+    public function __construct($pdo, $ollama_host, $projectId, $originalMessage, $model, $promptKey, $projectContext, $historySummaryText, $user_id, $role, bool $reportMode = false, bool $diagramMode = false) {
         $this->pdo                = $pdo;
         $this->ollama_host        = $ollama_host;
         $this->projectId          = $projectId;
@@ -102,7 +105,20 @@ class AdvancedReasoningRouteProcessor {
         $this->historySummaryText = $historySummaryText;
         $this->user_id            = $user_id;
         $this->role               = $role;
+        $this->reportMode         = $reportMode;
+        $this->diagramMode        = $diagramMode;
         $this->reasoningId        = 'sql-' . uniqid('reason_') . '-' . mt_rand(1000, 9999);
+    }
+
+    private function getOutputModeInstructions(): string {
+        $instructions = '';
+        if ($this->diagramMode) {
+            $instructions .= "\n【図解モード】説明の理解に役立つ場合のみ、Mermaidコードブロック（```mermaid）またはChart.js用JSONコードブロック（```json:chart）を1つまで添えてください。図表が不要な場合は文章のみで構いません。";
+        }
+        if ($this->reportMode) {
+            $instructions .= "\n【報告書モード】回答は後続処理でPDF報告書化されます。結論、分析対象、根拠、集計結果、留意点、推奨アクション、出典の順に、報告書として読みやすい見出し構成で作成してください。";
+        }
+        return $instructions;
     }
 
     /**
@@ -693,7 +709,8 @@ class AdvancedReasoningRouteProcessor {
 
     private function shouldUseCsvEvidenceRoute(): bool {
         $q = $this->originalMessage;
-        if (!preg_match('/(CSV|csv|データ|レコード|行|列|カラム|項目|内容|概要|傾向|まとめ|集計)/u', $q)) {
+        $mentionsCsvFile = $this->findMentionedCsvFileName($q) !== null;
+        if (!$mentionsCsvFile && !preg_match('/(CSV|csv|データ|レコード|行|列|カラム|項目|内容|概要|傾向|まとめ|集計)/u', $q)) {
             return false;
         }
         if (preg_match('/(平均|中央値|標準偏差|相関|回帰|推移|時系列|ランキング|多い順|少ない順|TOP|トップ)/iu', $q)) {
@@ -707,6 +724,33 @@ class AdvancedReasoningRouteProcessor {
             chatLogger("[CSV-EVIDENCE] CSV行数判定に失敗: " . $e->getMessage());
             return false;
         }
+    }
+
+    private function findMentionedCsvFileName(string $question): ?string {
+        $normalizedQuestion = $this->normalizeCsvRouteText($question);
+        if ($normalizedQuestion === '') {
+            return null;
+        }
+
+        foreach ($this->loadCsvMetadata() as $file) {
+            $fileName = (string)($file['file_name'] ?? '');
+            $normalizedFile = $this->normalizeCsvRouteText($fileName);
+            if ($normalizedFile === '') {
+                continue;
+            }
+            if (mb_strpos($normalizedQuestion, $normalizedFile) !== false || mb_strpos($normalizedFile, $normalizedQuestion) !== false) {
+                return $fileName;
+            }
+        }
+
+        return null;
+    }
+
+    private function normalizeCsvRouteText(string $text): string {
+        $text = mb_strtolower($this->normalizeUtf8($text), 'UTF-8');
+        $text = preg_replace('/\.(csv|tsv)$/iu', '', $text);
+        $text = preg_replace('/[\s　「」『』【】\\[\\]（）()、。,.，．:：;；!！?？#]+/u', '', $text);
+        return trim((string)$text);
     }
 
     private function countCsvEvidenceRows(): int {
@@ -723,6 +767,16 @@ class AdvancedReasoningRouteProcessor {
     private function extractCsvSearchTerms(string $question): array {
         $question = $this->normalizeUtf8($question);
         $terms = [];
+
+        $mentionedCsv = $this->findMentionedCsvFileName($question);
+        if ($mentionedCsv !== null) {
+            $baseName = preg_replace('/\.(csv|tsv)$/iu', '', $mentionedCsv);
+            $baseName = preg_replace('/[（(].*$/u', '', (string)$baseName);
+            $baseName = trim((string)$baseName);
+            if ($baseName !== '') {
+                $terms[] = $baseName;
+            }
+        }
 
         if (preg_match_all('/[「『"“]([^」』"”]{2,60})[」』"”]/u', $question, $matches)) {
             foreach ($matches[1] as $term) {
@@ -760,6 +814,7 @@ class AdvancedReasoningRouteProcessor {
         foreach ($terms as $term) {
             $term = $this->normalizeUtf8((string)$term);
             $term = preg_replace('/\s+/u', ' ', $term);
+            $term = preg_replace('/(について|に関して|のこと|とは)$/u', '', $term);
             $term = preg_replace('/^[\s、。,.，．:：;；!?！？()（）\[\]【】]+|[\s、。,.，．:：;；!?！？()（）\[\]【】]+$/u', '', $term);
             $term = trim((string)$term);
             if ($term === '' || mb_strlen($term) < 2 || isset($stopMap[$term]) || $this->isGenericCsvSearchTerm($term)) {
@@ -1113,7 +1168,8 @@ class AdvancedReasoningRouteProcessor {
             . "あなたはCSV証拠読解結果を統合して、ユーザーの質問に直接答える分析官です。\n"
             . "対象データは、質問意図に基づいてSQL検索で絞り込んだCSVレコードです。ランキングや列別内訳へ逃げず、検索対象全体から回答してください。\n"
             . "回答には、対象ファイル数・対象行数・主要な結論・根拠行・注意点を含めてください。\n"
-            . "根拠のない断定、存在しない列や値の作成は禁止です。";
+            . "根拠のない断定、存在しない列や値の作成は禁止です。"
+            . $this->getOutputModeInstructions();
 
         $user = $this->projectContext . "\n\n"
             . "【ユーザー質問】\n{$this->originalMessage}\n\n"
@@ -1637,7 +1693,7 @@ class AdvancedReasoningRouteProcessor {
         }
 
         // ✨【フェーズ4】最終マージプロンプトのベースプロンプト直後に記憶プロンプトをインジェクト
-        $system_prompt = PromptManager::getBasePrompt($this->promptKey) . "\n" . $this->databaseMemoryPrompt . "\n" . PromptManager::getCommonInstructions() . "\n" . PromptManager::getDashboardLinkInstruction($this->projectId);
+        $system_prompt = PromptManager::getBasePrompt($this->promptKey) . "\n" . $this->databaseMemoryPrompt . "\n" . PromptManager::getCommonInstructions() . "\n" . PromptManager::getDashboardLinkInstruction($this->projectId) . $this->getOutputModeInstructions();
         
         // 生コード内のバッククォート3連記号のハードコードを完全排除
         $fence = str_repeat("\x60", 3);
@@ -1770,7 +1826,7 @@ class AdvancedReasoningRouteProcessor {
         }
 
         require_once __DIR__ . '/../../src/PromptManager.php';
-        $system_prompt = PromptManager::getBasePrompt($this->promptKey) . "\n" . $this->databaseMemoryPrompt . "\n" . PromptManager::getCommonInstructions() . "\n" . PromptManager::getDashboardLinkInstruction($this->projectId);
+        $system_prompt = PromptManager::getBasePrompt($this->promptKey) . "\n" . $this->databaseMemoryPrompt . "\n" . PromptManager::getCommonInstructions() . "\n" . PromptManager::getDashboardLinkInstruction($this->projectId) . $this->getOutputModeInstructions();
         
         $fence = str_repeat("\x60", 3);
         $system_prompt .= "\n\n// ── UIモジュールから仕入れた関数群を support.php へ正確に再出荷 ──【データ分析・報告指示（Chart.js完全準拠版）】\n"
@@ -1870,12 +1926,51 @@ class AdvancedReasoningRouteProcessor {
 
             $this->pdo->commit();
             chatLogger("[DEBUG] DBトランザクションコミット成功。すべての書き込みデータ整合性を完全保護しました。");
+            $this->createReportDocumentIfRequested((int)$historyId);
         } catch (Exception $e) {
             if ($this->pdo->inTransaction()) {
                 $this->pdo->rollBack();
                 chatLogger("[WARN] DBトランザクション内で例外エラーを検知したため、一斉ロールバックを執行しました。");
             }
             chatLogger("[ERROR] 履歴・評価スコアのDB一括保存中に例外発生: " . $e->getMessage());
+        }
+    }
+
+    private function createReportDocumentIfRequested(int $historyId): void {
+        if (!$this->reportMode || $this->projectId === null) {
+            return;
+        }
+        try {
+            require_once __DIR__ . '/../../src/ReportGenerator.php';
+            sendSSE('status', [
+                'step' => 6,
+                'message' => '📄 報告書モード: HTML/CSS報告書をPDF化し、資料PDFへ登録しています...'
+            ]);
+            $generator = new ReportGenerator(
+                $this->pdo,
+                realpath(__DIR__ . '/../../') ?: (__DIR__ . '/../..'),
+                $this->ollama_host,
+                function ($msg) { chatLogger($msg); }
+            );
+            $this->reportDocument = $generator->createFromChat(
+                (int)$this->projectId,
+                $historyId,
+                (int)$this->user_id,
+                $this->originalMessage,
+                $this->finalResponse,
+                $this->evalResult,
+                $this->reasoningId
+            );
+            sendSSE('status', [
+                'step' => 6,
+                'message' => '✅ 報告書PDFをPDFタブへ登録し、検索対象化しました。'
+            ]);
+        } catch (Throwable $e) {
+            chatLogger('[REPORT] 報告書PDF登録に失敗: ' . $e->getMessage());
+            sendSSE('status', [
+                'step' => 6,
+                'message' => '⚠️ 報告書PDFの登録に失敗しました。管理者ログを確認してください。'
+            ]);
         }
     }
 
@@ -1896,7 +1991,8 @@ class AdvancedReasoningRouteProcessor {
             'detected_page'   => null,
             'hit_count'       => 0,
             'applied_model'   => $this->model,
-            'created_at'      => date('Y/m/d H:i')
+            'created_at'      => date('Y/m/d H:i'),
+            'report_document' => $this->reportDocument
         ]);
         chatLogger("=== Text-to-SQL 自律修復型分析パイプライン完了 ===");
     }

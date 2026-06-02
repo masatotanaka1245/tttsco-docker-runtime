@@ -17,23 +17,34 @@ session_write_close();
 ob_end_clean();
 header('Content-Type: application/json; charset=utf-8');
 
-if (!$auth->isLoggedIn()) {
-    http_response_code(401);
-    echo json_encode(['success' => false, 'error' => 'ログインが必要です。'], JSON_UNESCAPED_UNICODE);
+$jsonFlags = JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE;
+
+$sendJson = function (array $payload, int $statusCode = 200) use ($jsonFlags): void {
+    http_response_code($statusCode);
+    $json = json_encode($payload, $jsonFlags);
+    if ($json === false) {
+        $payload = [
+            'success' => false,
+            'error' => 'ログ応答のJSON化に失敗しました: ' . json_last_error_msg(),
+            'updated_at' => time(),
+        ];
+        $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+    }
+    echo $json;
     exit;
+};
+
+if (!$auth->isLoggedIn()) {
+    $sendJson(['success' => false, 'error' => 'ログインが必要です。'], 401);
 }
 
 if ($role !== 'admin') {
-    http_response_code(403);
-    echo json_encode(['success' => false, 'error' => 'ログ表示は管理者のみ利用できます。'], JSON_UNESCAPED_UNICODE);
-    exit;
+    $sendJson(['success' => false, 'error' => 'ログ表示は管理者のみ利用できます。'], 403);
 }
 
 $csrfToken = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
 if ($sessionCsrf === '' || !hash_equals($sessionCsrf, $csrfToken)) {
-    http_response_code(403);
-    echo json_encode(['success' => false, 'error' => 'CSRFトークンが正しくありません。'], JSON_UNESCAPED_UNICODE);
-    exit;
+    $sendJson(['success' => false, 'error' => 'CSRFトークンが正しくありません。'], 403);
 }
 
 $offset = filter_input(INPUT_GET, 'offset', FILTER_VALIDATE_INT);
@@ -44,22 +55,20 @@ $basePath = realpath(__DIR__ . '/../../');
 $logPath = $basePath . DIRECTORY_SEPARATOR . 'logs' . DIRECTORY_SEPARATOR . 'chat_debug.log';
 
 if (!is_file($logPath)) {
-    echo json_encode([
+    $sendJson([
         'success' => true,
         'content' => '',
         'offset' => 0,
         'size' => 0,
         'truncated' => false,
         'updated_at' => time(),
-    ], JSON_UNESCAPED_UNICODE);
-    exit;
+    ]);
 }
 
+clearstatcache(true, $logPath);
 $size = filesize($logPath);
 if ($size === false) {
-    http_response_code(500);
-    echo json_encode(['success' => false, 'error' => 'ログサイズを取得できません。'], JSON_UNESCAPED_UNICODE);
-    exit;
+    $sendJson(['success' => false, 'error' => 'ログサイズを取得できません。'], 500);
 }
 
 $truncated = false;
@@ -83,13 +92,15 @@ if ($fp) {
         flock($fp, LOCK_UN);
     }
     fclose($fp);
+} else {
+    $sendJson(['success' => false, 'error' => 'ログファイルを開けません。'], 500);
 }
 
-echo json_encode([
+$sendJson([
     'success' => true,
     'content' => $content,
     'offset' => $size,
     'size' => $size,
     'truncated' => $truncated,
     'updated_at' => time(),
-], JSON_UNESCAPED_UNICODE);
+]);

@@ -6,11 +6,11 @@
  * ★[品質評価（LLM-as-a-Judge）一元トランザクション保護 ＆ 13引数インターフェース拡張版]
  */
 
-function runNormalStreamingRoute($pdo, $ollama_host, $projectId, $originalMessage, $searchQuery, $model, $promptKey, $projectContext, $historySummaryText, $vectorSearch, $engine, $user_id, $role) {
+function runNormalStreamingRoute($pdo, $ollama_host, $projectId, $originalMessage, $searchQuery, $model, $promptKey, $projectContext, $historySummaryText, $vectorSearch, $engine, $user_id, $role, bool $reportMode = false, bool $diagramMode = false) {
     $processor = new NormalStreamingRouteProcessor(
-        $pdo, $ollama_host, $projectId, $originalMessage, $searchQuery, 
-        $model, $promptKey, $projectContext, $historySummaryText, 
-        $vectorSearch, $engine, $user_id, $role
+        $pdo, $ollama_host, $projectId, $originalMessage, $searchQuery,
+        $model, $promptKey, $projectContext, $historySummaryText,
+        $vectorSearch, $engine, $user_id, $role, $reportMode, $diagramMode
     );
     $processor->execute();
 }
@@ -29,6 +29,9 @@ class NormalStreamingRouteProcessor {
     private $engine;
     private $user_id;
     private $role;
+    private $reportMode = false;
+    private $diagramMode = false;
+    private $reportDocument = null;
 
     private $targetPage = null;
     private $referAllMode = false;
@@ -43,7 +46,7 @@ class NormalStreamingRouteProcessor {
     private $buffer = "";
     private $ollamaErrorMsg = "";
 
-    public function __construct($pdo, $ollama_host, $projectId, $originalMessage, $searchQuery, $model, $promptKey, $projectContext, $historySummaryText, $vectorSearch, $engine, $user_id, $role) {
+    public function __construct($pdo, $ollama_host, $projectId, $originalMessage, $searchQuery, $model, $promptKey, $projectContext, $historySummaryText, $vectorSearch, $engine, $user_id, $role, bool $reportMode = false, bool $diagramMode = false) {
         $this->pdo                = $pdo;
         $this->ollama_host        = $ollama_host;
         $this->projectId          = $projectId;
@@ -57,6 +60,8 @@ class NormalStreamingRouteProcessor {
         $this->engine             = $engine;
         $this->user_id            = $user_id;
         $this->role               = $role;
+        $this->reportMode         = $reportMode;
+        $this->diagramMode        = $diagramMode;
     }
 
     private function normalizeUtf8(string $text): string {
@@ -186,7 +191,8 @@ class NormalStreamingRouteProcessor {
             $csv_hits_by_doc = [];
 
             foreach ($all_hits as $hit) {
-                $is_csv = (isset($hit['image_description']) && $hit['image_description'] === 'CSVデータ行レコード');
+                $imageDescription = (string)($hit['image_description'] ?? '');
+                $is_csv = mb_strpos($imageDescription, 'CSVデータ行レコード') === 0;
                 if ($is_csv) {
                     if ($hit['score'] >= 0.50) { 
                         $csv_hits_by_doc[$hit['document_id']][] = $hit;
@@ -245,6 +251,12 @@ class NormalStreamingRouteProcessor {
             $system_prompt .= "\n【超重要】ユーザーは明示的に「{$this->targetPage}ページ」を指定して質問しています。必ず提供された参考資料のうち「P.{$this->targetPage}」と書かれたブロックの情報のみを根拠として回答してください。関係のない他のページの情報を混ぜて答えてはなりません。";
         } elseif ($this->referAllMode) {
             $system_prompt .= "\n【超重要・マクロ分析ルール】ユーザーは資料全体の横断的な要約・総括を求めています。\n1. 各資料 of 全体マップ（目次情報）を骨格にしてください。\n2. 各ページの詳細情報（P.1〜）を肉付けして全体を解説してください。\n3. すべての登録済み資料に平等に言及し大局的な知見を提示してください。";
+        }
+        if ($this->diagramMode) {
+            $system_prompt .= "\n【図解モード】説明の理解に役立つ場合のみ、Mermaidコードブロック（```mermaid）またはChart.js用JSONコードブロック（```json:chart）を1つまで添えてください。図表が不要な場合は文章のみで構いません。";
+        }
+        if ($this->reportMode) {
+            $system_prompt .= "\n【報告書モード】回答は後続処理でPDF報告書化されます。結論、分析対象、根拠、留意点、推奨アクション、出典の順に、報告書として読みやすい見出し構成で作成してください。";
         }
         return $system_prompt;
     }
@@ -315,7 +327,8 @@ class NormalStreamingRouteProcessor {
             ]
         ]));
         curl_setopt($ch, CURLOPT_WRITEFUNCTION, $writeCallback);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 120);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 15);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 300);
         
         $success    = curl_exec($ch);
         $curl_error = curl_error($ch);
@@ -351,6 +364,7 @@ class NormalStreamingRouteProcessor {
         if ($this->projectId === null) {
             return;
         }
+        sendSSE('status', ['message' => '💾 回答生成が完了しました。会話履歴と評価結果を保存しています...']);
         chatLogger("[DEBUG] DBトランザクションを開始し、対話ログ・評価スコアを一元コミットします...");
         try {
             // 全書き込み処理を完璧な単一トランザクションスコープへ完全格納
@@ -388,6 +402,7 @@ class NormalStreamingRouteProcessor {
             }
 
             require_once __DIR__ . '/../../src/FaqAutoRegistrar.php';
+            sendSSE('status', ['message' => '📚 高評価回答のFAQ自動登録条件を確認しています...']);
             $faqRegistrar = new FaqAutoRegistrar($this->pdo);
             $faqRegistrar->registerIfQualified(
                 $this->projectId,
@@ -401,6 +416,7 @@ class NormalStreamingRouteProcessor {
             // すべてのインサートが完全に成功したため一括コミットを執行
             $this->pdo->commit();
             chatLogger("[DEBUG] DBトランザクションコミット成功。通常RAGのデータ整合性を完全保護しました。");
+            $this->createReportDocumentIfRequested((int)$historyId);
         } catch (Exception $e) {
             // 障害発生時は一斉ロールバックを執行
             if ($this->pdo->inTransaction()) {
@@ -408,6 +424,35 @@ class NormalStreamingRouteProcessor {
                 chatLogger("[WARN] DBトランザクション内で例外エラーを検知したため、一斉ロールバックを執行しました。");
             }
             chatLogger("DB履歴・評価保存例外: " . $e->getMessage());
+        }
+    }
+
+    private function createReportDocumentIfRequested(int $historyId): void {
+        if (!$this->reportMode || $this->projectId === null) {
+            return;
+        }
+        try {
+            require_once __DIR__ . '/../../src/ReportGenerator.php';
+            sendSSE('status', ['message' => '📄 報告書モード: HTML/CSS報告書をPDF化し、資料PDFへ登録しています...']);
+            $generator = new ReportGenerator(
+                $this->pdo,
+                realpath(__DIR__ . '/../../') ?: (__DIR__ . '/../..'),
+                $this->ollama_host,
+                function ($msg) { chatLogger($msg); }
+            );
+            $this->reportDocument = $generator->createFromChat(
+                (int)$this->projectId,
+                $historyId,
+                (int)$this->user_id,
+                $this->originalMessage,
+                $this->fullResponse,
+                $this->evalResult,
+                null
+            );
+            sendSSE('status', ['message' => '✅ 報告書PDFをPDFタブへ登録し、検索対象化しました。']);
+        } catch (Throwable $e) {
+            chatLogger('[REPORT] 報告書PDF登録に失敗: ' . $e->getMessage());
+            sendSSE('status', ['message' => '⚠️ 報告書PDFの登録に失敗しました。管理者ログを確認してください。']);
         }
     }
 
@@ -422,7 +467,8 @@ class NormalStreamingRouteProcessor {
             'hit_count'       => count($this->sourceDocs),
             'reasoning_steps' => [],
             'applied_model'   => $this->model,
-            'created_at'      => date('Y/m/d H:i')
+            'created_at'      => date('Y/m/d H:i'),
+            'report_document' => $this->reportDocument
         ]);
         chatLogger("=== 通常RAGストリーミングパイプライン完了 ===");
     }

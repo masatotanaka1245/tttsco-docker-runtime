@@ -14,6 +14,8 @@
 - MySQL 8.0
 - phpMyAdmin
 - watchdog 用 PHP CLI コンテナ
+- PDF解析用の poppler-utils
+- 報告書PDF生成用の Chromium headless
 
 ## Dockerに含めないもの
 
@@ -136,6 +138,18 @@ OLLAMA_CHAT_MODEL=llama3
 ```
 
 ## よくあるエラー
+
+### debug_tools.php で .exe が Exec format error になる
+
+DockerコンテナはLinux環境のため、`AI_System_Data/tools/*.exe` のWindows用実行ファイルは実行できません。
+Dockerでは `poppler-utils` に含まれるLinux版 `pdfinfo` / `pdftotext` / `pdftoppm` を使います。
+Dockerfileを更新した場合は、次のように再ビルドしてください。
+
+```powershell
+docker compose up -d --build
+```
+
+報告書モードのPDF出力は、DockerではChromium headless、本番WindowsではChrome / Edge / wkhtmltopdf のいずれかを利用します。
 
 ### Docker内からOllamaに接続できない
 

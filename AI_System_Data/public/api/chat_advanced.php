@@ -40,11 +40,11 @@ if (!function_exists('chatLogger')) {
 /**
  * 外部からのエントリーポイント（他ファイルと一元規格統一のため、最後尾に $role を追記した13引数拡張版・Freeze Protocol）
  */
-function runAdvancedReasoningRoute($pdo, $ollama_host, $projectId, $originalMessage, $searchQuery, $reasoningId, $reasoningModel, $synthesisModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role) {
+function runAdvancedReasoningRoute($pdo, $ollama_host, $projectId, $originalMessage, $searchQuery, $reasoningId, $reasoningModel, $synthesisModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, bool $reportMode = false, bool $diagramMode = false) {
     $processor = new AdvancedReasoningRouteProcessor(
-        $pdo, $ollama_host, $projectId, $originalMessage, $searchQuery, 
-        $reasoningId, $reasoningModel, $synthesisModel, $promptKey, 
-        $projectContext, $historySummaryText, $user_id, $role
+        $pdo, $ollama_host, $projectId, $originalMessage, $searchQuery,
+        $reasoningId, $reasoningModel, $synthesisModel, $promptKey,
+        $projectContext, $historySummaryText, $user_id, $role, $reportMode, $diagramMode
     );
     $processor->execute();
 }
@@ -69,6 +69,9 @@ class AdvancedReasoningRouteProcessor {
     private $user_id;
     private $role;
     private $model;
+    private $reportMode = false;
+    private $diagramMode = false;
+    private $reportDocument = null;
     private $databaseMemoryPrompt = ""; // フェーズ3：DB事前記憶プロンプト保持用
 
     // 内部ステート管理（CSV集計用・資料RAG用すべてのステートを統合）
@@ -88,7 +91,7 @@ class AdvancedReasoningRouteProcessor {
     public $lastLoggedLen = 0;
     public $ollamaErrorMsg = "";
 
-    public function __construct($pdo, $ollama_host, $projectId, $originalMessage, $searchQuery, $reasoningId, $reasoningModel, $synthesisModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role) {
+    public function __construct($pdo, $ollama_host, $projectId, $originalMessage, $searchQuery, $reasoningId, $reasoningModel, $synthesisModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, bool $reportMode = false, bool $diagramMode = false) {
         $this->pdo = $pdo;
         $this->ollama_host = $ollama_host;
         $this->projectId = (int)$projectId;
@@ -103,6 +106,19 @@ class AdvancedReasoningRouteProcessor {
         $this->user_id = (int)$user_id;
         $this->role = (string)$role;
         $this->model = (string)$reasoningModel;
+        $this->reportMode = $reportMode;
+        $this->diagramMode = $diagramMode;
+    }
+
+    private function getOutputModeInstructions(): string {
+        $instructions = '';
+        if ($this->diagramMode) {
+            $instructions .= "\n【図解モード】説明の理解に役立つ場合のみ、Mermaidコードブロック（```mermaid）またはChart.js用JSONコードブロック（```json:chart）を1つまで添えてください。図表が不要な場合は文章のみで構いません。";
+        }
+        if ($this->reportMode) {
+            $instructions .= "\n【報告書モード】回答は後続処理でHTML/CSSからPDF報告書化され、資料PDFとして保存されます。結論、分析対象、根拠、留意点、推奨アクション、出典の順に、報告書として読みやすい見出し構成で作成してください。";
+        }
+        return $instructions;
     }
 
     private function normalizeUtf8(string $text): string {
@@ -1032,7 +1048,7 @@ class AdvancedReasoningRouteProcessor {
         chatLogger("==================================================");
 
         $currentDraft = "";
-        $baseSystemPrompt = "あなたは根拠に忠実な業務支援AIです。ユーザーの質問に直接答え、利用可能なサブ回答と取得データだけを根拠に最終回答を作成してください。根拠が不足する場合は不足を明示し、架空の事実は補完しないでください。";
+        $baseSystemPrompt = "あなたは根拠に忠実な業務支援AIです。ユーザーの質問に直接答え、利用可能なサブ回答と取得データだけを根拠に最終回答を作成してください。根拠が不足する場合は不足を明示し、架空の事実は補完しないでください。" . $this->getOutputModeInstructions();
         $chartInstruction = "\nグラフや図が有効な場合のみ、Chart.jsまたはMermaid用のJSON/コードブロックを最小限で付けてください。不要な場合は文章のみで構いません。";
 
         if (!$this->shouldRunCsvFullMapReduce()) {
@@ -1424,6 +1440,10 @@ class AdvancedReasoningRouteProcessor {
      * 進捗ステップ99、チャット履歴、および品質評価スコアを一元コミットする単一トランザクション保護回路
      */
     private function saveHistoryAndEvaluations(): void {
+        sendSSE('status', [
+            'step' => 6,
+            'message' => '💾 最終回答の品質確認が完了しました。会話履歴・推論プロセス・評価結果を保存しています...'
+        ]);
         chatLogger("[DEBUG] DBトランザクションを開始し、ステップ99・対話ログ・評価スコアを一元コミットします...");
         try {
             // 全書き込み処理を完璧な単一トランザクションスコープへ完全格納（beginTransactionを最先頭へ配置）
@@ -1473,6 +1493,10 @@ class AdvancedReasoningRouteProcessor {
             }
 
             require_once __DIR__ . '/../../src/FaqAutoRegistrar.php';
+            sendSSE('status', [
+                'step' => 6,
+                'message' => '📚 高評価回答のFAQ自動登録条件を確認しています...'
+            ]);
             $faqRegistrar = new FaqAutoRegistrar($this->pdo);
             $faqRegistrar->registerIfQualified(
                 (int)$this->projectId,
@@ -1486,6 +1510,7 @@ class AdvancedReasoningRouteProcessor {
             // すべてのインサート、アップデートが完全に成功したため一括コミットを執行
             $this->pdo->commit();
             chatLogger("[DEBUG] DBトランザクションコミット成功。すべての書き込みデータ整合性を完全保護しました。");
+            $this->createReportDocumentIfRequested((int)$historyId);
         } catch (Exception $e) {
             // 障害発生時は、ステップ99のINSERTを含めて全てを完全に道連れロールバック
             if ($this->pdo->inTransaction()) { 
@@ -1493,6 +1518,44 @@ class AdvancedReasoningRouteProcessor {
                 chatLogger("[WARN] DBトランザクション内で例外エラーを検知したため、一斉ロールバックを執行しました。");
             }
             chatLogger("データベースへの履歴永続化エラー: " . $e->getMessage());
+        }
+    }
+
+    private function createReportDocumentIfRequested(int $historyId): void {
+        if (!$this->reportMode || $this->projectId === null) {
+            return;
+        }
+        try {
+            require_once __DIR__ . '/../../src/ReportGenerator.php';
+            sendSSE('status', [
+                'step' => 6,
+                'message' => '📄 報告書モード: HTML/CSS報告書をPDF化し、資料PDFへ登録しています...'
+            ]);
+            $generator = new ReportGenerator(
+                $this->pdo,
+                realpath(__DIR__ . '/../../') ?: (__DIR__ . '/../..'),
+                $this->ollama_host,
+                function ($msg) { chatLogger($msg); }
+            );
+            $this->reportDocument = $generator->createFromChat(
+                (int)$this->projectId,
+                $historyId,
+                (int)$this->user_id,
+                $this->originalMessage,
+                $this->finalResponse,
+                $this->evalResult,
+                $this->reasoningId
+            );
+            sendSSE('status', [
+                'step' => 6,
+                'message' => '✅ 報告書PDFをPDFタブへ登録し、検索対象化しました。'
+            ]);
+        } catch (Throwable $e) {
+            chatLogger('[REPORT] 報告書PDF登録に失敗: ' . $e->getMessage());
+            sendSSE('status', [
+                'step' => 6,
+                'message' => '⚠️ 報告書PDFの登録に失敗しました。管理者ログを確認してください。'
+            ]);
         }
     }
 
@@ -1551,7 +1614,8 @@ class AdvancedReasoningRouteProcessor {
             'detected_page'   => null,
             'hit_count'       => count($source_docs),
             'applied_model'   => $this->synthesisModel,
-            'created_at'      => date('Y/m/d H:i')
+            'created_at'      => date('Y/m/d H:i'),
+            'report_document' => $this->reportDocument
         ]);
         chatLogger("=== [MoA大統合ハブコントローラー] ハイブリッド並列多重推論パイプライン全線開通・処理完了 ===");
     }

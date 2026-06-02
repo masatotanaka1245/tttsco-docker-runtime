@@ -96,6 +96,39 @@ if (!function_exists('calculateCosineSimilarity')) {
     }
 }
 
+if (!function_exists('normalizeCsvRouteText')) {
+    function normalizeCsvRouteText(string $text): string {
+        $text = mb_strtolower($text, 'UTF-8');
+        $text = preg_replace('/\.(csv|tsv)$/iu', '', $text);
+        $text = preg_replace('/[\s　「」『』【】\\[\\]（）()、。,.，．:：;；!！?？#]+/u', '', $text);
+        return trim((string)$text);
+    }
+}
+
+if (!function_exists('findMentionedCsvFileName')) {
+    function findMentionedCsvFileName(PDO $pdo, int $projectId, string $message): ?string {
+        $normalizedMessage = normalizeCsvRouteText($message);
+        if ($normalizedMessage === '') {
+            return null;
+        }
+
+        $stmt = $pdo->prepare("SELECT file_name FROM project_csv_files WHERE project_id = ? ORDER BY id DESC");
+        $stmt->execute([$projectId]);
+        foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $fileName) {
+            $fileName = (string)$fileName;
+            $normalizedFile = normalizeCsvRouteText($fileName);
+            if ($normalizedFile === '') {
+                continue;
+            }
+            if (mb_strpos($normalizedMessage, $normalizedFile) !== false || mb_strpos($normalizedFile, $normalizedMessage) !== false) {
+                return $fileName;
+            }
+        }
+
+        return null;
+    }
+}
+
 /**
  * Ollama Chat API を呼び出すヘルパー（VRAM保護最適化 ＆ 思考プロセス抽出対応版）
  */
@@ -292,10 +325,15 @@ try {
     $selected_model = $input['model'] ?? $default_model;
     $prompt_key     = $input['prompt_mode'] ?? 'construction_consultant';
     $reasoning_id   = $input['reasoning_id'] ?? ($input['advanced_reasoning_id'] ?? null);
+    $report_mode    = (isset($input['report_mode']) && $input['report_mode'] === true);
+    $diagram_mode   = (isset($input['diagram_mode']) && $input['diagram_mode'] === true);
 
     chatLogger("=== 新着チャット受信 | Host: {$ollama_host} | Model: {$selected_model} ===");
     chatLogger("ユーザー: {$username} (ID: {$user_id}) | 案件ID: " . ($project_id ?? 'NULL (汎用)'));
     chatLogger("質問内容: " . mb_substr($message, 0, 50) . (mb_strlen($message) > 50 ? '...' : ''));
+    if ($report_mode || $diagram_mode) {
+        chatLogger("[OUTPUT-MODE] report_mode=" . ($report_mode ? 'on' : 'off') . " | diagram_mode=" . ($diagram_mode ? 'on' : 'off'));
+    }
 
     // 🧠 自律型スマート・ルーティング (Smart Routing) ──【ハイブリッド要塞・完全調和版】
     $advanced_reasoning = false;
@@ -310,6 +348,10 @@ try {
     $structured_analysis_pattern = '/(transaction_uid|login_seconds|row_data|APP_\d+|ユーザー.*(操作|時間)|操作.*(時間|秒|秒数)|ログイン秒|利用時間|滞在時間|実行時間)/iu';
     $normal_rag_preferred_pattern = '/(良い案|よい案|方法|支援する方法|設計書案|仕様書案|要件定義|システム.*構築|提案|企画|たたき台|ドラフト)/u';
     $explicit_advanced = (isset($input['advanced_reasoning']) && $input['advanced_reasoning'] === true);
+    if ($report_mode && $project_id !== null) {
+        $explicit_advanced = true;
+        chatLogger("[SMART-ROUTER] 報告書モードを検知。PDF生成・検索登録のためフル思考ルートへ寄せます。");
+    }
 
     $dedupeLockFile = null;
     $dedupeLocked = false;
@@ -445,6 +487,19 @@ try {
         chatLogger("[WARN] 会話履歴コンテキスト取得に失敗: " . $historyEx->getMessage());
     }
 
+    if ($project_id !== null && !$advanced_reasoning && !$is_history_summary_mode) {
+        try {
+            $mentionedCsv = findMentionedCsvFileName($pdo, (int)$project_id, $message);
+            if ($mentionedCsv !== null) {
+                $is_analysis_mode = true;
+                $prefer_normal_rag = false;
+                chatLogger("[SMART-ROUTER] 登録済みCSVファイル名への言及を検知。CSV分析ルートへ切替: {$mentionedCsv}");
+            }
+        } catch (Throwable $csvRouteEx) {
+            chatLogger("[SMART-ROUTER] CSVファイル名ルーティング確認に失敗: " . $csvRouteEx->getMessage());
+        }
+    }
+
     // =========================================================================
     // 4. 回答分岐 ＆ 各コントローラーファイルへの処理移譲
     // =========================================================================
@@ -481,14 +536,14 @@ try {
         $routeName = 'data_analysis';
         chatLogger("[SMART-ROUTER] 最終ルート決定: {$routeName}");
         require_once __DIR__ . '/chat_analysis.php';
-        runAdvancedReasoningRoute($pdo, $ollama_host, $project_id, $message, $reasoning_model, $prompt_key, $project_context, $history_summary_text, $user_id, $role);
+        runAdvancedReasoningRoute($pdo, $ollama_host, $project_id, $message, $reasoning_model, $prompt_key, $project_context, $history_summary_text, $user_id, $role, $report_mode, $diagram_mode);
 
     } elseif ($advanced_reasoning) {
         // ━━━━【重厚ルート: フル思考ハイブリッド・エージェント (RAG & SQL)】━━━━
         $routeName = 'advanced_hybrid';
         chatLogger("[SMART-ROUTER] 最終ルート決定: {$routeName}");
         require_once __DIR__ . '/chat_advanced.php';
-        runAdvancedReasoningRoute($pdo, $ollama_host, $project_id, $message, $search_query, $reasoning_id, $reasoning_model, $synthesis_model, $prompt_key, $project_context, $history_summary_text, $user_id, $role);
+        runAdvancedReasoningRoute($pdo, $ollama_host, $project_id, $message, $search_query, $reasoning_id, $reasoning_model, $synthesis_model, $prompt_key, $project_context, $history_summary_text, $user_id, $role, $report_mode, $diagram_mode);
 
     } else {
         // ━━━━【通常ルート: 一問一答型 RAG ストリーミング】━━━━
@@ -499,7 +554,7 @@ try {
         $engine       = new EmbeddingEngine($ollama_host, "mxbai-embed-large");
         $vectorSearch = new VectorSearch($pdo);
         
-        runNormalStreamingRoute($pdo, $ollama_host, $project_id, $message, $search_query, $reasoning_model, $prompt_key, $project_context, $history_summary_text, $vectorSearch, $engine, $user_id, $role);
+        runNormalStreamingRoute($pdo, $ollama_host, $project_id, $message, $search_query, $reasoning_model, $prompt_key, $project_context, $history_summary_text, $vectorSearch, $engine, $user_id, $role, $report_mode, $diagram_mode);
     }
 
     chatLogger("[SMART-ROUTER] ルート処理完了: {$routeName} | elapsed: " . number_format(microtime(true) - $routeStart, 2) . "秒");

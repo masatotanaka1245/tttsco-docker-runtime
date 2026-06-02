@@ -6,6 +6,7 @@ RUN apt-get update && apt-get install -y \
     curl \
     default-mysql-client \
     poppler-utils \
+    chromium \
     libzip-dev \
     libonig-dev \
     libicu-dev \

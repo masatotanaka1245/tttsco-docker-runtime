@@ -213,11 +213,11 @@ if (!function_exists('h')) {
                 <div class="space-y-3">
                     <div class="flex items-center justify-between border-b border-slate-200/60 pb-2">
                         <h4 class="text-xs font-black text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-                            <span>Document Repository</span> 資料PDF プレビュー (<?= count($documents) ?>)
+                            <span>Document Repository</span> 資料PDF プレビュー (<span id="pdf-document-count"><?= count($documents) ?></span>)
                         </h4>
                     </div>
 
-                    <div class="space-y-2.5" role="list">
+                    <div id="pdf-document-list" class="space-y-2.5" role="list">
                         <?php foreach ($documents as $doc): ?>
                             <details class="bg-white border border-slate-200 rounded-2xl shadow-2xs group overflow-hidden transition-all duration-300 ease-in-out hover:shadow-sm">
                                 <summary class="p-3.5 px-5 flex justify-between items-center cursor-pointer hover:bg-slate-50/50 transition-colors duration-200 ease-in-out outline-none select-none">
@@ -238,7 +238,7 @@ if (!function_exists('h')) {
                         <?php endforeach; ?>
                         
                         <?php if (empty($documents)): ?>
-                            <div class="text-center py-12 bg-white rounded-2xl border border-dashed border-slate-200 shadow-2xs">
+                            <div id="pdf-empty-state" class="text-center py-12 bg-white rounded-2xl border border-dashed border-slate-200 shadow-2xs">
                                 <p class="text-3xl mb-2 opacity-35">📭</p>
                                 <p class="text-xs text-slate-400 font-medium italic">登録されているPDF資料はありません。<br>上部のアプローダーから資料を追加してください。</p>
                             </div>
@@ -481,11 +481,19 @@ if (!function_exists('h')) {
                 <button type="button" onclick="const input=document.getElementById('chat-input'); input.value='これまでの会話内容を簡潔にまとめてください。'; input.dispatchEvent(new Event('input')); input.focus();" class="text-[9px] bg-slate-50 hover:bg-slate-100 border border-slate-200/80 rounded-full px-3 py-1 font-bold text-slate-500 shadow-2xs transition-all duration-200 ease-in-out transform hover:border-[#4F5D95] hover:text-[#4F5D95] hover:-translate-y-0.5 hover:shadow-xs hover:scale-[1.02] active:scale-95 active:shadow-inner">📝 文脈総括</button>
             </div>
 
-            <div class="flex items-center gap-2 px-1">
+            <div class="flex flex-wrap items-center gap-2 px-1">
                 <label class="flex items-center gap-2 text-[10px] text-slate-400 font-bold cursor-pointer hover:text-[#4F5D95] transition-colors duration-150 ease-in-out" title="AIが質問を要素分解し、個別に資料を精読してから統合回答を作成します">
                     <input type="checkbox" id="advanced-reasoning-mode" class="rounded border-slate-300 text-[#4F5D95] focus:ring-[#4F5D95]/40 w-3.5 h-3.5 cursor-pointer">
                     <span class="bg-indigo-50/80 text-indigo-700 px-2 py-0.5 rounded-lg border border-indigo-100 font-extrabold text-[9px]">🧠 フル思考モード</span>
                     <span class="font-medium text-slate-400 tracking-tight">(チェックすると強制的に多段階推論により高精度分析を実行)</span>
+                </label>
+                <label class="flex items-center gap-1.5 text-[10px] text-slate-400 font-bold cursor-pointer hover:text-[#4F5D95] transition-colors duration-150 ease-in-out" title="必要に応じてMermaidやChart.jsの図表を回答に含めます">
+                    <input type="checkbox" id="diagram-mode" class="rounded border-slate-300 text-[#4F5D95] focus:ring-[#4F5D95]/40 w-3.5 h-3.5 cursor-pointer">
+                    <span class="bg-emerald-50/80 text-emerald-700 px-2 py-0.5 rounded-lg border border-emerald-100 font-extrabold text-[9px]">📈 図解</span>
+                </label>
+                <label class="flex items-center gap-1.5 text-[10px] text-slate-400 font-bold cursor-pointer hover:text-[#4F5D95] transition-colors duration-150 ease-in-out" title="回答をHTML/CSS報告書としてPDF化し、PDFタブと検索対象へ登録します">
+                    <input type="checkbox" id="report-mode" class="rounded border-slate-300 text-[#4F5D95] focus:ring-[#4F5D95]/40 w-3.5 h-3.5 cursor-pointer">
+                    <span class="bg-amber-50/80 text-amber-700 px-2 py-0.5 rounded-lg border border-amber-100 font-extrabold text-[9px]">📄 報告書</span>
                 </label>
             </div>
 
@@ -534,7 +542,7 @@ if (!function_exists('h')) {
 
     // ★ 究極の安全設計: import * as 構文を使用し、1096エラー(SyntaxError)を原理的に100%防止
     // ✨ ここを ?v=4 から ?v=5 へ書き換えてキャッシュを強制粉砕！
-    import * as Support from './assets/js/support.js?v=12';
+    import * as Support from './assets/js/support.js?v=16';
 
     // ★要件4: 隔離コンテナ内のJSONデータを仲介して安全にマウント・パースするイベントハンドラの実装
     window.openProjectEditModal = (lat, lng) => {
@@ -689,30 +697,30 @@ if (!function_exists('h')) {
             });
         }
 
-        document.querySelectorAll('.btn-delete-pdf').forEach(btn => {
-            btn.addEventListener('click', async (e) => {
-                e.stopPropagation();
-                const id = btn.dataset.docId;
-                if (!confirm('この資料を完全に削除しますか？')) return;
-                
-                try {
-                    let fetchFn = window.secureFetch || Support.secureFetch;
-                    if (!fetchFn) {
-                        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
-                        fetchFn = (url, opts) => fetch(url, {
-                            ...opts,
-                            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken, ...opts.headers }
-                        }).then(r => r.json());
-                    }
-                    
-                    const res = await fetchFn('api/delete_pdf.php', { method: 'POST', body: JSON.stringify({ id }) });
-                    if (res.success) {
-                        location.reload();
-                    } else {
-                        alert(res.error || '削除に失敗しました。');
-                    }
-                } catch (err) { alert('通信エラーが発生しました: ' + err.message); }
-            });
+        document.addEventListener('click', async (e) => {
+            const btn = e.target.closest('.btn-delete-pdf');
+            if (!btn) return;
+            e.stopPropagation();
+            const id = btn.dataset.docId;
+            if (!confirm('この資料を完全に削除しますか？')) return;
+
+            try {
+                let fetchFn = window.secureFetch || Support.secureFetch;
+                if (!fetchFn) {
+                    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
+                    fetchFn = (url, opts) => fetch(url, {
+                        ...opts,
+                        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken, ...opts.headers }
+                    }).then(r => r.json());
+                }
+
+                const res = await fetchFn('api/delete_pdf.php', { method: 'POST', body: JSON.stringify({ id }) });
+                if (res.success) {
+                    location.reload();
+                } else {
+                    alert(res.error || '削除に失敗しました。');
+                }
+            } catch (err) { alert('通信エラーが発生しました: ' + err.message); }
         });
 
         const uploadTrigger = document.getElementById('upload-trigger');

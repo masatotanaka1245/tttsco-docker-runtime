@@ -13,6 +13,10 @@ import { AiRenderer } from './aiRenderer.js?v=6';
 // 生成された Chart.js のインスタンスを保持し、メモリリークや二重描画を防ぐグローバル管理マップ
 window.chartInstances = window.chartInstances || {};
 
+let chatBusy = false;
+let chatStatusTimer = null;
+let chatStatusStartedAt = null;
+
 // モジュールスコープでグラフ配色とモーダル用インスタンスを管理（window汚染の排除）
 let activeModalChart = null;
 let mermaidInitialized = false;
@@ -56,6 +60,76 @@ function escapeHTML(str) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
+}
+
+function appendReportDocumentToPdfList(reportDocument) {
+    const docId = Number(reportDocument?.document_id || 0);
+    if (!docId) return;
+
+    const list = document.getElementById('pdf-document-list');
+    if (!list || list.querySelector(`[data-doc-card-id="${docId}"]`)) return;
+
+    const title = String(reportDocument.title || 'AI報告書.pdf');
+    const emptyState = document.getElementById('pdf-empty-state');
+    if (emptyState) emptyState.remove();
+
+    const details = document.createElement('details');
+    details.className = 'bg-white border border-amber-200 rounded-2xl shadow-2xs group overflow-hidden transition-all duration-300 ease-in-out hover:shadow-sm';
+    details.dataset.docCardId = String(docId);
+
+    const summary = document.createElement('summary');
+    summary.className = 'p-3.5 px-5 flex justify-between items-center cursor-pointer hover:bg-amber-50/50 transition-colors duration-200 ease-in-out outline-none select-none';
+
+    const left = document.createElement('div');
+    left.className = 'flex items-center gap-2.5 overflow-hidden pr-2';
+    left.innerHTML = '<span class="group-open:rotate-90 transition-transform duration-200 ease-in-out text-slate-400 text-[10px] w-4 text-center">▶</span>';
+    const titleSpan = document.createElement('span');
+    titleSpan.className = 'text-xs font-bold text-slate-700 group-hover:text-[#4F5D95] transition-colors duration-200 truncate';
+    titleSpan.textContent = `📄 ${title}`;
+    left.appendChild(titleSpan);
+
+    const right = document.createElement('div');
+    right.className = 'flex items-center gap-2 flex-shrink-0';
+
+    const openButton = document.createElement('button');
+    openButton.type = 'button';
+    openButton.className = 'text-[9px] text-[#4F5D95] hover:bg-indigo-50 border border-slate-200 px-2.5 py-1 rounded-lg font-bold transition-all duration-200 ease-in-out mr-1 shadow-2xs transform active:scale-95';
+    openButton.textContent = '↗ 別タブで開く';
+    openButton.addEventListener('click', (event) => {
+        event.stopPropagation();
+        if (typeof window.openPdfTab === 'function') window.openPdfTab(docId, title, 1);
+    });
+
+    const badge = document.createElement('span');
+    badge.className = 'text-[9px] bg-amber-50 border border-amber-200 px-2 py-0.5 rounded font-mono text-amber-600 font-bold';
+    badge.textContent = 'REPORT';
+
+    const deleteButton = document.createElement('button');
+    deleteButton.type = 'button';
+    deleteButton.dataset.docId = String(docId);
+    deleteButton.className = 'btn-delete-pdf text-slate-440 hover:text-red-500 hover:bg-red-50 w-7 h-7 rounded-lg flex items-center justify-center transition-all duration-200 ease-in-out transform active:scale-90';
+    deleteButton.title = 'この資料を完全に削除';
+    deleteButton.textContent = '🗑️';
+
+    right.append(openButton, badge, deleteButton);
+    summary.append(left, right);
+
+    const preview = document.createElement('div');
+    preview.className = 'h-[580px] border-t border-slate-100 bg-slate-50 p-2';
+    const iframe = document.createElement('iframe');
+    iframe.src = `viewer.php?id=${docId}&page=1`;
+    iframe.className = 'w-full h-full border-none rounded-xl shadow-inner bg-white';
+    iframe.loading = 'lazy';
+    preview.appendChild(iframe);
+
+    details.append(summary, preview);
+    list.prepend(details);
+
+    const countEl = document.getElementById('pdf-document-count');
+    if (countEl) {
+        const currentCount = Number(countEl.textContent || '0');
+        countEl.textContent = String(Number.isFinite(currentCount) ? currentCount + 1 : 1);
+    }
 }
 
 function normalizeAiText(value) {
@@ -397,23 +471,97 @@ customRenderer.code = function(code, infostring, escaped) {
 // グローバル空間へのモーダル展開関数の露出バインド（aiRenderer.jsからの協調キック用）
 window.launchChartZoomModal = launchChartZoomModal;
 
+function getChatStatusBar() {
+    const form = document.getElementById('chat-form');
+    if (!form) return null;
+
+    let bar = document.getElementById('chat-processing-status');
+    if (!bar) {
+        bar = document.createElement('div');
+        bar.id = 'chat-processing-status';
+        bar.className = 'hidden items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[10px] text-slate-500 shadow-2xs';
+        form.parentNode?.insertBefore(bar, form);
+    }
+    return bar;
+}
+
+function updateChatProcessingStatus(message, variant = 'processing') {
+    const bar = getChatStatusBar();
+    if (!bar) return;
+
+    const elapsed = chatStatusStartedAt ? Math.max(0, Math.floor((Date.now() - chatStatusStartedAt) / 1000)) : 0;
+    const tone = variant === 'done'
+        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+        : variant === 'error'
+            ? 'border-red-200 bg-red-50 text-red-700'
+            : 'border-amber-200 bg-amber-50 text-amber-800';
+
+    bar.className = `flex items-center justify-between gap-3 rounded-xl border px-3 py-2 text-[10px] shadow-2xs ${tone}`;
+    bar.innerHTML = `
+        <span class="flex min-w-0 items-center gap-2 font-bold">
+            <span class="${variant === 'processing' ? 'inline-block h-2.5 w-2.5 rounded-full border-2 border-current border-t-transparent animate-spin' : 'inline-block h-2.5 w-2.5 rounded-full bg-current'}"></span>
+            <span class="truncate">${escapeHTML(message)}</span>
+        </span>
+        <span class="shrink-0 font-mono text-[9px] opacity-75">${elapsed}s</span>
+    `;
+}
+
+function startChatProcessingStatus(message) {
+    chatStatusStartedAt = Date.now();
+    updateChatProcessingStatus(message);
+    if (chatStatusTimer) clearInterval(chatStatusTimer);
+    chatStatusTimer = setInterval(() => {
+        const current = document.getElementById('chat-processing-status')?.dataset.message || message;
+        updateChatProcessingStatus(current);
+    }, 1000);
+}
+
+function setChatProcessingStatus(message, variant = 'processing') {
+    const bar = getChatStatusBar();
+    if (bar) bar.dataset.message = message;
+    updateChatProcessingStatus(message, variant);
+}
+
+function finishChatProcessingStatus(message, variant = 'done') {
+    if (chatStatusTimer) {
+        clearInterval(chatStatusTimer);
+        chatStatusTimer = null;
+    }
+    setChatProcessingStatus(message, variant);
+    setTimeout(() => {
+        const bar = document.getElementById('chat-processing-status');
+        if (bar && !chatBusy) {
+            bar.classList.add('hidden');
+            bar.textContent = '';
+        }
+    }, 2500);
+}
+
 /**
- * 送信ボタン及びテキストエリアの有効・無効状態を一括制御する
+ * 送信ボタンと入力欄の状態を制御する。処理中も入力欄は編集可能にして、待ち状態を明示する。
  */
-function setFormDisabled(disabled) {
+function setFormBusy(busy, message = '') {
     const input = document.getElementById('chat-input');
     const form = document.getElementById('chat-form');
-    if (input) input.disabled = disabled;
+    chatBusy = busy;
+    if (input) {
+        input.disabled = false;
+        input.placeholder = busy ? '次の質問を入力できます。送信は現在の処理完了後に可能です。' : '資料やデータについて質問... (Shift+Enterで改行)';
+    }
     if (form) {
         const btn = form.querySelector('button[type="submit"]');
         if (btn) {
-            btn.disabled = disabled;
-            if (disabled) {
+            btn.disabled = busy;
+            btn.title = busy ? '現在の回答を保存・品質確認中です' : '送信';
+            if (busy) {
                 btn.classList.add('opacity-40', 'cursor-not-allowed');
             } else {
                 btn.classList.remove('opacity-40', 'cursor-not-allowed');
             }
         }
+    }
+    if (busy && message) {
+        startChatProcessingStatus(message);
     }
 }
 
@@ -430,6 +578,7 @@ function initDebugLogViewer() {
     let offset = 0;
     let timer = null;
     let loading = false;
+    let lastErrorMessage = '';
 
     const setStatus = (text, className = 'text-[9px] text-slate-400 font-bold') => {
         status.textContent = text;
@@ -457,20 +606,34 @@ function initDebugLogViewer() {
                 headers: { 'X-CSRF-Token': configEl.dataset.csrfToken || '' },
                 credentials: 'same-origin'
             });
-            const data = await res.json();
+            const raw = await res.text();
+            let data = null;
+            try {
+                data = raw ? JSON.parse(raw) : null;
+            } catch (parseErr) {
+                throw new Error(`JSON解析失敗: ${parseErr.message}${raw ? ' / 応答先頭: ' + raw.slice(0, 120) : ''}`);
+            }
             if (!res.ok || !data.success) {
-                throw new Error(data.error || `HTTP ${res.status}`);
+                throw new Error(data?.error || `HTTP ${res.status}`);
             }
             offset = data.offset || offset;
             if (data.truncated && !viewer.textContent) {
                 appendLog('[ログが大きいため直近部分のみ表示しています]\n');
             }
             appendLog(data.content || '');
-            setStatus('監視中', 'text-[9px] text-emerald-500 font-black');
+            lastErrorMessage = '';
+            const timeLabel = new Date((data.updated_at || Math.floor(Date.now() / 1000)) * 1000).toLocaleTimeString('ja-JP', {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+            setStatus(`監視中 ${timeLabel}`, 'text-[9px] text-emerald-500 font-black');
         } catch (err) {
-            setStatus('取得エラー', 'text-[9px] text-red-500 font-black');
-            if (!viewer.textContent.includes(err.message)) {
-                appendLog(`\n[log viewer error] ${err.message}\n`);
+            const message = err?.message || '不明な取得エラー';
+            setStatus('取得エラー・再試行中', 'text-[9px] text-red-500 font-black');
+            if (message !== lastErrorMessage) {
+                appendLog(`\n[log viewer error] ${message}\n`);
+                lastErrorMessage = message;
             }
         } finally {
             loading = false;
@@ -495,6 +658,10 @@ function initDebugLogViewer() {
         if (panel.open) start();
         else stop();
     });
+
+    if (panel.open) {
+        start();
+    }
 }
 
 // =========================================================================
@@ -506,6 +673,12 @@ function initDebugLogViewer() {
  */
 function handleChat(e) {
     if (e) e.preventDefault();
+    if (chatBusy) {
+        setChatProcessingStatus('現在の回答を品質確認・保存中です。入力内容はそのまま残ります。');
+        document.getElementById('chat-input')?.focus();
+        return;
+    }
+
     const { projectId } = getConfig();
     const input = document.getElementById('chat-input');
     if (!input) return;
@@ -519,25 +692,32 @@ function handleChat(e) {
     const promptMode = promptModeSelect ? promptModeSelect.value : 'construction_consultant';
 
     const advancedReasoningMode = document.getElementById('advanced-reasoning-mode');
-    const advancedReasoning = advancedReasoningMode ? advancedReasoningMode.checked : false;
+    const reportModeEl = document.getElementById('report-mode');
+    const diagramModeEl = document.getElementById('diagram-mode');
+    const reportMode = reportModeEl ? reportModeEl.checked : false;
+    const diagramMode = diagramModeEl ? diagramModeEl.checked : false;
+    const advancedReasoning = reportMode || (advancedReasoningMode ? advancedReasoningMode.checked : false);
     const reasoningId = advancedReasoning ? generateUUID() : null;
     
     const targetMessageId = 'ai-msg-' + generateUUID();
     
-    appendMsg('user', msg); 
+    appendMsg('user', msg);
     input.value = '';
-    input.style.height = 'auto'; 
-    setFormDisabled(true); 
+    input.style.height = 'auto';
+    setFormBusy(true, 'AIが回答を準備しています...');
 
     const tempId = 'loading-' + Date.now();
     const chatBox = document.getElementById('chat-box');
     if (!chatBox) {
-        setFormDisabled(false);
+        setFormBusy(false);
+        finishChatProcessingStatus('チャット画面を取得できませんでした。', 'error');
         return;
     }
 
-    const loadingText = advancedReasoning 
-        ? '🧠 質問の意図を分析し、最適な多段階集計・検証シナリオを構築しています...' 
+    const loadingText = reportMode
+        ? '📄 報告書モードで、根拠収集・本文生成・PDF登録の準備を進めています...'
+        : advancedReasoning
+        ? '🧠 質問の意図を分析し、最適な多段階集計・検証シナリオを構築しています...'
         : '🔍 関連ドキュメントのベクトル類似度検索を実行しています...';
 
     const loadingDiv = document.createElement('div');
@@ -561,6 +741,7 @@ function handleChat(e) {
 
     let bubbleCreated = false;
     let streamContent = "";
+    let terminalStatus = 'done';
 
     streamState.buffer = "";
     streamState.packetCounter = 0;
@@ -582,7 +763,9 @@ function handleChat(e) {
                     model: model, 
                     prompt_mode: promptMode,
                     advanced_reasoning: advancedReasoning,
-                    advanced_reasoning_id: reasoningId
+                    advanced_reasoning_id: reasoningId,
+                    report_mode: reportMode,
+                    diagram_mode: diagramMode
                 })
             });
 
@@ -611,6 +794,7 @@ function handleChat(e) {
                         // 🧠 【新仕様】type === 'status' パケットのリアルタイム数珠繋ぎ
                         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
                         if (sseData.type === 'status') {
+                            setChatProcessingStatus(sseData.message || 'AI処理を継続しています...');
                             if (!bubbleCreated) {
                                 document.getElementById(tempId)?.remove(); 
                                 aiRenderer.createMessageBubble(targetMessageId, 'assistant'); 
@@ -645,6 +829,7 @@ function handleChat(e) {
                         // 🥞 【新仕様】type === 'chunk' 受信時の調停レンダリング
                         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
                         } else if (sseData.type === 'chunk') {
+                            setChatProcessingStatus('回答を生成中です。本文はリアルタイムに表示されています...');
                             if (!bubbleCreated) {
                                 document.getElementById(tempId)?.remove();
                                 aiRenderer.createMessageBubble(targetMessageId, 'assistant');
@@ -669,6 +854,7 @@ function handleChat(e) {
                         // 🏁 【新仕様】type === 'result' 受信時の最終確定処理
                         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
                         } else if (sseData.type === 'error') {
+                            terminalStatus = 'error';
                             typeof chatLogger === 'function'
                                 ? chatLogger(`[SSEエラーイベント受信] ${sseData.error}`)
                                 : console.log(`[SSEエラーイベント受信] ${sseData.error}`);
@@ -679,11 +865,13 @@ function handleChat(e) {
                             } else {
                                 appendMsg('assistant', errText);
                             }
+                            finishChatProcessingStatus('システムエラーが発生しました。', 'error');
 
                         } else if (sseData.type === 'result') {
                             document.getElementById(tempId)?.remove();
                             
                             if (sseData.status === 'success') {
+                                setChatProcessingStatus('回答生成は完了しました。履歴保存・品質確認結果を反映しています...');
                                 if (!bubbleCreated) {
                                     aiRenderer.createMessageBubble(targetMessageId, 'assistant');
                                     bubbleCreated = true;
@@ -745,12 +933,29 @@ function handleChat(e) {
                                         }).join('') + '</div>';
                                         bubbleContainer.insertAdjacentHTML('beforeend', sHtml);
                                     }
-                                    
+                                    if (sseData.report_document && sseData.report_document.document_id) {
+                                        appendReportDocumentToPdfList(sseData.report_document);
+                                        const reportTitle = escapeHTML(sseData.report_document.title || 'AI報告書.pdf');
+                                        const reportId = Number(sseData.report_document.document_id);
+                                        const reportHtml = `
+                                            <div class="mt-3 border border-amber-200 bg-amber-50/70 rounded-xl p-3 text-[10px] text-amber-800 shadow-xs">
+                                                <div class="font-black mb-1">📄 報告書PDFを生成しました</div>
+                                                <div class="text-amber-700 mb-2">${reportTitle} はPDFタブへ登録され、検索対象にも追加されています。</div>
+                                                <button type="button" class="text-[10px] bg-white border border-amber-200 hover:bg-amber-100 rounded-lg px-2.5 py-1 font-bold transition-colors" onclick="if(typeof window.openPdfTab === 'function') window.openPdfTab(${reportId}, '${reportTitle.replace(/'/g, "\\'")}', 1);">
+                                                    PDFを開く
+                                                </button>
+                                            </div>
+                                        `;
+                                        bubbleContainer.insertAdjacentHTML('beforeend', reportHtml);
+                                    }
+
                                     renderChartsInContainer(bubbleContainer.parentElement);
                                     bindChartModalEvents(bubbleContainer.parentElement);
                                     renderMermaidInContainer(bubbleContainer.parentElement);
                                 }
                             } else {
+                                terminalStatus = 'error';
+                                finishChatProcessingStatus('回答生成でエラーが発生しました。', 'error');
                                 const errResponse = `⚠️ **エラーが発生しました**\n\n${sseData.error || "回答を生成できませんでした。もう一度お試しください。"}`;
                                 if (bubbleCreated) {
                                     aiRenderer.finalize(targetMessageId, errResponse);
@@ -760,6 +965,7 @@ function handleChat(e) {
                             }
 
                         } else if (sseData.type === 'result' && sseData.status === 'error') {
+                            terminalStatus = 'error';
                             typeof chatLogger === 'function'
                                 ? chatLogger(`[Ollama経由の例外を受信] ${sseData.error}`)
                                 : console.log(`[Ollama経由の例外を受信] ${sseData.error}`);
@@ -770,13 +976,14 @@ function handleChat(e) {
                             } else {
                                 appendMsg('assistant', errText);
                             }
+                            finishChatProcessingStatus('システムエラーが発生しました。', 'error');
                         }
                     } catch (parseErr) {
                         console.warn('SSE Chunk Parse Error:', parseErr, trimmed);
                     }
                 }
             }
-        } catch (error) { 
+        } catch (error) {
             typeof chatLogger === 'function'
                 ? chatLogger(`[SSEネットワーク例外検知] ${error.message}`)
                 : console.log(`[SSEネットワーク例外検知] ${error.message}`);
@@ -787,8 +994,17 @@ function handleChat(e) {
             } else {
                 appendMsg('assistant', connErrText);
             }
+            terminalStatus = 'error';
+            finishChatProcessingStatus('通信エラーが発生しました。', 'error');
         } finally {
-            setFormDisabled(false); 
+            setFormBusy(false);
+            if (document.getElementById('chat-processing-status')?.dataset.message && !document.getElementById('chat-processing-status')?.classList.contains('hidden')) {
+                if (terminalStatus === 'error') {
+                    finishChatProcessingStatus('エラーのため処理を終了しました。次の質問を送信できます。', 'error');
+                } else {
+                    finishChatProcessingStatus('処理が完了しました。次の質問を送信できます。');
+                }
+            }
         }
     })();
 }
