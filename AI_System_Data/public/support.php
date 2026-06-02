@@ -194,15 +194,16 @@ if (!function_exists('h')) {
                                 <span class="text-[9px] font-black text-[#4F5D95] uppercase tracking-wider block mb-1">AI Engine Analysis Mode</span>
                                 <label for="analysis-mode" class="block text-[10px] font-bold text-slate-400 mb-1.5">解析モード（OCR分割数設定）</label>
                                 <select id="analysis-mode" class="w-full text-[11px] border border-slate-200 rounded-xl px-2.5 py-2 bg-white outline-none focus:ring-4 focus:ring-indigo-500/5 shadow-2xs font-bold text-slate-700 transition-all duration-200 ease-in-out cursor-pointer">
+                                    <option value="auto" selected>⚡ 自動判定 (本文高速 + 図表補足)</option>
                                     <option value="tiles">🔲 標準 (2x2タイル分割)</option>
                                     <option value="slices">🥞 水平スライス (8分割)</option>
                                     <option value="full">📄 全体のみ (高速・軽量)</option>
-                                    <option value="all" selected>🧠 フル解析 (高精度)</option>
+                                    <option value="all">🧠 フル解析 (高精度)</option>
                                 </select>
                             </div>
                             <div class="text-[9px] text-slate-400 leading-normal flex items-start gap-1 font-medium">
                                 <span class="text-amber-500 flex-shrink-0">💡</span>
-                                <span>図面や複雑な表組みを含むPDFは、タイル分割またはフル解析を使用すると抽出精度が向上します。</span>
+                                <span>通常は自動判定がおすすめです。A4報告書やスキャン文書は水平スライス、図面はタイル分割を自動選択します。</span>
                             </div>
                         </div>
                     </div>
@@ -533,7 +534,7 @@ if (!function_exists('h')) {
 
     // ★ 究極の安全設計: import * as 構文を使用し、1096エラー(SyntaxError)を原理的に100%防止
     // ✨ ここを ?v=4 から ?v=5 へ書き換えてキャッシュを強制粉砕！
-    import * as Support from './assets/js/support.js?v=10';
+    import * as Support from './assets/js/support.js?v=11';
 
     // ★要件4: 隔離コンテナ内のJSONデータを仲介して安全にマウント・パースするイベントハンドラの実装
     window.openProjectEditModal = (lat, lng) => {
@@ -562,6 +563,9 @@ if (!function_exists('h')) {
         }
         if (typeof Support.initDebugLogViewer === 'function') {
             Support.initDebugLogViewer();
+        }
+        if (typeof Support.checkUploadOnLoad === 'function') {
+            Support.checkUploadOnLoad();
         }
         if (typeof Support.scrollToBottom === 'function') {
             Support.scrollToBottom();

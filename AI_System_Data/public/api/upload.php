@@ -79,6 +79,25 @@ function updateProgress($status, $stage, $current, $total, $message = '', $error
     if ($message) logger("[Progress] $stage: $message");
 }
 
+function abortIfUploadCancelled($pdo, string $destPath, float $current, int $total): void {
+    global $cancelFile;
+
+    if (!file_exists($cancelFile)) {
+        return;
+    }
+
+    @unlink($cancelFile);
+    if ($pdo instanceof PDO && $pdo->inTransaction()) {
+        $pdo->rollBack();
+    }
+    if ($destPath !== '' && file_exists($destPath)) {
+        @unlink($destPath);
+    }
+    updateProgress('cancelled', 'interrupted', $current, $total, "解析が中断されました。");
+    logger("[CANCELLED] ユーザー操作によりPDF解析を安全に中断しました。current={$current}/{$total}");
+    throw new Exception('USER_CANCELLED');
+}
+
 function callVLM($imagePath, $ollamaHost, $model, $prompt) {
     if (!file_exists($imagePath)) return "";
     $imageData = base64_encode(file_get_contents($imagePath));
@@ -253,6 +272,67 @@ function resolvePdfTool(string $binaryName, array $candidatePaths = []): string 
     return '';
 }
 
+function countPdfImagesOnPage(string $pdfimagesPath, string $pdfPath, int $pageNum): ?int {
+    if ($pdfimagesPath === '' || !is_file($pdfimagesPath)) {
+        return null;
+    }
+
+    $cmd = escapeshellarg($pdfimagesPath)
+        . ' -list -f ' . $pageNum
+        . ' -l ' . $pageNum . ' '
+        . escapeshellarg($pdfPath)
+        . ' 2>&1';
+    $output = (string)shell_exec($cmd);
+    if (trim($output) === '') {
+        return null;
+    }
+
+    $lines = preg_split('/\r\n|\r|\n/', trim($output));
+    $count = 0;
+    foreach ($lines as $line) {
+        if (preg_match('/^\s*' . preg_quote((string)$pageNum, '/') . '\s+\d+\s+/u', $line)) {
+            $count++;
+        }
+    }
+    return $count;
+}
+
+function textSuggestsVisualEvidence(string $rawText): bool {
+    return (bool)preg_match('/(図|表|写真|画像|グラフ|チャート|断面|平面|縦断|横断|詳細図|配置図|系統図|凡例|寸法|Figure|Fig\.|Table|Photo|Chart)/iu', $rawText);
+}
+
+function shouldUseVisualAnalysisForAuto(string $rawText, int $textCharCount, ?int $imageCount): bool {
+    if ($textCharCount < 450) {
+        return true;
+    }
+    if ($imageCount !== null && $imageCount > 0) {
+        return true;
+    }
+    if (textSuggestsVisualEvidence($rawText)) {
+        return true;
+    }
+    return false;
+}
+
+function chooseAutoVisualMode(string $overview, string $rawText, int $textCharCount, ?int $imageCount): string {
+    $signalText = $overview . "\n" . mb_substr($rawText, 0, 1200);
+
+    if (preg_match('/(図面|平面図|断面図|縦断図|横断図|詳細図|配置図|系統図|配筋|配管|凡例|寸法)/iu', $signalText)) {
+        return 'tiles';
+    }
+    if (preg_match('/(テキスト文書|スキャン画像|報告書|章|節|項|目次|本文|表|一覧表|工程表|比較表|集計表|グラフ|チャート|Table|Fig\.|Figure)/iu', $signalText)) {
+        return 'slices';
+    }
+    if (($imageCount ?? 0) > 0 && $textCharCount >= 800) {
+        return 'full';
+    }
+    if (preg_match('/(スキャン画像|写真|画像)/u', $overview)) {
+        return 'full';
+    }
+
+    return 'tiles';
+}
+
 try {
     $projectId = filter_input(INPUT_POST, 'project_id', FILTER_VALIDATE_INT);
     $analysisMode = filter_input(INPUT_POST, 'analysis_mode', FILTER_SANITIZE_SPECIAL_CHARS) ?: 'tiles';
@@ -286,6 +366,9 @@ try {
     $pdftopngPath = resolvePdfTool('pdftoppm', [
         $toolsDir . DIRECTORY_SEPARATOR . 'pdftoppm.exe',
         $toolsDir . DIRECTORY_SEPARATOR . 'pdftopng.exe',
+    ]);
+    $pdfimagesPath = resolvePdfTool('pdfimages', [
+        $toolsDir . DIRECTORY_SEPARATOR . 'pdfimages.exe',
     ]);
     if ($pdfinfoPath === '' || $pdftotextPath === '' || $pdftopngPath === '') {
         throw new RuntimeException('PDF解析ツールが見つかりません。本番Windowsでは tools フォルダに pdfinfo.exe / pdftotext.exe / pdftoppm.exe（または pdftopng.exe）を配置してください。');
@@ -385,108 +468,142 @@ try {
     $allPageOverviews = [];
 
     for ($pageNum = 1; $pageNum <= $totalPages; $pageNum++) {
-        if (file_exists($cancelFile)) {
-            @unlink($cancelFile); 
-            if ($pdo->inTransaction()) $pdo->rollBack();
-            if (file_exists($destPath)) @unlink($destPath);
-            updateProgress('cancelled', 'interrupted', $pageNum - 1, $totalPages, "解析が中断されました。");
-            throw new Exception('USER_CANCELLED');
-        }
+        abortIfUploadCancelled($pdo, $destPath, $pageNum - 1, $totalPages);
 
         updateProgress('processing', 'extraction', $pageNum - 0.9, $totalPages, "P.{$pageNum} ネイティブテキスト確認中...");
 
         $txtCmd = escapeshellarg($pdftotextPath) . ' -f ' . $pageNum . ' -l ' . $pageNum . ' -enc UTF-8 ' . escapeshellarg($destPath) . ' - 2>&1';
         $rawText = trim((string)shell_exec($txtCmd));
         $textCharCount = mb_strlen(preg_replace('/\s+/', '', $rawText));
+        abortIfUploadCancelled($pdo, $destPath, $pageNum - 0.85, $totalPages);
 
-        updateProgress('processing', 'extraction', $pageNum - 0.8, $totalPages, "P.{$pageNum} 高解像度画像への変換中...");
-        $tmpBase = $projectDir . DIRECTORY_SEPARATOR . "tmp_{$docId}_{$pageNum}";
-        $pngOption = stripos(basename($pdftopngPath), 'pdftopng') !== false ? '' : ' -png';
-        shell_exec(escapeshellarg($pdftopngPath) . $pngOption . ' -r 300 -gray -f ' . $pageNum . ' -l ' . $pageNum . ' ' . escapeshellarg($destPath) . ' ' . escapeshellarg($tmpBase) . ' 2>&1');
-        $imageFiles = glob($tmpBase . '-*.png');
-        
         $finalImageDesc = "";
         $combinedText = "";
 
-        if (empty($imageFiles)) {
-            $combinedText = $rawText;
-            $finalImageDesc = "テキスト抽出(フォールバック)";
-            $allPageOverviews[] = "P.{$pageNum}: テキスト主体のページ";
+        $pageImageCount = null;
+        $autoNeedsVisual = true;
+        if ($analysisMode === 'auto') {
+            $pageImageCount = countPdfImagesOnPage($pdfimagesPath, $destPath, $pageNum);
+            $autoNeedsVisual = shouldUseVisualAnalysisForAuto($rawText, $textCharCount, $pageImageCount);
+            $imageCountLabel = $pageImageCount === null ? '未取得' : (string)$pageImageCount;
+            logger("[AUTO-PAGE-ROUTE] P.{$pageNum} textChars={$textCharCount} | images={$imageCountLabel} | visual=" . ($autoNeedsVisual ? 'yes' : 'no'));
+        }
+
+        if ($analysisMode === 'auto' && !$autoNeedsVisual && $textCharCount > 0) {
+            updateProgress('processing', 'extraction', $pageNum - 0.5, $totalPages, "P.{$pageNum} 本文中心ページとして高速抽出を適用");
+            $combinedText = "【電子テキスト】\n" . $rawText;
+            $finalImageDesc = "Auto Native Text | textChars={$textCharCount}";
+            $allPageOverviews[] = "P.{$pageNum}: 本文中心のページ（ネイティブテキスト抽出）";
         } else {
-            $mainImg = $imageFiles[0];
-            $imageMetaParts = [];
+            $renderDpi = $analysisMode === 'auto' ? 200 : 300;
+            updateProgress('processing', 'extraction', $pageNum - 0.8, $totalPages, "P.{$pageNum} 画像への変換中... (dpi={$renderDpi})");
+            $tmpBase = $projectDir . DIRECTORY_SEPARATOR . "tmp_{$docId}_{$pageNum}";
+            $pngOption = stripos(basename($pdftopngPath), 'pdftopng') !== false ? '' : ' -png';
+            shell_exec(escapeshellarg($pdftopngPath) . $pngOption . ' -r ' . $renderDpi . ' -gray -f ' . $pageNum . ' -l ' . $pageNum . ' ' . escapeshellarg($destPath) . ' ' . escapeshellarg($tmpBase) . ' 2>&1');
+            $imageFiles = glob($tmpBase . '-*.png');
+            abortIfUploadCancelled($pdo, $destPath, $pageNum - 0.75, $totalPages);
 
-            updateProgress('processing', 'extraction', $pageNum - 0.6, $totalPages, "P.{$pageNum} ページ属性をAI判定中...");
-            $overviewPrompt = "この画像（PDFの1ページ）の種類を、必ず【テキスト文書】【図面】【スキャン画像】【写真】【その他】のいずれかのタグで分類し、その後に全体の概要を100文字以内で説明してください。";
-            $overview = callVLM($mainImg, $ollamaHost, $vlmModel, $overviewPrompt);
-            $imageMetaParts[] = "種類と概要: " . $overview;
-            $allPageOverviews[] = "P.{$pageNum}: " . $overview;
-
-            $isTextDocument = (mb_strpos($overview, 'テキスト文書') !== false);
-
-            if ($isTextDocument && $textCharCount > 100) {
-                updateProgress('processing', 'extraction', $pageNum - 0.5, $totalPages, "P.{$pageNum} 高速テキスト抽出を適用");
-                $combinedText = "【電子テキスト】\n" . $rawText;
-                $finalImageDesc = implode(" | ", $imageMetaParts) . " (Native Text)";
-                @unlink($mainImg);
+            if (empty($imageFiles)) {
+                $combinedText = $rawText;
+                $finalImageDesc = "テキスト抽出(フォールバック)";
+                $allPageOverviews[] = "P.{$pageNum}: テキスト主体のページ";
             } else {
-                $tileText = "";
-                $sliceText = "";
-                $fullText = "";
+                $mainImg = $imageFiles[0];
+                $imageMetaParts = [];
 
-                if ($analysisMode === 'all' || $analysisMode === 'tiles') {
-                    $tiles = generateTiles($mainImg, $projectDir, "tile_{$docId}_{$pageNum}");
-                    $tileContents = [];
-                    $totalTiles = count($tiles);
-                    foreach ($tiles as $idx => $tPath) {
-                        updateProgress('processing', 'extraction', $pageNum - 0.4, $totalPages, "P.{$pageNum} タイル分割解析中... (" . ($idx+1) . "/{$totalTiles})");
-                        $tileResult = callVLM($tPath, $ollamaHost, $vlmModel, "画像内の文字（文章、表データ、ラベル）を正確に書き起こしてください。");
-                        if ($tileResult) $tileContents[] = "--- 領域" . ($idx+1) . " ---\n" . $tileResult;
-                        @unlink($tPath);
-                    }
-                    $tileText = implode("\n\n", $tileContents);
-                }
+                updateProgress('processing', 'extraction', $pageNum - 0.6, $totalPages, "P.{$pageNum} ページ属性をAI判定中...");
+                $overviewPrompt = "この画像（PDFの1ページ）の種類を、必ず【テキスト文書】【図面】【スキャン画像】【写真】【表・グラフ】【その他】のいずれかのタグで分類し、その後に全体の概要を100文字以内で説明してください。";
+                $overview = callVLM($mainImg, $ollamaHost, $vlmModel, $overviewPrompt);
+                abortIfUploadCancelled($pdo, $destPath, $pageNum - 0.55, $totalPages);
+                $imageMetaParts[] = "種類と概要: " . $overview;
+                $allPageOverviews[] = "P.{$pageNum}: " . $overview;
 
-                if ($analysisMode === 'all' || $analysisMode === 'slices') {
-                    $slices = generateHorizontalSlices($mainImg, $projectDir, "slice_{$docId}_{$pageNum}");
-                    $sliceContents = [];
-                    $totalSlices = count($slices);
-                    foreach ($slices as $idx => $sPath) {
-                        updateProgress('processing', 'extraction', $pageNum - 0.3, $totalPages, "P.{$pageNum} スライス分割解析中... (" . ($idx+1) . "/{$totalSlices})");
-                        $sliceResult = callVLM($sPath, $ollamaHost, $vlmModel, "この水平分割画像内の文字（横書きの表や文章など）を左から右へ正確に書き起こしてください。");
-                        if ($sliceResult) $sliceContents[] = "--- 水平区画" . ($idx+1) . " ---\n" . $sliceResult;
-                        @unlink($sPath);
-                    }
-                    $sliceText = implode("\n\n", $sliceContents);
-                }
+                $isTextDocument = (mb_strpos($overview, 'テキスト文書') !== false);
+                $canUseNativeTextOnly = ($analysisMode !== 'auto' && $isTextDocument && $textCharCount > 100)
+                    || ($analysisMode === 'auto' && $isTextDocument && $textCharCount >= 1200 && !textSuggestsVisualEvidence($rawText) && (($pageImageCount ?? 0) === 0));
 
-                if ($analysisMode === 'all' || $analysisMode === 'full') {
-                    updateProgress('processing', 'extraction', $pageNum - 0.2, $totalPages, "P.{$pageNum} ページ全体のVLM解析中...");
-                    $fullText = callVLM($mainImg, $ollamaHost, $vlmModel, "この画像に含まれるテキストや表のデータを全体的に読み取って書き起こしてください。");
-                }
-
-                @unlink($mainImg);
-
-                $combineParts = [];
-                if ($tileText)  $combineParts[] = "【2x2 タイル詳細】\n" . $tileText;
-                if ($sliceText) $combineParts[] = "【1x8 水平スライス詳細】\n" . $sliceText;
-                if ($fullText)  $combineParts[] = "【ページ全体要約・文字起こし】\n" . $fullText;
-                
-                $rawCombinedText = implode("\n\n", $combineParts);
-                
-                if (count($combineParts) > 1) {
-                    updateProgress('processing', 'extraction', $pageNum - 0.1, $totalPages, "P.{$pageNum} LLMによる重複排除とテキスト整理中...");
-                    $organizePrompt = "以下のテキストは、同一のページ画像を異なる分割方法でOCR読み取りした結果の集まりです。\n"
-                                    . "内容を比較・統合し、重複している部分を排除して、抜け漏れがないように整理された1つの完全なマークダウンテキストを作成してください。\n\n"
-                                    . $rawCombinedText;
-                    
-                    $organizedText = callLLM($ollamaHost, $textModel, $organizePrompt);
-                    $combinedText = !empty($organizedText) ? $organizedText : $rawCombinedText;
+                if ($canUseNativeTextOnly) {
+                    updateProgress('processing', 'extraction', $pageNum - 0.5, $totalPages, "P.{$pageNum} 高速テキスト抽出を適用");
+                    $combinedText = "【電子テキスト】\n" . $rawText;
+                    $finalImageDesc = implode(" | ", $imageMetaParts) . " (Native Text)";
+                    @unlink($mainImg);
                 } else {
-                    $combinedText = $rawCombinedText;
+                    $effectiveMode = $analysisMode === 'auto'
+                        ? chooseAutoVisualMode($overview, $rawText, $textCharCount, $pageImageCount)
+                        : $analysisMode;
+                    if ($analysisMode === 'auto') {
+                        logger("[AUTO-VISUAL-MODE] P.{$pageNum} overview=" . mb_substr($overview, 0, 120) . " | mode={$effectiveMode}");
+                    }
+
+                    $tileText = "";
+                    $sliceText = "";
+                    $fullText = "";
+
+                    if ($effectiveMode === 'all' || $effectiveMode === 'tiles') {
+                        $tiles = generateTiles($mainImg, $projectDir, "tile_{$docId}_{$pageNum}");
+                        $tileContents = [];
+                        $totalTiles = count($tiles);
+                        foreach ($tiles as $idx => $tPath) {
+                            abortIfUploadCancelled($pdo, $destPath, $pageNum - 0.45, $totalPages);
+                            updateProgress('processing', 'extraction', $pageNum - 0.4, $totalPages, "P.{$pageNum} タイル分割解析中... (" . ($idx+1) . "/{$totalTiles})");
+                            $tileResult = callVLM($tPath, $ollamaHost, $vlmModel, "画像内の文字（文章、表データ、ラベル、図面注記、凡例）を正確に書き起こしてください。");
+                            abortIfUploadCancelled($pdo, $destPath, $pageNum - 0.4, $totalPages);
+                            if ($tileResult) $tileContents[] = "--- 領域" . ($idx+1) . " ---\n" . $tileResult;
+                            @unlink($tPath);
+                        }
+                        $tileText = implode("\n\n", $tileContents);
+                    }
+
+                    if ($effectiveMode === 'all' || $effectiveMode === 'slices') {
+                        $slices = generateHorizontalSlices($mainImg, $projectDir, "slice_{$docId}_{$pageNum}");
+                        $sliceContents = [];
+                        $totalSlices = count($slices);
+                        foreach ($slices as $idx => $sPath) {
+                            abortIfUploadCancelled($pdo, $destPath, $pageNum - 0.35, $totalPages);
+                            updateProgress('processing', 'extraction', $pageNum - 0.3, $totalPages, "P.{$pageNum} スライス分割解析中... (" . ($idx+1) . "/{$totalSlices})");
+                            $sliceResult = callVLM($sPath, $ollamaHost, $vlmModel, "この水平分割画像内の文字（横書きの表や文章など）を左から右へ正確に書き起こしてください。");
+                            abortIfUploadCancelled($pdo, $destPath, $pageNum - 0.3, $totalPages);
+                            if ($sliceResult) $sliceContents[] = "--- 水平区画" . ($idx+1) . " ---\n" . $sliceResult;
+                            @unlink($sPath);
+                        }
+                        $sliceText = implode("\n\n", $sliceContents);
+                    }
+
+                    if ($effectiveMode === 'all' || $effectiveMode === 'full') {
+                        abortIfUploadCancelled($pdo, $destPath, $pageNum - 0.25, $totalPages);
+                        updateProgress('processing', 'extraction', $pageNum - 0.2, $totalPages, "P.{$pageNum} ページ全体のVLM解析中...");
+                        $fullText = callVLM($mainImg, $ollamaHost, $vlmModel, "この画像に含まれる本文、図、表、写真、注記、凡例の要点をRAG検索に使える形で整理して書き起こしてください。");
+                        abortIfUploadCancelled($pdo, $destPath, $pageNum - 0.2, $totalPages);
+                    }
+
+                    @unlink($mainImg);
+
+                    $combineParts = [];
+                    if ($analysisMode === 'auto' && $textCharCount > 0) {
+                        $combineParts[] = "【電子テキスト本文】\n" . $rawText;
+                    }
+                    if ($tileText)  $combineParts[] = "【2x2 タイル詳細】\n" . $tileText;
+                    if ($sliceText) $combineParts[] = "【1x8 水平スライス詳細】\n" . $sliceText;
+                    if ($fullText)  $combineParts[] = "【ページ全体要約・文字起こし】\n" . $fullText;
+
+                    $rawCombinedText = implode("\n\n", $combineParts);
+
+                    if (count($combineParts) > 1 && $analysisMode !== 'auto') {
+                        abortIfUploadCancelled($pdo, $destPath, $pageNum - 0.15, $totalPages);
+                        updateProgress('processing', 'extraction', $pageNum - 0.1, $totalPages, "P.{$pageNum} LLMによる重複排除とテキスト整理中...");
+                        $organizePrompt = "以下のテキストは、同一のページ画像を異なる分割方法でOCR読み取りした結果の集まりです。\n"
+                                        . "内容を比較・統合し、重複している部分を排除して、抜け漏れがないように整理された1つの完全なマークダウンテキストを作成してください。\n\n"
+                                        . $rawCombinedText;
+
+                        $organizedText = callLLM($ollamaHost, $textModel, $organizePrompt);
+                        abortIfUploadCancelled($pdo, $destPath, $pageNum - 0.1, $totalPages);
+                        $combinedText = !empty($organizedText) ? $organizedText : $rawCombinedText;
+                    } else {
+                        $combinedText = $rawCombinedText;
+                    }
+
+                    $finalImageDesc = implode(" | ", $imageMetaParts) . " (Mode: {$effectiveMode})";
                 }
-                
-                $finalImageDesc = implode(" | ", $imageMetaParts) . " (Mode: {$analysisMode})";
             }
         }
 
@@ -498,12 +615,14 @@ try {
 
             foreach ($chunks as $chunkIdx => $chunkText) {
                 if (empty(trim($chunkText))) continue;
+                abortIfUploadCancelled($pdo, $destPath, $pageNum, $totalPages);
 
                 $safeTextForEmbedding = mb_substr(preg_replace('/\s+/', ' ', $chunkText), 0, 300);
                 
                 try {
                     // ★ 変更: GPUに完全オフロードする embedWithRetry 関数を使用
                     $emb = $embedWithRetry($safeTextForEmbedding, "P.{$pageNum} Chunk " . ($chunkIdx + 1));
+                    abortIfUploadCancelled($pdo, $destPath, $pageNum, $totalPages);
                     updateProgress('processing', 'storing', $pageNum, $totalPages, "P.{$pageNum} データベースへ保存中... (" . ($chunkIdx + 1) . "/{$totalChunks})");
                     $stmtChunk->execute([$docId, $pageNum, $chunkText, json_encode($emb), $finalImageDesc]);
                 } catch (Exception $e) {
@@ -516,17 +635,20 @@ try {
     }
 
     if (!empty($allPageOverviews)) {
+        abortIfUploadCancelled($pdo, $destPath, $totalPages, $totalPages);
         updateProgress('processing', 'summary', $totalPages, $totalPages, "最終処理: 資料全体の要約をLLMで生成中...");
-        $summaryPrompt = "以下の内容は、ある資料の各ページごとの概要です。これらを統合し、資料全体がどのような構成で、どのような目的・内容が書かれているか、全体の要約（目次情報や主要なトピック）を500文字程度で論理的にまとめてください。\n\n" 
+        $summaryPrompt = "以下の内容は、ある資料の各ページごとの概要です。これらを統合し、資料全体がどのような構成で、どのような目的・内容が書かれているか、全体の要約（目次情報や主要なトピック）を500文字程度で論理的にまとめてください。\n\n"
                        . implode("\n", $allPageOverviews);
-        
+
         $summaryText = callLLM($ollamaHost, $textModel, $summaryPrompt);
+        abortIfUploadCancelled($pdo, $destPath, $totalPages, $totalPages);
         if (!empty($summaryText)) {
             updateProgress('processing', 'summary', $totalPages, $totalPages, "最終処理: 要約のベクトル化と保存中...");
             $safeSummaryText = mb_substr($summaryText, 0, 300);
             try {
                 // ★ 変更: GPUに完全オフロードする embedWithRetry 関数を使用
                 $embSummary = $embedWithRetry($safeSummaryText, "Summary");
+                abortIfUploadCancelled($pdo, $destPath, $totalPages, $totalPages);
                 $stmtChunk->execute([$docId, 0, $summaryText, json_encode($embSummary), "資料全体の要約・構成情報"]);
             } catch (Exception $e) {
                 $stmtChunk->execute([$docId, 0, $summaryText, json_encode([]), "資料全体の要約・構成情報"]);

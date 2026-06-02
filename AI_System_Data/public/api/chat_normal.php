@@ -75,11 +75,40 @@ class NormalStreamingRouteProcessor {
             // 本物の仕様（1引数コンストラクタ）へ正確にマウント
             $evaluator = new ChatEvaluator($this->ollama_host);
             
-            // 通常RAGルートには中間思考ログが無いため、第2引数（中間ログ用）には判定用の識別文を流し込んで正面突破
+            // 通常RAGルートでは、実際に使用したRAG文脈を評価器へ渡す
             sendSSE('status', ['message' => '⚖️ レポートの最終品質審査（LLM-as-a-Judge）を実行中...']);
-            // 実在する本物のメソッド「evaluateDraft」を正確に射撃！
-            $this->evalResult = $evaluator->evaluateDraft($this->originalMessage, "通常RAG検索（中間ステップなし）", $this->fullResponse, $this->model);
-            
+            $contextForEval = trim((string)$this->contextText);
+            if ($contextForEval === '') {
+                $contextForEval = "通常RAG検索（中間ステップなし）";
+            }
+            $this->evalResult = $evaluator->evaluateDraft($this->originalMessage, $contextForEval, $this->fullResponse, $this->model);
+
+            if (($this->evalResult['needs_revision'] ?? false) === true) {
+                $verdict = $this->evalResult['verdict'] ?? 'revise_text_only';
+                $feedback = $this->evalResult['feedback'] ?? '既存根拠に基づいて回答を修正してください。';
+                $forbiddenActions = $this->evalResult['forbidden_actions'] ?? [];
+                if (!is_array($forbiddenActions)) {
+                    $forbiddenActions = [$forbiddenActions];
+                }
+
+                sendSSE('status', ['message' => '📝 品質審査の指摘を反映し、既存根拠だけで回答を整えています...']);
+                $rewritten = $evaluator->reviseDraftTextOnly(
+                    $this->originalMessage,
+                    $contextForEval,
+                    $this->fullResponse,
+                    $feedback,
+                    $this->model,
+                    $forbiddenActions
+                );
+
+                if (!empty($rewritten)) {
+                    $this->fullResponse = $rewritten;
+                    $this->evalResult['needs_revision'] = false;
+                    $this->evalResult['feedback'] = $feedback . "\n[TEXT-ONLY-REWRITE] 通常RAGルートでは追加検索を行わず、既存根拠のみで最終回答を修正しました。";
+                    chatLogger("[JUDGE-NORMAL-REWRITE] verdict={$verdict} のため通常RAG回答を文章修正しました。");
+                }
+            }
+
             // 📢 【品質管理フェーズ】門番の生審査結果ダンプ
             chatLogger("[JUDGE-NORMAL-EVAL] 通常RAG回答品質管理審査結果マトリクス:\n" . print_r($this->evalResult, true));
             chatLogger("[DEBUG] ChatEvaluator による通常RAG最終回答品質審査が正常開通しました。");

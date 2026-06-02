@@ -1041,14 +1041,44 @@ class AdvancedReasoningRouteProcessor {
             $this->evalResult = $evaluator->evaluateDraft($this->originalMessage, $mergedReasoningText, $currentDraft, $this->reasoningModel);
             chatLogger("[DEBUG] ChatEvaluator 品質審査完了。");
 
-            // 不合格（needs_revision = true）を検知した瞬間、真の追加抽出ループが牙を剥く
+            // 不合格（needs_revision = true）の場合、評価器のverdictに応じて文章修正か追加抽出を選ぶ
             if (isset($this->evalResult) && (($this->evalResult['needs_revision'] ?? false) === true)) {
                 $this->retryCount++;
                 $feedback = $this->evalResult['feedback'] ?? '要求要件の網羅性が不足しています。';
-                chatLogger("[CRITIC-NG] 門番による差し戻し執行。作戦指示: {$feedback}");
+                $verdict = $this->evalResult['verdict'] ?? 'need_more_data';
+                chatLogger("[CRITIC-NG] 門番による差し戻し執行。verdict={$verdict} | 作戦指示: {$feedback}");
+
+                if (in_array($verdict, ['revise_text_only', 'reject'], true)) {
+                    sendSSE('status', [
+                        'step'    => 4,
+                        'message' => "📝 追加再探索は行わず、既存根拠だけで回答文を修正しています... [反省周回: {$this->retryCount}/10]"
+                    ]);
+
+                    $forbiddenActions = $this->evalResult['forbidden_actions'] ?? [];
+                    if (!is_array($forbiddenActions)) {
+                        $forbiddenActions = [$forbiddenActions];
+                    }
+
+                    $rewritten = $evaluator->reviseDraftTextOnly(
+                        $this->originalMessage,
+                        $mergedReasoningText,
+                        $currentDraft,
+                        $feedback,
+                        $this->synthesisModel,
+                        $forbiddenActions
+                    );
+
+                    if (!empty($rewritten)) {
+                        $currentDraft = trim($rewritten);
+                        $this->evalResult['needs_revision'] = false;
+                        $this->evalResult['feedback'] = $feedback . "\n[TEXT-ONLY-REWRITE] 既存根拠のみで最終回答を修正しました。";
+                        chatLogger("[CRITIC-TEXT-ONLY] verdict={$verdict} のためdoc_chunks追加探索を行わず最終回答を文章修正しました。");
+                        break;
+                    }
+                }
 
                 sendSSE('status', [
-                    'step'    => 4, 
+                    'step'    => 4,
                     'message' => "🔄 網羅性エラーを検知。資料（doc_chunks）へ巻き戻り追加再探索中... [試行: {$this->retryCount}/10]"
                 ]);
 

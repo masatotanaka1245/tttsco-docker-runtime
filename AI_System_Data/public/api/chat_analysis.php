@@ -204,14 +204,44 @@ class AdvancedReasoningRouteProcessor {
                 $this->evalResult = $evaluator->evaluateDraft($this->originalMessage, $mergedReasoningText, $this->finalResponse, $this->model);
                 chatLogger("[DEBUG] ChatEvaluator 品質審査完了。");
 
-                // 不合格（needs_revision）の場合は修正作戦をインジェクトして「追加抽出」へ巻き戻る
+                // 不合格（needs_revision）の場合は、評価器のverdictに応じて文章修正か追加抽出を選ぶ
                 if (isset($this->evalResult) && (($this->evalResult['needs_revision'] ?? false) === true)) {
                     $this->retryCount++;
                     $feedback = $this->evalResult['feedback'] ?? 'ユーザーの要求を満たしていません。修正してください。';
-                    chatLogger("[EVAL-NG] 門番による差し戻し。フィードバック: {$feedback}");
-                    
+                    $verdict = $this->evalResult['verdict'] ?? 'need_more_data';
+                    chatLogger("[EVAL-NG] 門番による差し戻し。verdict={$verdict} | フィードバック: {$feedback}");
+
+                    if (in_array($verdict, ['revise_text_only', 'reject'], true)) {
+                        sendSSE('status', [
+                            'step'    => 4,
+                            'message' => "📝 追加抽出は行わず、既存根拠だけで回答文を修正しています... [試行: {$this->retryCount}]"
+                        ]);
+
+                        $forbiddenActions = $this->evalResult['forbidden_actions'] ?? [];
+                        if (!is_array($forbiddenActions)) {
+                            $forbiddenActions = [$forbiddenActions];
+                        }
+
+                        $rewritten = $evaluator->reviseDraftTextOnly(
+                            $this->originalMessage,
+                            $mergedReasoningText,
+                            $this->finalResponse,
+                            $feedback,
+                            $this->model,
+                            $forbiddenActions
+                        );
+
+                        if (!empty($rewritten)) {
+                            $this->finalResponse = $rewritten;
+                            $this->evalResult['needs_revision'] = false;
+                            $this->evalResult['feedback'] = $feedback . "\n[TEXT-ONLY-REWRITE] 既存根拠のみで最終回答を修正しました。";
+                            chatLogger("[EVAL-TEXT-ONLY] verdict={$verdict} のため追加SQLを行わず最終回答を文章修正しました。");
+                            break;
+                        }
+                    }
+
                     sendSSE('status', [
-                        'step'    => 4, 
+                        'step'    => 4,
                         'message' => "🔄 門番からデータ不足の指摘を受信。不足データを追加抽出します... [試行: {$this->retryCount}]"
                     ]);
 
@@ -691,6 +721,7 @@ class AdvancedReasoningRouteProcessor {
     }
 
     private function extractCsvSearchTerms(string $question): array {
+        $question = $this->normalizeUtf8($question);
         $terms = [];
 
         if (preg_match_all('/[「『"“]([^」』"”]{2,60})[」』"”]/u', $question, $matches)) {
@@ -705,10 +736,16 @@ class AdvancedReasoningRouteProcessor {
             }
         }
 
+        $hasExplicitTerm = !empty($terms);
+
         if (preg_match_all('/[\p{Han}\p{Hiragana}\p{Katakana}ー]{2,}/u', $question, $matches)) {
             foreach ($matches[0] as $term) {
                 $terms[] = $term;
             }
+        }
+
+        if (!$hasExplicitTerm && $this->isBroadCsvOverviewQuestion($question)) {
+            return [];
         }
 
         $stopWords = [
@@ -721,9 +758,11 @@ class AdvancedReasoningRouteProcessor {
 
         $cleaned = [];
         foreach ($terms as $term) {
-            $term = trim(preg_replace('/\s+/u', ' ', (string)$term));
-            $term = trim($term, " \t\n\r\0\x0B、。,.，．:：;；!?！？()（）[]【】");
-            if ($term === '' || mb_strlen($term) < 2 || isset($stopMap[$term])) {
+            $term = $this->normalizeUtf8((string)$term);
+            $term = preg_replace('/\s+/u', ' ', $term);
+            $term = preg_replace('/^[\s、。,.，．:：;；!?！？()（）\[\]【】]+|[\s、。,.，．:：;；!?！？()（）\[\]【】]+$/u', '', $term);
+            $term = trim((string)$term);
+            if ($term === '' || mb_strlen($term) < 2 || isset($stopMap[$term]) || $this->isGenericCsvSearchTerm($term)) {
                 continue;
             }
             if (preg_match('/^(CSV|csv)$/u', $term)) {
@@ -736,6 +775,20 @@ class AdvancedReasoningRouteProcessor {
         }
 
         return array_keys($cleaned);
+    }
+
+    private function isBroadCsvOverviewQuestion(string $question): bool {
+        return (bool)preg_match('/(CSV|csv|データ)/u', $question)
+            && (bool)preg_match('/(登録済み|全体|概要|まとめ|要約|集計|内容|傾向|概況)/u', $question)
+            && !preg_match('/[「『"“][^」』"”]{2,60}[」』"”]/u', $question)
+            && !preg_match('/[A-Za-z][A-Za-z0-9_.@:\-]{2,}/u', str_replace(['CSV', 'csv'], '', $question));
+    }
+
+    private function isGenericCsvSearchTerm(string $term): bool {
+        if (preg_match('/(登録済み|データ|集計|概要|教えて|ください|まとめ|要約|内容|全体|CSV|csv)/u', $term)) {
+            return true;
+        }
+        return false;
     }
 
     private function escapeLikeTerm(string $term): string {
@@ -1082,15 +1135,36 @@ class AdvancedReasoningRouteProcessor {
 
     private function insertReasoningStep(int $stepNumber, string $subQuery, string $subAnswer): void {
         try {
+            $subQuery = $this->normalizeUtf8($subQuery);
+            $subAnswer = $this->normalizeUtf8($subAnswer);
+            $originalQuestion = $this->normalizeUtf8($this->originalMessage);
             $stmt = $this->pdo->prepare("
                 INSERT INTO chat_reasoning_steps
                     (project_id, session_id, original_question, step_number, sub_query, sub_answer, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, NOW())
             ");
-            $stmt->execute([$this->projectId, $this->reasoningId, $this->originalMessage, $stepNumber, $subQuery, $subAnswer]);
+            $stmt->execute([$this->projectId, $this->reasoningId, $originalQuestion, $stepNumber, $subQuery, $subAnswer]);
         } catch (Exception $e) {
             chatLogger("[CSV-EVIDENCE] reasoning step保存に失敗: " . $e->getMessage());
         }
+    }
+
+    private function normalizeUtf8(string $text): string {
+        if ($text === '') {
+            return '';
+        }
+
+        if (!mb_check_encoding($text, 'UTF-8')) {
+            $converted = @iconv('UTF-8', 'UTF-8//IGNORE', $text);
+            if ($converted !== false) {
+                $text = $converted;
+            } else {
+                $text = mb_convert_encoding($text, 'UTF-8', 'UTF-8');
+            }
+        }
+
+        $cleaned = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $text);
+        return $cleaned !== null ? $cleaned : $text;
     }
 
     /**
@@ -1745,16 +1819,18 @@ class AdvancedReasoningRouteProcessor {
         chatLogger("[DEBUG] DBトランザクションを開始し、ステップ99・対話ログ・評価スコアを一元コミットします...");
         try {
             $this->pdo->beginTransaction();
-            
+            $safeOriginalMessage = $this->normalizeUtf8($this->originalMessage);
+            $safeFinalResponse = $this->normalizeUtf8($this->finalResponse);
+
             $stmtUpdAns = $this->pdo->prepare("UPDATE chat_reasoning_steps SET sub_answer = '完了' WHERE session_id = ? AND step_number = 99");
             $stmtUpdAns->execute([$this->reasoningId]);
             chatLogger("[DEBUG] chat_reasoning_steps の最終ステップ(99)を完了状態に更新しました。");
-            
+
             $stmtUser = $this->pdo->prepare("INSERT INTO chat_history (project_id, user_id, role, message, created_at) VALUES (?, ?, 'user', ?, NOW())");
-            $stmtUser->execute([$this->projectId, $this->user_id, $this->originalMessage]);
-            
+            $stmtUser->execute([$this->projectId, $this->user_id, $safeOriginalMessage]);
+
             $stmtAi = $this->pdo->prepare("INSERT INTO chat_history (project_id, user_id, role, message, created_at) VALUES (?, ?, 'assistant', ?, NOW())");
-            $stmtAi->execute([$this->projectId, $this->user_id, $this->finalResponse]);
+            $stmtAi->execute([$this->projectId, $this->user_id, $safeFinalResponse]);
             $historyId = $this->pdo->lastInsertId();
             chatLogger("[DEBUG] chat_history 登録成功. ID: {$historyId}");
 

@@ -12,6 +12,7 @@
 import { openAppModal, closeProjectModal, closeEditModal, bindModalEvents, closeTab, scrollToBottom, initChatInput, injectPdfLoadingMask, switchTab, openPdfTab, initResizer } from './modules/ui.js?v=4';
 import { handleCsvUpload, loadCsvData, handleDeleteCsv, handlePostgresImport, openCsvPreviewByDocId } from './modules/csv.js?v=4';
 import { handleChat, appendMsg, initExistingCharts, initDebugLogViewer } from './modules/chat.js?v=10';
+import { checkUploadOnLoad as checkUploadOnLoadModule, handleUpload as handleUploadModule } from './modules/upload.js?v=5';
 import * as Project from './modules/project.js?v=5';
 // ★最終繋ぎ込み要件1: 100点満点でクレンジングが完了した map.js から回線を引き受ける
 import { searchAddress, copyCoords, initModalMap } from './modules/map.js?v=4';
@@ -235,38 +236,8 @@ function openFaqModal(q = '', a = '') {
 
 // =========================================================================
 // 4. ファイルアップロード関連
+// ── 進捗オーバーレイ付き upload.js へ移管
 // =========================================================================
-
-function checkUploadOnLoad() {}
-
-async function handleUpload(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    const projId = getConfig().projectId;
-    const formData = new FormData();
-    formData.append('document', file);
-    formData.append('project_id', projId);
-
-    const trigger = document.getElementById('upload-trigger');
-    if(trigger) {
-        trigger.innerHTML = `<div class="animate-spin w-8 h-8 border-4 border-[#4F5D95] border-t-transparent rounded-full mx-auto mb-2"></div><h4 class="text-xs font-black text-[#4F5D95]">解析アップロード中...</h4>`;
-    }
-
-    try {
-        const csrfToken = getConfig().csrfToken;
-        const res = await fetch('api/upload.php', { method: 'POST', body: formData, headers: { 'X-CSRF-Token': csrfToken } });
-        const json = await res.json();
-        if (json.success) location.reload();
-        else {
-            alert(json.error || 'アップロードに失敗しました。');
-            location.reload();
-        }
-    } catch (err) {
-        alert('通信エラーが発生しました。');
-        location.reload();
-    }
-}
 
 // =========================================================================
 // 5. AI チャットロジック (Ollama Streaming / RAG)
@@ -316,8 +287,8 @@ function bindGlobalFunctions() {
     window.handleDeleteCsv = handleDeleteCsv;
     window.handlePostgresImport = handlePostgresImport;
     window.openCsvPreviewByDocId = openCsvPreviewByDocId;
-    window.checkUploadOnLoad = typeof checkUploadOnLoad !== 'undefined' ? checkUploadOnLoad : window.checkUploadOnLoad;
-    window.handleUpload = typeof handleUpload !== 'undefined' ? handleUpload : window.handleUpload;
+    window.checkUploadOnLoad = checkUploadOnLoadModule;
+    window.handleUpload = handleUploadModule;
 
     // AIチャット系 (chat.jsからインポートした関数を正確にマウント)
     window.handleChat = handleChat;
@@ -356,8 +327,8 @@ export {
     handleDeleteCsv,
     handlePostgresImport,
     openCsvPreviewByDocId,
-    checkUploadOnLoad,
-    handleUpload,
+    checkUploadOnLoadModule as checkUploadOnLoad,
+    handleUploadModule as handleUpload,
     handleChat,
     appendMsg,
     initDebugLogViewer,
