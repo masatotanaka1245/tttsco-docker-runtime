@@ -94,6 +94,41 @@ class ReportGenerator
 
     private function renderPdf(string $htmlPath, string $pdfPath): string
     {
+        if ($this->loadComposerAutoload() && class_exists('\\Mpdf\\Mpdf')) {
+            $this->log('[REPORT] PDF変換ツール検出: mPDF');
+            try {
+                $html = (string)file_get_contents($htmlPath);
+                $tempDir = $this->basePath . DIRECTORY_SEPARATOR . 'logs' . DIRECTORY_SEPARATOR . 'mpdf';
+                if (!is_dir($tempDir)) {
+                    @mkdir($tempDir, 0777, true);
+                }
+
+                $mpdf = new \Mpdf\Mpdf([
+                    'mode' => 'utf-8',
+                    'format' => 'A4',
+                    'tempDir' => is_dir($tempDir) && is_writable($tempDir) ? $tempDir : sys_get_temp_dir(),
+                    'autoScriptToLang' => true,
+                    'autoLangToFont' => true,
+                    'default_font' => 'sans-serif',
+                    'margin_left' => 16,
+                    'margin_right' => 16,
+                    'margin_top' => 18,
+                    'margin_bottom' => 18,
+                ]);
+                $mpdf->SetTitle($this->extractHtmlTitle($html) ?: 'AI報告書');
+                $mpdf->WriteHTML($html);
+                $mpdf->Output($pdfPath, \Mpdf\Output\Destination::FILE);
+
+                if (is_file($pdfPath) && filesize($pdfPath) > 0) {
+                    $this->log('[REPORT] mPDF実行成功: size=' . filesize($pdfPath) . ' bytes');
+                    return 'mpdf';
+                }
+                $this->log('[REPORT] mPDF実行失敗: PDFファイルが生成されませんでした。');
+            } catch (Throwable $e) {
+                $this->log('[REPORT] mPDF実行失敗: ' . $e->getMessage());
+            }
+        }
+
         $wkhtmltopdf = $this->resolveBinary('wkhtmltopdf', [
             getenv('WKHTMLTOPDF_PATH') ?: '',
             $this->basePath . DIRECTORY_SEPARATOR . 'tools' . DIRECTORY_SEPARATOR . 'wkhtmltopdf.exe',
@@ -142,8 +177,39 @@ class ReportGenerator
 
         throw new RuntimeException(
             'PDF変換ツールが見つかりません。'
-            . ' tools/wkhtmltopdf.exe、WKHTMLTOPDF_PATH、CHROME_PATH、または Chrome/Edge headless を利用できるようにしてください。'
+            . ' Composerでmpdf/mpdfをインストールするか、tools/wkhtmltopdf.exe、WKHTMLTOPDF_PATH、CHROME_PATH、または Chrome/Edge headless を利用できるようにしてください。'
         );
+    }
+
+    private function loadComposerAutoload(): bool
+    {
+        if (class_exists('\\Mpdf\\Mpdf')) {
+            return true;
+        }
+
+        $autoloadCandidates = [
+            $this->basePath . DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR . 'autoload.php',
+            dirname($this->basePath) . DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR . 'autoload.php',
+            $this->basePath . DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR . 'autoload.php',
+        ];
+
+        foreach ($autoloadCandidates as $autoloadPath) {
+            $realPath = realpath($autoloadPath);
+            if ($realPath && is_file($realPath)) {
+                require_once $realPath;
+                return class_exists('\\Mpdf\\Mpdf');
+            }
+        }
+
+        return false;
+    }
+
+    private function extractHtmlTitle(string $html): string
+    {
+        if (preg_match('/<title>(.*?)<\/title>/is', $html, $matches)) {
+            return trim(html_entity_decode(strip_tags($matches[1]), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        }
+        return '';
     }
 
     private function summarizeCommandOutput(string $output): string

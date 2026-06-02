@@ -1,0 +1,6 @@
+{
+  "license": "proprietary",
+  "require": {
+    "mpdf/mpdf": "^8.2"
+  }
+}

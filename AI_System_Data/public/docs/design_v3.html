@@ -207,7 +207,7 @@
             </tr>
             <tr class="hover:bg-slate-50 transition">
               <td class="px-6 py-4 font-bold text-slate-700">AI 推論 / 解析</td>
-              <td class="px-6 py-4 text-slate-600">Ollama API。チャット・VLMはユーザー設定の <code>default_model</code> と <code>sub_model</code>、ベクトル化は <code>mxbai-embed-large</code> を既定値とする。PDF解析には本番Windows上のPoppler系ツール（pdfinfo / pdftotext / pdftoppm相当）を使用する。報告書PDFの生成には wkhtmltopdf、またはChrome/EdgeのヘッドレスPDF出力を使用する。</td>
+              <td class="px-6 py-4 text-slate-600">Ollama API。チャット・VLMはユーザー設定の default_model と sub_model、ベクトル化は mxbai-embed-large を既定値とする。PDF解析には本番Windows上のPoppler系ツール（pdfinfo / pdftotext / pdftoppm相当）を使用する。報告書PDFの生成はComposerで導入した mPDF を優先し、mPDFが利用できない検証環境では wkhtmltopdf またはChrome/EdgeのヘッドレスPDF出力へフォールバックする。</td>
             </tr>
             <tr class="hover:bg-slate-50 transition">
               <td class="px-6 py-4 font-bold text-slate-700">フロントエンド</td>
@@ -413,7 +413,7 @@
           <h3 class="font-bold text-amber-800 mb-2">図解・報告書モード</h3>
           <ul class="list-disc list-inside text-slate-600 space-y-1">
             <li>図解モードは、回答理解に有効な場合のみChart.jsグラフまたはMermaid図を回答へ追加する。</li>
-            <li>報告書モードは、チャット回答をHTML/CSSで整形し、サーバー側でPDFファイルとして出力する。</li>
+            <li>報告書モードは、チャット回答をHTML/CSSで整形し、サーバー側でmPDFを優先してPDFファイルとして出力する。</li>
             <li>生成PDFは通常アップロードPDFと同じ保存領域に配置し、documentsへ親レコードとして登録する。</li>
             <li>報告書本文は生成時のテキストを直接チャンク化し、doc_chunksへ登録するため、再OCRせず高速に検索対象化できる。</li>
           </ul>

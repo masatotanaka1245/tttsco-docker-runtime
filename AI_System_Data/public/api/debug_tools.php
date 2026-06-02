@@ -102,6 +102,21 @@ $output = $cmd !== '' ? shell_exec($cmd) : null;
 echo "Output: " . ($output ?: "何も出力されませんでした。実行権限がない可能性があります。") . "\n\n";
 
 echo "--- 報告書PDF変換ツール確認 ---\n";
+$autoloadCandidates = [
+    $basePath . DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR . 'autoload.php',
+    dirname($basePath) . DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR . 'autoload.php',
+];
+$autoloadPath = '';
+foreach ($autoloadCandidates as $candidate) {
+    $realPath = realpath($candidate);
+    if ($realPath && is_file($realPath)) {
+        $autoloadPath = $realPath;
+        require_once $realPath;
+        break;
+    }
+}
+echo "[Composer autoload]: " . ($autoloadPath !== '' ? "OK\nPath: {$autoloadPath}" : "NG") . "\n";
+echo "[mPDF]: " . (class_exists('\\Mpdf\\Mpdf') ? "OK" : "NG") . "\n";
 $reportConverters = [
     'WKHTMLTOPDF_PATH' => getenv('WKHTMLTOPDF_PATH') ?: '',
     'CHROME_PATH' => getenv('CHROME_PATH') ?: '',
