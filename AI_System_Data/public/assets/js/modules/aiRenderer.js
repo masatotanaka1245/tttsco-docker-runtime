@@ -355,7 +355,7 @@ export class AiRenderer {
         }
 
         container.querySelectorAll('.mermaid-card-wrapper').forEach(wrapper => {
-            if (wrapper.dataset.rendered === 'true') return;
+            if (['true', 'pending', 'error'].includes(wrapper.dataset.rendered)) return;
             const mermaidId = wrapper.dataset.mermaidId;
             const source = wrapper.dataset.mermaidSource || '';
             const target = wrapper.querySelector('.mermaid-render-target');

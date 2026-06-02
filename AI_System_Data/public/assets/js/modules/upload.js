@@ -3,6 +3,14 @@
  */
 import { secureFetch, getConfig } from './api.js?v=4';
 
+const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#039;'
+})[char]);
+
 export async function checkUploadOnLoad() {
     const { projectId } = getConfig();
     if (!projectId) return;
@@ -62,7 +70,10 @@ function startUploadTracking(isNewUpload = false, formData = null) {
             const data = await secureFetch('api/cancel_upload.php', { method: 'POST' });
             if (data && data.success) {
                 const msg = document.getElementById('status-message');
-                if (msg) msg.innerHTML = '<span class="text-amber-400 font-bold animate-pulse">⏳ 中断リクエスト送信済。キリの良いところで安全に停止します...</span>';
+                if (msg) {
+                    msg.textContent = '中断リクエスト送信済。キリの良いところで安全に停止します...';
+                    msg.className = 'text-[11px] leading-snug flex items-center font-bold text-amber-400 animate-pulse';
+                }
             } else {
                 isCancelling = false;
                 if (cancelBtn) {
@@ -98,9 +109,15 @@ function startUploadTracking(isNewUpload = false, formData = null) {
             if (pct) pct.textContent = d.progress + '%';
             
             if (isCancelling && d.status === 'processing') {
-                if (msg) msg.innerHTML = `<span class="text-amber-400 font-bold animate-pulse">⏳ 中断処理中... (現在のステップ: ${d.message})</span>`;
+                if (msg) {
+                    msg.textContent = `中断処理中... (現在のステップ: ${d.message || '解析中'})`;
+                    msg.className = 'text-[11px] leading-snug flex items-center font-bold text-amber-400 animate-pulse';
+                }
             } else if (!isCancelling) {
-                if (msg) msg.textContent = d.message || '解析を実行中...';
+                if (msg) {
+                    msg.textContent = d.message || '解析を実行中...';
+                    msg.className = 'text-[11px] leading-snug flex items-center font-bold text-slate-100';
+                }
             }
             
             if (projName && d.project_name) {
@@ -141,9 +158,9 @@ function startUploadTracking(isNewUpload = false, formData = null) {
                 }, 3000);
             }
             
-            if (d.status === 'error') { 
+            if (d.status === 'error') {
                 clearInterval(timer);
-                if (msg) msg.innerHTML = `<span class="text-red-400">Error: ${d.error || '解析失敗'}</span>`;
+                if (msg) msg.innerHTML = `<span class="text-red-400">Error: ${escapeHtml(d.error || '解析失敗')}</span>`;
                 statusOverlay.classList.replace('bg-slate-900', 'bg-red-950');
                 const cancelContainer = document.getElementById('cancel-btn-container');
                 if (cancelContainer) cancelContainer.remove();
@@ -168,7 +185,7 @@ function startUploadTracking(isNewUpload = false, formData = null) {
                         const errReason = data.error || '不明なエラー';
                         if (!errReason.includes('中断')) {
                             const msg = document.getElementById('status-message');
-                            if (msg) msg.innerHTML = `<span class="text-red-400">❌ 失敗: ${errReason}</span>`;
+                            if (msg) msg.innerHTML = `<span class="text-red-400">失敗: ${escapeHtml(errReason)}</span>`;
                             setTimeout(() => statusOverlay.remove(), 10000);
                         }
                     }

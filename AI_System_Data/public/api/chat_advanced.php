@@ -92,17 +92,35 @@ class AdvancedReasoningRouteProcessor {
         $this->pdo = $pdo;
         $this->ollama_host = $ollama_host;
         $this->projectId = (int)$projectId;
-        $this->originalMessage = (string)$originalMessage;
-        $this->searchQuery = (string)$searchQuery;
+        $this->originalMessage = $this->normalizeUtf8((string)$originalMessage);
+        $this->searchQuery = $this->normalizeUtf8((string)$searchQuery);
         $this->reasoningId = (string)$reasoningId;
         $this->reasoningModel = (string)$reasoningModel;
         $this->synthesisModel = (string)$synthesisModel;
         $this->promptKey = (string)$promptKey;
-        $this->projectContext = (string)$projectContext;
-        $this->historySummaryText = (string)$historySummaryText;
+        $this->projectContext = $this->normalizeUtf8((string)$projectContext);
+        $this->historySummaryText = $this->normalizeUtf8((string)$historySummaryText);
         $this->user_id = (int)$user_id;
         $this->role = (string)$role;
         $this->model = (string)$reasoningModel;
+    }
+
+    private function normalizeUtf8(string $text): string {
+        if ($text === '') {
+            return '';
+        }
+
+        if (!mb_check_encoding($text, 'UTF-8')) {
+            $converted = @iconv('UTF-8', 'UTF-8//IGNORE', $text);
+            if ($converted !== false) {
+                $text = $converted;
+            } else {
+                $text = mb_convert_encoding($text, 'UTF-8', 'UTF-8');
+            }
+        }
+
+        $cleaned = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $text);
+        return $cleaned !== null ? $cleaned : $text;
     }
 
     // 対象 of 8テーブル（静的定義：概要と詳細スキーマの分離による脳内パンク防止シールド）
@@ -122,7 +140,7 @@ class AdvancedReasoningRouteProcessor {
         'chat_history' => "テーブル名: chat_history\n物理カラム:\n- id (INT, PK)\n- project_id (INT)\n- user_id (INT)\n- role (VARCHAR: 'user' または 'assistant')\n- message (TEXT: 会話本文)\n- created_at (DATETIME)",
         'chat_reasoning_steps' => "テーブル名: chat_reasoning_steps\n物理カラム:\n- id (INT, PK)\n- project_id (INT)\n- session_id (VARCHAR:推論セッションID)\n- chat_history_id (INT)\n- original_question (TEXT)\n- step_number (INT: ステップ番号)\n- sub_query (TEXT: 実行目的)\n- search_context (TEXT)\n- sub_answer (TEXT: クエリ内容と実行結果の中間考察)\n- created_at (DATETIME)",
         'doc_chunks' => "テーブル名: doc_chunks\n物理カラム:\n- id (INT, PK)\n- doc_id (INT: documents.idへの外部キー)\n- page_number (INT: 資料 of ページ番号)\n- chunk_text (LONGTEXT: 抽出されたテキスト本文)\n- embedding (VECTOR: ベクトルデータ)\n- image_description (TEXT: 画像または図表の説明)\n- created_at (DATETIME)",
-        'documents' => "テーブル名: documents\n物理カラム:\n- id (INT, PK)\n- project_id (INT)\n- title (VARCHAR: 資料 of タイトル)\n- file_name (VARCHAR: 物理ファイル名)\n- created_at (DATETIME)",
+        'documents' => "テーブル名: documents\n物理カラム:\n- id (INT, PK)\n- project_id (INT)\n- title (VARCHAR: 資料 of タイトル)\n- file_path (VARCHAR: 物理ファイルパス)\n- created_at (DATETIME)",
         'project_comments' => "テーブル名: project_comments\n物理カラム:\n- id (INT, PK)\n- project_id (INT)\n- user_id (INT)\n- comment_text (TEXT: コメント内容)\n- created_at (DATETIME)",
         'project_csv_files' => "テーブル名: project_csv_files\n物理カラム:\n- id (INT, PK)\n- project_id (INT)\n- file_name (VARCHAR: CSV名)\n- column_headers (TEXT: JSON型ヘッダー名一覧)\n- row_count (INT)\n- created_at (DATETIME)",
         'project_csv_rows' => "テーブル名: project_csv_rows\n物理カラム:\n- id (INT, PK)\n- csv_file_id (INT)\n- row_index (INT: 行番号)\n- row_data (JSON: CSVの行データが入ったオブジェクト。値の抽出時は JSON_UNQUOTE(JSON_EXTRACT(row_data, '$.\"カラム名\"')) を使用してください)\n- created_at (DATETIME)\n★注意: このテーブルには row_count カラムはありません。行数は COUNT(id) で集計してください。",
@@ -238,7 +256,8 @@ class AdvancedReasoningRouteProcessor {
                       . "■ ユーザーの質問がアバウトな挨拶や準備の段階（例：データ集計しようと思います、等）である場合は、勝手に死に物狂いで関係のない内部評価スコアの集計手順を組み立てるな。文脈から推測される本質的な一般データテーブル（ `project_csv_rows` など）の基礎的なカウントや概要把握のみに絞って手順を分解せよ。\n"
                       . "■ ユーザーから「AIの評価スコアを集計して」「 chat_evaluations を分析して」と【明示的・直接的にシステムデータの集計を指定された場合のみ】、システムテーブルを対象に含めてよい。\n\n"
                       . "必ず以下のJSON配列形式のみで出力してください。挨拶やMarkdownの説明は一切不要です。\n"
-                      . "[{\"query\": \"ユーザーの最初の質問の枠内から絶対に脱線しない具体的な集計目的\"}]\n\n"
+                      . "operation_type は metadata_lookup / simple_aggregate / record_search / semantic_extract のいずれかにしてください。\n"
+                      . "[{\"query\": \"ユーザーの最初の質問の枠内から絶対に脱線しない具体的な調査目的\", \"operation_type\": \"semantic_extract\", \"target_tables\": [\"doc_chunks\"], \"answer_goal\": \"このサブクエリで生成すべき小回答の目的\"}]\n\n"
                       . "分析観点リスト(JSON):";
         
         chatLogger("[DEBUG] Ollama因数分解API呼び出し送信前...");
@@ -277,8 +296,16 @@ class AdvancedReasoningRouteProcessor {
         
         if (!is_array($this->subQueries) || empty($this->subQueries) || !isset($this->subQueries[0]['query'])) {
             chatLogger("[WARN] サブクエリのパースに失敗しました。フォールバックとして元メッセージ全体を単一クエリとしてセットします。");
-            $this->subQueries = [["query" => "要求全体の総合的な集計と分析"]];
+            $this->subQueries = [[
+                "query" => "要求全体に関連する実データを抽出し、回答に必要な根拠を整理する",
+                "operation_type" => $this->inferOperationType($this->searchQuery),
+                "target_tables" => $this->inferTargetTables($this->searchQuery),
+                "answer_goal" => "ユーザーの質問に直接答えるための中間回答を作る"
+            ]];
         } else {
+            $this->subQueries = array_map(function ($item) {
+                return $this->normalizeSubQueryItem(is_array($item) ? $item : ['query' => (string)$item]);
+            }, $this->subQueries);
             chatLogger("[DEBUG] サブクエリのパースに成功。サブ質問数: " . count($this->subQueries));
         }
     }
@@ -292,53 +319,71 @@ class AdvancedReasoningRouteProcessor {
 
         foreach ($this->subQueries as $subQItem) {
             $step_counter++;
+            $subQItem = $this->normalizeSubQueryItem($subQItem);
             $subQ = $subQItem['query'];
-            
+            $operationType = $subQItem['operation_type'];
+
             // 独立メソッドへのバトン引き渡し
-            $sub_ans_text = $this->executeSingleSubQuery($subQ, $step_counter, "集計ステップ {$step_counter}/{$total_steps}");
-            $this->subAnswers[] = "◆ CSV集計観点 {$step_counter}: {$subQ}\n{$sub_ans_text}";
+            $sub_ans_text = $this->executeSingleSubQuery($subQItem, $step_counter, "調査ステップ {$step_counter}/{$total_steps}");
+            $this->subAnswers[] = "◆ サブ回答 {$step_counter} [{$operationType}]: {$subQ}\n{$sub_ans_text}";
         }
     }
 
     /**
      * 【シーケンス1専用】独立したSQL自動生成・実行統制メソッド
      */
-    private function executeSingleSubQuery(string $subQ, int $step_counter, string $stepLabel = "追加ステップ"): string {
+    private function executeSingleSubQuery(array $subQItem, int $step_counter, string $stepLabel = "追加ステップ"): string {
+        $subQItem = $this->normalizeSubQueryItem($subQItem);
+        $subQ = $subQItem['query'];
+        $operationType = $subQItem['operation_type'];
+        $targetTables = implode(', ', $subQItem['target_tables']);
+        $answerGoal = $subQItem['answer_goal'];
         chatLogger("【データ分析】ステップ {$step_counter}: 観点「{$subQ}」のSQL生成中...");
         
         // 進捗SSEパディング制御（シーケンス1: ステップ2で同期送出）
         sendSSE('status', [
             'step'    => 2, 
-            'message' => "🔬 [{$stepLabel}]「{$subQ}」に基づくSQLを集計構築中..."
+            'message' => "🔬 [{$stepLabel}]「{$subQ}」に基づくSQLを構築中... [type: {$operationType}]"
         ]);
 
         try {
             $stmtInsert = $this->pdo->prepare("INSERT INTO chat_reasoning_steps (project_id, session_id, original_question, step_number, sub_query, created_at) VALUES (?, ?, ?, ?, ?, NOW())");
-            $stmtInsert->execute([$this->projectId, $this->reasoningId, $this->originalMessage, $step_counter, $subQ]);
+            $stmtInsert->execute([
+                $this->projectId,
+                $this->reasoningId,
+                $this->normalizeUtf8($this->originalMessage),
+                $step_counter,
+                $this->normalizeUtf8($subQ)
+            ]);
         } catch (Exception $dbEx) {
             chatLogger("[ERROR] chat_reasoning_steps へのINSERTに失敗: " . $dbEx->getMessage());
         }
 
         // 思考リソースを集計に特化させるプロトコル
         $sql_sys_prompt = "【ミッション】\n"
-                        . "お前は実在するデータベース構造を自律監査するデータアナリストAIである。提示された「INFORMATION_SCHEMAコンテキスト」および「実在データ総数マトリクス」を熟読し、ユーザーの質問を解決するために最適なSELECTクエリを1つ構築せよ。\n\n"
+                        . "お前は実在するデータベース構造を自律監査するデータアナリストAIである。提示された「INFORMATION_SCHEMAコンテキスト」および「実在データ総数マトリクス」を熟読し、サブクエリの処理タイプに合うSELECTクエリを1つ構築せよ。\n\n"
                         . "【最重要：思考解放プロトコル】\n"
                         . "■ マルチテナント隔離（ `project_id` や `csv_file_id` によるデータの覗き見防止条件 ）については、システム（PHP側）が実行直前に自動的にWHERE句へ結合・強制インジェクトするため、お前は【一切記述しなくてよい】。条件句への project_id の記載は完全に省略せよ。\n"
                         . "■ お前はただ、ユーザーの質問に答えるために「どのテーブルをFROM/JOINし、どのJSONキーを抽出し、どうグループ化・集計するか」という【純粋な集計ロジックの構築】だけに全リソースを集中させよ。\n\n"
                         . "【重要構文ルール】\n"
                         . "1. 過去の嘘のスキーマの記憶は完全パージせよ。必ず、提供された【INFORMATION_SCHEMAコンテキスト】に現実に表記されている実在の物理カラム構成のみを使用すること。\n"
                         . "2. CSVデータ自体の「中身・本文」の集計や概要, 傾向をユーザーから求められた場合は、メタ情報を管理する `project_csv_files` ではなく、必ず実データ行がレコードとして詰まっている【 `project_csv_rows` 】テーブルを使用せよ。\n"
-                        . "3. MySQL 8.0 の日本語JSONキー抽出は `JSON_UNQUOTE(JSON_EXTRACT(T1.row_data, '$.\"項目名\"'))` を使用せよ。`row_data->>$.項目名` や `row_data->>$.'項目名'` は生成禁止。\n"
+                        . "3. PDFやアップロード資料の本文・図表説明を読む場合は `doc_chunks` を中心にし、必要に応じて `documents` とJOINして title, page_number, chunk_text, image_description を取得せよ。\n"
+                        . "4. MySQL 8.0 の日本語JSONキー抽出は `JSON_UNQUOTE(JSON_EXTRACT(T1.row_data, '$.\"項目名\"'))` を使用せよ。`row_data->>$.項目名` や `row_data->>$.'項目名'` は生成禁止。\n"
                         . "   `project_csv_rows` に `row_count` カラムは存在しない。CSV行数は `COUNT(T1.id)`、CSVファイル側の登録行数は `project_csv_files.row_count` を使用せよ。\n"
-                        . "4. テーブルのエイリアスは必ず `project_csv_rows T1` のように `T1` などの一意のエイリアスを付与せよ。\n"
-                        . "5. 【絶対Group Byルール】SELECT 句に集計関数（SUM/AVG/COUNT等）と、非集計カラム（JSON項目含む）を同時に含める場合は、必ずクエリの末尾に `GROUP BY` 句を明記せよ。これを怠ると MySQL 1140 構文エラーで即死する。\n\n"
+                        . "5. テーブルのエイリアスは必ず `project_csv_rows T1` のように `T1` などの一意のエイリアスを付与せよ。\n"
+                        . "6. 【絶対Group Byルール】SELECT 句に集計関数（SUM/AVG/COUNT等）と、非集計カラム（JSON項目含む）を同時に含める場合は、必ずクエリの末尾に `GROUP BY` 句を明記せよ。これを怠ると MySQL 1140 構文エラーで即死する。\n\n"
                         . "【出力制約】\n"
                         . "出力は必ず実行可能なSQL文字列1つのみを内包したJSON形式【のみ】を出力せよ。Markdownや余計な解説文プロースは一切排除せよ。\n"
                         . '{"sql": "SELECT ..."}';
 
         // 記憶プロンプトを最先頭へマウント
         $sql_sys_prompt = $this->databaseMemoryPrompt . "\n" . $sql_sys_prompt;
-        $sql_user_prompt = $this->schemaInfo . "\n\n【ユーザーの分析観点】\n" . $subQ;
+        $sql_user_prompt = $this->schemaInfo
+            . "\n\n【サブクエリ】\n" . $subQ
+            . "\n\n【operation_type】\n" . $operationType
+            . "\n\n【候補テーブル】\n" . $targetTables
+            . "\n\n【このサブクエリの回答目標】\n" . $answerGoal;
 
         // 超決定論的パラメータによる最高度引き締めAI射撃
         $sql_json_str = callOllamaChat($this->ollama_host, $this->reasoningModel, $sql_sys_prompt, $sql_user_prompt, 'json', ["temperature" => 0.0, "top_p" => 0.1, "num_ctx" => 4096]);
@@ -348,7 +393,7 @@ class AdvancedReasoningRouteProcessor {
 
         try {
             $stmtUpdAns = $this->pdo->prepare("UPDATE chat_reasoning_steps SET sub_answer = ? WHERE session_id = ? AND step_number = ?");
-            $stmtUpdAns->execute([$sub_ans_text, $this->reasoningId, $step_counter]);
+            $stmtUpdAns->execute([$this->normalizeUtf8($sub_ans_text), $this->reasoningId, $step_counter]);
         } catch (Exception $dbEx2) {
             chatLogger("[ERROR] chat_reasoning_steps のUPDATEに失敗: " . $dbEx2->getMessage());
         }
@@ -378,6 +423,8 @@ class AdvancedReasoningRouteProcessor {
             
             if (is_array($sql_data) && isset($sql_data['sql'])) {
                 $generated_sql = trim($sql_data['sql']);
+            } elseif (is_array($sql_data) && isset($sql_data['query']) && preg_match('/^\s*SELECT/i', (string)$sql_data['query'])) {
+                $generated_sql = trim((string)$sql_data['query']);
             } else {
                 if (preg_match('/SELECT\s+.*?(?:;|$)/is', $sqlJsonStr, $matches)) {
                     $generated_sql = trim($matches[0]);
@@ -394,6 +441,7 @@ class AdvancedReasoningRouteProcessor {
                 $generated_sql
             );
             $generated_sql = preg_replace('/' . preg_quote($fence, '/') . 'sql|' . preg_quote($fence, '/') . '/i', '', $generated_sql);
+            $generated_sql = preg_replace('/["\'}\]\s;]+$/', '', trim($generated_sql));
             $generated_sql = preg_replace('/\\s+COLLATE\\s+[\'"]?[a-zA-Z0-9_-]+[\'"]?/i', '', $generated_sql);
             
             chatLogger("[Text-to-SQL-AFTER] (集計試行 {$retry_count}/3) 補正後実行SQL: " . $generated_sql);
@@ -571,7 +619,7 @@ class AdvancedReasoningRouteProcessor {
                    . "回答は、必ず以下のJSON配列形式のブロック【のみ】を出力してください。Markdownの説明文や余計なプロースは一切禁止します。\n\n"
                    . $fence . "json\n"
                    . "[\n"
-                   . "  {\"step\": 1, \"table\": \"テーブル名\", \"purpose\": \"このステップで検索・集計する具体的な目的（日本語）\"}\n"
+                   . "  {\"step\": 1, \"table\": \"テーブル名\", \"purpose\": \"このステップで検索・集計する具体的な目的（日本語）\", \"operation_type\": \"semantic_extract\"}\n"
                    . "]\n"
                    . $fence . "\n\n"
                    . $briefText;
@@ -628,14 +676,14 @@ class AdvancedReasoningRouteProcessor {
                 $fallbackTable = 'doc_chunks';
             }
 
-            $fallbackPurpose = match ($fallbackTable) {
-                'project_csv_rows' => 'CSV行データから質問に関連する集計・傾向を抽出する',
-                'chat_history' => '過去の対話履歴から質問に関連する文脈を抽出する',
-                default => '関連資料PDFの本文チャンクから主要な留意点・根拠を抽出する',
-            };
+                $fallbackPurpose = match ($fallbackTable) {
+                    'project_csv_rows' => 'CSV行データから質問に関連する集計・傾向を抽出する',
+                    'chat_history' => '過去の対話履歴から質問に関連する文脈を抽出する',
+                    default => '関連資料PDFの本文チャンクから主要な留意点・根拠を抽出する',
+                };
 
-            $plan = [
-                ["step" => 1, "table" => $fallbackTable, "purpose" => $fallbackPurpose]
+                $plan = [
+                ["step" => 1, "table" => $fallbackTable, "purpose" => $fallbackPurpose, "operation_type" => $this->inferOperationType($this->searchQuery)]
             ];
         }
 
@@ -662,6 +710,7 @@ class AdvancedReasoningRouteProcessor {
             $stepCounter++;
             $tableName = $stepItem['table'] ?? '';
             $purpose   = $stepItem['purpose'] ?? '';
+            $operationType = $stepItem['operation_type'] ?? $this->inferOperationType($purpose . ' ' . $this->searchQuery);
 
             if (!isset(self::$tablesSchema[$tableName])) {
                 continue;
@@ -679,17 +728,22 @@ class AdvancedReasoningRouteProcessor {
 
             // 動的プロンプトマスキング：対象テーブルのみの詳細スキーマを抽出し、残り7つは完全消去
             $targetSchema = self::$tablesSchema[$tableName];
+            if ($tableName === 'doc_chunks') {
+                $targetSchema .= "\n\n関連テーブルとしてJOIN可能:\n" . self::$tablesSchema['documents'];
+            }
 
             // 射影用コンテキスト制約
             $projectConstraint = "";
-            if ($tableName !== 'project_csv_rows' && $tableName !== 'users') {
+            if ($tableName === 'doc_chunks') {
+                $projectConstraint = "・doc_chunks には project_id が存在しません。案件で絞り込む場合は documents d と JOIN し、d.project_id = {$this->projectId} を使用してください。\n";
+            } elseif ($tableName !== 'project_csv_rows' && $tableName !== 'users') {
                 $projectConstraint = "・テーブルに [project_id] カラムが存在する場合は、必ず [project_id = {$this->projectId}] の絞り込み条件を含めてください。\n";
             }
 
             // ✨【🛠️パッチ修正②】日本語キーによるパースエラー3143を物理封殺する絶対拘束ルールの上書き
             $sqlSysPrompt = "あなたは極めて正確なデータ抽出SQLを構築する MySQL エキスパートです。\n"
-                          . "提示された【1つのテーブルの詳細スキーマ情報】のみを頭に入れ、ユーザーの目的を達成するための MySQL 8.0 互換の SELECT クエリを作成してください。\n"
-                          . "関係のない他のテーブルは、データベース上に一切存在しないものとして処理してください（脳内のコンテキストから完全消去してください）。\n\n"
+                          . "提示された【対象データの詳細スキーマ情報】のみを頭に入れ、ユーザーの目的を達成するための MySQL 8.0 互換の SELECT クエリを作成してください。\n"
+                          . "関係のない他のテーブルは使わないでください。ただし doc_chunks から本文を読む場合は、出典表示のため documents とのJOINを許可します。\n\n"
                           . "【対象テーブルのスキーマ情報】\n"
                           . $targetSchema . "\n\n"
                           . "★【重要：マルチテナント隔離の絶対ルール（プレースホルダー完全禁止）】\n"
@@ -701,6 +755,7 @@ class AdvancedReasoningRouteProcessor {
                           . "  JSON型（row_data カラム）から「所属」や「課題など」といった日本語キーを抽出・集計する際は、必ず `JSON_UNQUOTE(JSON_EXTRACT(T1.row_data, '$.\"項目名\"'))` を使用せよ。\n"
                           . "  `project_csv_rows` に `row_count` カラムは存在しない。CSV行数は `COUNT(T1.id)`、CSVファイル側の登録行数は `project_csv_files.row_count` を使用せよ。\n"
                           . "・キャスト時に COLLATE 句は絶対に使用しないでください。\n"
+                          . "・PDFや資料本文を読む semantic_extract では title, page_number, chunk_text, image_description を優先して取得してください。\n"
                           . "・出力は必ず実行可能なSQL文字列1つのみを内包したJSON形式で出力してください。Markdownや説明テキスト、コメントは完全禁止です。\n"
                           . '{"sql": "SELECT ..."}';
 
@@ -710,7 +765,7 @@ class AdvancedReasoningRouteProcessor {
             // 🔄 [エスケープ補助] プロンプト内のドル記号の直後に予期せず入った半角スペースを削除し、構文を完全正常化
             $sqlSysPrompt = str_replace('$ ', '$', $sqlSysPrompt);
 
-            $sqlUserPrompt = "【全体の質問】\n{$this->searchQuery}\n\n【このステップの目的】\n{$purpose}";
+            $sqlUserPrompt = "【全体の質問】\n{$this->searchQuery}\n\n【このステップの目的】\n{$purpose}\n\n【operation_type】\n{$operationType}";
             
             // SQL生成時の創造性を完全パージするオプション引き締めへのリフォーム
             $sqlJsonStr = callOllamaChat($this->ollama_host, $this->reasoningModel, $sqlSysPrompt, $sqlUserPrompt, 'json', ["temperature" => 0.0, "top_p" => 0.1, "num_ctx" => 4096]);
@@ -726,6 +781,8 @@ class AdvancedReasoningRouteProcessor {
 
             if (is_array($sqlData) && isset($sqlData['sql'])) {
                 $generatedSql = trim($sqlData['sql']);
+            } elseif (is_array($sqlData) && isset($sqlData['query']) && preg_match('/^\s*SELECT/i', (string)$sqlData['query'])) {
+                $generatedSql = trim((string)$sqlData['query']);
             } else {
                 if (preg_match('/SELECT\s+.*?(?:;|$)/is', $sqlJsonStr, $matches)) {
                     $generatedSql = trim($matches[0]);
@@ -749,6 +806,7 @@ class AdvancedReasoningRouteProcessor {
             );
             
             $generatedSql = preg_replace('/' . preg_quote($fence, '/') . 'sql|' . preg_quote($fence, '/') . '/i', '', $generatedSql);
+            $generatedSql = preg_replace('/["\'}\]\s;]+$/', '', trim($generatedSql));
             $generatedSql = preg_replace('/\\s+COLLATE\\s+[\'"]?[a-zA-Z0-9_-]+[\'"]?/i', '', $generatedSql);
 
             // 📢 [超詳細ログ2] 万能クレンザーで自動補正をかけた「直後」のMySQLへ投入される最終実行SQLを出力（大文字キャメル一元同期）
@@ -791,7 +849,7 @@ class AdvancedReasoningRouteProcessor {
                         foreach ($rows as $row) {
                             if (in_array($tableName, ['doc_chunks', 'documents', 'project_faqs', 'project_csv_files'])) {
                                 $docId = $row['doc_id'] ?? ($row['document_id'] ?? ($row['id'] ?? $stepCounter));
-                                $title = $row['title'] ?? ($row['file_name'] ?? ($row['question_summary'] ?? "巡回ステップデータ"));
+                                $title = $row['title'] ?? ($row['file_name'] ?? ($row['file_path'] ?? ($row['question_summary'] ?? "巡回ステップデータ")));
                                 $page  = $row['page_number'] ?? 1;
                                 $this->uniqueSources[$docId . '-' . $page] = ["title" => $title, "page" => $page, "doc_id" => $docId];
                             }
@@ -852,18 +910,144 @@ class AdvancedReasoningRouteProcessor {
         return $stepResults;
     }
 
+    private function normalizeSubQueryItem(array $item): array {
+        $query = trim((string)($item['query'] ?? $item['purpose'] ?? $this->searchQuery));
+        if ($query === '') {
+            $query = 'ユーザーの質問に関連する実データを取得して中間回答を作成する';
+        }
+
+        $operationType = (string)($item['operation_type'] ?? '');
+        $allowedTypes = ['metadata_lookup', 'simple_aggregate', 'record_search', 'semantic_extract'];
+        if (!in_array($operationType, $allowedTypes, true)) {
+            $operationType = $this->inferOperationType($query . ' ' . $this->searchQuery);
+        }
+
+        $targetTables = $item['target_tables'] ?? [];
+        if (is_string($targetTables)) {
+            $targetTables = [$targetTables];
+        }
+        if (!is_array($targetTables) || empty($targetTables)) {
+            $targetTables = $this->inferTargetTables($query . ' ' . $this->searchQuery);
+        }
+
+        $targetTables = array_values(array_filter(array_map('strval', $targetTables), function ($table) {
+            return in_array($table, $this->dynamicTableWhitelist, true) || isset(self::$tablesSchema[$table]);
+        }));
+        if (empty($targetTables)) {
+            $targetTables = $this->inferTargetTables($query . ' ' . $this->searchQuery);
+        }
+
+        return [
+            'query' => $query,
+            'operation_type' => $operationType,
+            'target_tables' => $targetTables,
+            'answer_goal' => trim((string)($item['answer_goal'] ?? 'このサブクエリの取得結果から、ユーザー質問に必要な要点を短く回答する'))
+        ];
+    }
+
+    private function inferOperationType(string $text): string {
+        if (preg_match('/(留意点|注意点|要約|まとめ|概要|考察|示唆|課題|リスク|主要|重要|意味|内容を整理|本文)/u', $text)) {
+            return 'semantic_extract';
+        }
+        if (preg_match('/(件数|何件|合計|平均|割合|比率|ランキング|集計|推移|分布|カウント)/u', $text)) {
+            return 'simple_aggregate';
+        }
+        if (preg_match('/(一覧|項目|カラム|列|ファイル|資料名|登録済み|メタ|タイトル)/u', $text)) {
+            return 'metadata_lookup';
+        }
+        if (preg_match('/(検索|含む|該当|キーワード|絞り込み|抽出)/u', $text)) {
+            return 'record_search';
+        }
+        return 'semantic_extract';
+    }
+
+    private function inferTargetTables(string $text): array {
+        if (preg_match('/(PDF|pdf|資料|文書|報告書|図面|仕様書|doc_chunks|チャンク)/u', $text)) {
+            return ['documents', 'doc_chunks'];
+        }
+        if (preg_match('/(CSV|csv|行データ|row_data|カラム|列|項目|集計)/u', $text)) {
+            return ['project_csv_files', 'project_csv_rows'];
+        }
+        if (preg_match('/(会話|履歴|チャット|これまで|過去)/u', $text)) {
+            return ['chat_history'];
+        }
+        if (preg_match('/(FAQ|よくある質問)/iu', $text)) {
+            return ['project_faqs'];
+        }
+        return ['doc_chunks'];
+    }
+
+    private function shouldRunCsvFullMapReduce(): bool {
+        $text = $this->originalMessage . ' ' . $this->searchQuery;
+        $hasCsvIntent = preg_match('/(CSV|csv|登録済み.*データ|データ.*(内容|概要|全件|すべて|全部)|全件.*(読解|分析|分類)|1件も漏らさず)/u', $text);
+        if (!$hasCsvIntent) {
+            return false;
+        }
+
+        foreach ($this->subQueries as $item) {
+            $item = $this->normalizeSubQueryItem(is_array($item) ? $item : ['query' => (string)$item]);
+            if (in_array('project_csv_rows', $item['target_tables'], true) && in_array($item['operation_type'], ['semantic_extract', 'record_search'], true)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function buildEvidenceDraft(array $stepResults): string {
+        $parts = [];
+        foreach ($this->subAnswers as $answer) {
+            $trimmed = trim((string)$answer);
+            if ($trimmed !== '') {
+                $parts[] = $trimmed;
+            }
+        }
+        foreach ($stepResults as $result) {
+            $purpose = trim((string)($result['purpose'] ?? ''));
+            $body = trim((string)($result['result'] ?? ''));
+            if ($body !== '') {
+                $parts[] = "◆ 資料巡回: {$purpose}\n{$body}";
+            }
+        }
+
+        if (empty($parts)) {
+            return "ユーザーの質問に対して利用可能な根拠データを取得できませんでした。";
+        }
+
+        $evidence = implode("\n\n", $parts);
+        if (mb_strlen($evidence) > 6000) {
+            $evidence = mb_substr($evidence, 0, 6000) . "\n...[制限超過による省略]";
+        }
+
+        return "## サブクエリ別の中間回答\n\n" . $evidence;
+    }
+
     /**
      * 【MoA最深部】時空間超越型バルクMap-Reduce統合マージレイヤー
      * ★[全件網羅・外部メモリリアルタイム永続化・3分フリーズ完全閉塞版]
      */
     private function mergeAndRefineReport(array $stepResults): void {
         chatLogger("==================================================");
-        chatLogger("【フル思考フェーズ3】バルクMap-Reduce超解像度ループを起動します。");
+        chatLogger("【フル思考フェーズ3】サブ回答統合ループを起動します。");
         chatLogger("==================================================");
+
+        $currentDraft = "";
+        $baseSystemPrompt = "あなたは根拠に忠実な業務支援AIです。ユーザーの質問に直接答え、利用可能なサブ回答と取得データだけを根拠に最終回答を作成してください。根拠が不足する場合は不足を明示し、架空の事実は補完しないでください。";
+        $chartInstruction = "\nグラフや図が有効な場合のみ、Chart.jsまたはMermaid用のJSON/コードブロックを最小限で付けてください。不要な場合は文章のみで構いません。";
+
+        if (!$this->shouldRunCsvFullMapReduce()) {
+            chatLogger("[MERGE-MODE] CSV全件Map-Reduceをスキップし、サブクエリ別回答を統合します。operation_types: " . implode(', ', array_map(fn($q) => $q['operation_type'] ?? 'unknown', $this->subQueries)));
+            sendSSE('status', [
+                'step'    => 4,
+                'message' => "🧾 サブクエリごとの回答を統合し、最終回答ドラフトを生成中です..."
+            ]);
+            $currentDraft = $this->buildEvidenceDraft($stepResults);
+        } else {
+            chatLogger("[MERGE-MODE] CSV全件読解が必要な質問として判定。CSV Map-Reduceを実行します。");
 
         // 1. 物理データベースから該当案件の全CSV行データを「1件も漏らさず」一斉ロード
         $stmtAll = $this->pdo->prepare("
-            SELECT id, row_index, row_data 
+            SELECT id, row_index, row_data
             FROM project_csv_rows 
             WHERE csv_file_id IN (SELECT id FROM project_csv_files WHERE project_id = ?)
             ORDER BY row_index ASC
@@ -953,11 +1137,11 @@ class AdvancedReasoningRouteProcessor {
                 $stmtSaveProgress->execute([
                     $this->projectId,
                     $this->reasoningId, 
-                    $this->originalMessage,
+                    $this->normalizeUtf8($this->originalMessage),
                     $targetTargetStepNum, 
-                    "データセットの分割Mapパース（第 {$currentChunkNum} 塊）", 
-                    $progressReport,
-                    $progressReport
+                    $this->normalizeUtf8("データセットの分割Mapパース（第 {$currentChunkNum} 塊）"),
+                    $this->normalizeUtf8($progressReport),
+                    $this->normalizeUtf8($progressReport)
                 ]);
             } catch (Exception $e) {
                 chatLogger("[DB-SAVE-WARN] 外部メモリの即時セーブに失敗: " . $e->getMessage());
@@ -978,8 +1162,19 @@ class AdvancedReasoningRouteProcessor {
                       . "--- \n"
                       . "💡 **データ監査官による総括インサイト:** \n"
                       . "海外ビジネスユニットにおける生成AIへの要求は、単なる「メールの自動作成」といった局所的な事務効率化に留まらず、各国の政府発表の自動要約や承認権限（WF）の整合性チェックなど、**「プロセスの複雑な条件分岐に潜む人為的ミスの防止（リスクヘッジ）」**に圧倒的な需要が集中していることがデータ全件の傾向から科学的に立証されました。";
+        }
 
-                      $get_ch = curl_init("{$this->ollama_host}/api/generate");
+        $mergedReasoningForDraft = implode("\n\n", $this->subAnswers);
+        if (mb_strlen($mergedReasoningForDraft) > 7000) {
+            $mergedReasoningForDraft = mb_substr($mergedReasoningForDraft, 0, 7000) . "\n...[制限超過による省略]";
+        }
+        $sysPrompt = $baseSystemPrompt . $chartInstruction;
+        $prompt_user = "【ユーザーの質問】\n{$this->originalMessage}\n\n"
+            . "【サブクエリごとの回答・根拠】\n{$mergedReasoningForDraft}\n\n"
+            . "【初期ドラフト】\n{$currentDraft}\n\n"
+            . "上記を根拠として、ユーザーに提示する最終回答だけを日本語Markdownで作成してください。";
+
+        $get_ch = curl_init("{$this->ollama_host}/api/generate");
         $self = $this;
         $writeCallback = function($ch, $data) use ($self) {
             $self->packetCounter++;
@@ -1237,17 +1432,17 @@ class AdvancedReasoningRouteProcessor {
             // 1. 進捗ステップ99（最終レポートの精錬マージ）の記録（トランザクションの内側へ移動し完全包含）
             if ($this->reasoningId) {
                 $stmtInsertStep = $this->pdo->prepare("INSERT INTO chat_reasoning_steps (project_id, session_id, original_question, step_number, sub_query, sub_answer, created_at) VALUES (?, ?, ?, 99, '最終レポートの精錬マージ', '完了', NOW())");
-                $stmtInsertStep->execute([$this->projectId, $this->reasoningId, $this->originalMessage]);
+                $stmtInsertStep->execute([$this->projectId, $this->reasoningId, $this->normalizeUtf8($this->originalMessage)]);
                 chatLogger("[DEBUG] chat_reasoning_steps の最終ステップ(99)をトランザクション内で正常に完了記録しました。");
             }
             
             // 2. ユーザー履歴保存
             $stmtUser = $this->pdo->prepare("INSERT INTO chat_history (project_id, user_id, role, message, created_at) VALUES (?, ?, 'user', ?, NOW())");
-            $stmtUser->execute([$this->projectId, $this->user_id, $this->originalMessage]);
+            $stmtUser->execute([$this->projectId, $this->user_id, $this->normalizeUtf8($this->originalMessage)]);
             
             // 3. AI履歴保存
             $stmtAi = $this->pdo->prepare("INSERT INTO chat_history (project_id, user_id, role, message, created_at) VALUES (?, ?, 'assistant', ?, NOW())");
-            $stmtAi->execute([$this->projectId, $this->user_id, $this->finalResponse]);
+            $stmtAi->execute([$this->projectId, $this->user_id, $this->normalizeUtf8($this->finalResponse)]);
             $historyId = $this->pdo->lastInsertId();
             chatLogger("[DEBUG] chat_history 登録成功。ID: {$historyId}");
             
@@ -1271,7 +1466,7 @@ class AdvancedReasoningRouteProcessor {
                     $this->evalResult['scores']['answer_relevance'] ?? 0, // ★JSONキー「answer_relevance」から等価抽出して :relevance_score 側へ完璧にマッピングバインド
                     $this->evalResult['scores']['clarity'] ?? 0,
                     $this->evalResult['total_score'] ?? 0,
-                    $this->evalResult['feedback'] ?? '',
+                    $this->normalizeUtf8((string)($this->evalResult['feedback'] ?? '')),
                     $this->retryCount
                 ]);
                 chatLogger("[DEBUG] chat_evaluations へ品質審査スコアを一元トランザクション内で同期登録しました。");

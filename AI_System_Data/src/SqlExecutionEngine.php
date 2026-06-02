@@ -487,7 +487,7 @@ class SqlExecutionEngine {
             . "- CSV本文のキー抽出: JSON_UNQUOTE(JSON_EXTRACT(r.row_data, '$.\"実在キー名\"'))\n"
             . "- CSVキー別集計: SELECT JSON_UNQUOTE(JSON_EXTRACT(r.row_data, '$.\"実在キー名\"')) AS item, COUNT(*) AS cnt FROM project_csv_rows r GROUP BY item ORDER BY cnt DESC\n"
             . "- 会話履歴要約用抽出: SELECT role, message, created_at FROM chat_history ORDER BY created_at ASC LIMIT 50\n"
-            . "- PDF本文抽出: SELECT d.title, c.page_number, c.chunk_text FROM doc_chunks c JOIN documents d ON c.doc_id = d.id LIMIT 30\n\n"
+            . "- PDF本文抽出: SELECT d.title, c.page_number, c.chunk_text, c.image_description FROM doc_chunks c JOIN documents d ON c.doc_id = d.id ORDER BY d.id, c.page_number LIMIT 30\n\n"
             . "【禁止】\n"
             . "- 許可リスト外の架空テーブル・架空カラムを作らない。\n"
             . "- SELECT '文字列' のような実テーブルを読まないダミーSQLで突破しない。\n"
@@ -510,7 +510,7 @@ class SqlExecutionEngine {
         }
 
         if (preg_match('/(PDF|資料|文書|留意点|抽出|内容)/u', $text)) {
-            return "SELECT d.title, c.page_number, c.chunk_text FROM doc_chunks c JOIN documents d ON c.doc_id = d.id LIMIT 30";
+            return "SELECT d.title, c.page_number, c.chunk_text, c.image_description FROM doc_chunks c JOIN documents d ON c.doc_id = d.id ORDER BY d.id, c.page_number LIMIT 30";
         }
 
         return null;

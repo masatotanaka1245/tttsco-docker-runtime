@@ -7,6 +7,7 @@
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../config/session.php';
 require_once __DIR__ . '/../../src/Auth.php';
+require_once __DIR__ . '/../../src/ProjectAccess.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -23,10 +24,31 @@ try {
         throw new Exception('Invalid ID');
     }
 
-    // 3. セッションIDに紐づくすべての推論ステップをDBから取得
+    // 3. セッションIDに紐づく案件へのアクセス権限を確認
+    $stmtProject = $pdo->prepare("
+        SELECT project_id
+        FROM chat_reasoning_steps
+        WHERE session_id = ?
+        ORDER BY step_number ASC
+        LIMIT 1
+    ");
+    $stmtProject->execute([$reasoning_id]);
+    $projectId = $stmtProject->fetchColumn();
+    if ($projectId === false) {
+        throw new Exception('Reasoning session not found');
+    }
+
+    $role = $_SESSION['role'] ?? 'user';
+    $userId = (int)($_SESSION['user_id'] ?? 0);
+    if ($projectId !== null && !canAccessProject($pdo, (int)$projectId, $userId, $role)) {
+        http_response_code(403);
+        throw new Exception('Forbidden');
+    }
+
+    // 4. セッションIDに紐づくすべての推論ステップをDBから取得
     $stmt = $pdo->prepare("
-        SELECT step_number, sub_query, sub_answer 
-        FROM chat_reasoning_steps 
+        SELECT step_number, sub_query, sub_answer
+        FROM chat_reasoning_steps
         WHERE session_id = ? 
         ORDER BY step_number ASC
     ");

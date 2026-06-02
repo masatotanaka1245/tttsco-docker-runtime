@@ -1604,3 +1604,115 @@ AI: 登録済みCSVの内容を確認しました。 - 対象CSVファイル数:
 [2026-06-02 19:58:52] [CHAT_STREAM]   [推論進行中] 累積文字数: 860文字 | 受信チャンク数: 490回
 [2026-06-02 19:58:52] [CHAT_STREAM] CRITICAL: Ollama推論ストリーム通信失敗 (cURL Error: Operation timed out after 120002 milliseconds with 48986 bytes received)
 [2026-06-02 19:58:52] [CHAT_STREAM] [SMART-ROUTER] ルート処理完了: normal_rag | elapsed: 121.95秒
+[2026-06-02 20:34:46] [CHAT_STREAM] === 新着チャット受信 | Host: http://host.docker.internal:11434 | Model: gemma4:e4b ===
+[2026-06-02 20:34:46] [CHAT_STREAM] ユーザー: admin (ID: 1) | 案件ID: 4
+[2026-06-02 20:34:46] [CHAT_STREAM] 質問内容: この案件に関連する資料PDFから主要な留意点を抽出してください。
+[2026-06-02 20:34:46] [CHAT_STREAM] [SMART-ROUTER] 高度なマルチタスク文脈を検知。最優先で「ハイブリッド多重推論統合ハブ(chat_advanced.php Colonial)」をキックします。
+[2026-06-02 20:34:46] [CHAT_STREAM] [SMART-ROUTER] 自律生成推論セッションID: auto-reason_6a1ebfd66b134-3396
+[2026-06-02 20:34:46] [CHAT_STREAM] [SMART-ROUTER] 最終ルート決定: advanced_hybrid
+[2026-06-02 20:34:46] [CHAT_STREAM] >>> [MoAハイブリッド多重推論要塞] 統合ハブコントローラーを起動します
+[2026-06-02 20:34:46] [CHAT_STREAM] [DEBUG] 引数情報 - Host: http://host.docker.internal:11434 | Model: gemma4:e4b | UserID: 1 | Role: admin
+[2026-06-02 20:34:46] [CHAT_STREAM] [ADV-TIMING] 権限チェック完了 | elapsed: 0.00秒
+[2026-06-02 20:34:46] [CHAT_STREAM] [DEBUG] データベースの実在スキーマ構造を動的に解析・スキャンします...
+[2026-06-02 20:34:46] [CHAT_STREAM] 網羅調査完了 - CSV行数: 53件, コメント: 0件, FAQ: 0件
+[2026-06-02 20:34:46] [CHAT_STREAM] [DEBUG] 動的スキーマ情報およびデータ総数マトリクスの構築完了。文字数: 7149文字
+[2026-06-02 20:34:46] [CHAT_STREAM] [ADV-TIMING] スキーマロード完了 | elapsed: 0.04秒
+[2026-06-02 20:34:46] [CHAT_STREAM] [DEBUG] 生成されたデータ分析セッションID (reasoningId): auto-reason_6a1ebfd66b134-3396
+[2026-06-02 20:34:46] [CHAT_STREAM] [ADV-TIMING] DB記憶ロード完了 | promptChars: 1379 | elapsed: 0.00秒
+[2026-06-02 20:34:46] [CHAT_STREAM] [DEBUG] 質問の因数分解を開始します。質問: この案件に関連する資料PDFから主要な留意点を抽出してください。
+[2026-06-02 20:34:46] [CHAT_STREAM] [DEBUG] Ollama因数分解API呼び出し送信前...
+[2026-06-02 20:35:18] [CHAT_STREAM] [DEBUG] Ollama因数分解API応答受信 raw: {
+    "query": "プロジェクトに関連する資料（`documents`テーブル）から、PDF形式の資料を特定し、その資料のタイトルやファイルパスを抽出する。"
+}
+[2026-06-02 20:35:18] [CHAT_STREAM] [FORMAT-RECOVERY] 単一の分析オブジェクトを配列構造に自動ラップ救済しました。
+[2026-06-02 20:35:18] [CHAT_STREAM] [DEBUG] サブクエリのパースに成功。サブ質問数: 1
+[2026-06-02 20:35:18] [CHAT_STREAM] 【データ分析】ステップ 1: 観点「プロジェクトに関連する資料（`documents`テーブル）から、PDF形式の資料を特定し、その資料のタイトルやファイルパスを抽出する。」のSQL生成中...
+[2026-06-02 20:35:36] [CHAT_STREAM] [OLLAMA-RAW-RESPONSE] (集計試行 0/3) 受信生データ:
+{"query": "SELECT T1.title, T1.file_path FROM documents AS T1 WHERE T1.file_extension = 'pdf'"}
+[2026-06-02 20:35:36] [CHAT_STREAM] [Text-to-SQL-AFTER] (集計試行 0/3) 補正後実行SQL: SELECT T1.title, T1.file_path FROM documents AS T1 WHERE T1.file_extension = 'pdf'"}
+[2026-06-02 20:35:36] [CHAT_STREAM] [SECURITY APPROVED] 動的ホワイトリスト監査パスを安全承認します。
+[2026-06-02 20:35:37] [CHAT_STREAM] [SQL-EXEC-FAILED] (集計試行 0/3) MySQL生エラー文: SQL実行中にエラーが発生しました: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near '"})' at line 1
+
+【SQL自己修復ガイダンス】
+目的: 
+前回エラー: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near '"})' at line 1
+前回SQL: SELECT T1.title, T1.file_path FROM documents AS T1 WHERE T1.file_extension = 'pdf'"}
+
+【使用可能な実在テーブル・物理カラム】
+- chat_evaluations: id, chat_id, proactivity_score, faithfulness_score, relevance_score, clarity_score, total_score, feedback, retry_count, created_at
+- chat_history: id, project_id, user_id, role, message, created_at
+- chat_reasoning_steps: id, chat_history_id, project_id, session_id, original_question, step_number, sub_query, search_context, sub_answer, created_at
+- doc_chunks: id, doc_id, chunk_text, embedding, page_number, image_description, created_at
+- documents: id, project_id, title, file_path, created_at
+- project_comments: id, project_id, user_id, comment_text, created_at, updated_at
+- project_csv_files: id, project_id, file_name, column_headers, row_count, created_at
+- project_csv_rows: id, csv_file_id, row_index, row_data, created_at
+- project_faqs: id, project_id, chat_history_id, question_summary, answer_summary, created_by, created_at
+- projects: id, project_name, description, start_date, end_date, address, latitude, longitude, created_by, status, created_at, updated_at
+
+【この案件のCSV経験値】
+- csv_file_id=2 / language-locales.csv / rows=5 / row_data keys: Login Email, Identifier, One-time password, Recovery code, First name, Last name, Department, Language
+- csv_file_id=3 / username-or-email.csv / rows=5 / row_data keys: Username;Login email;Identifier;First name;Last name
+- csv_file_id=4 / 入荷実績一覧.csv / rows=14 / row_data keys: 入荷日, 請求先コード, 請求先名, 得意先コード, 得意先名, 仕入先, 品番, 品名, 発注日, サイズ, 発注番号, バーコード, 売買区分, 発注数, 入荷数, 未入荷数, 担当者№, 担当者
+- csv_file_id=5 / 健康診断一覧.csv / rows=5 / row_data keys: 名前, 生年月日, 年齢, 性別, 身長, 身長-1, 身長-2, 身長-3, 身長-4, 体重1, 体重-1, 体重-2, 体重-3, 体重-4, 血圧上, 血圧上-1, 血圧上-2, 血圧上-3, 血圧上-4, 血圧下, 血圧下-1, 血圧下-2, 血圧下-3, 血圧下-4, 血糖値, 血糖値30, 血糖値60, 血糖値90, 血糖値120, 血糖値150, 血糖値180, 体脂肪率, 体脂肪率-1, 体脂肪率-2, 体脂肪率-3, 体脂肪率-4, 血糖値, 血糖値30, 血糖値60, 血糖値90, 血糖値120, 血糖値150, 血糖値180, 血糖値, 血糖値30, 血糖値60, 血糖値90, 血糖値120, 血糖値150, 血糖値180
+- csv_file_id=6 / 出荷一覧表(#if [本数] ＞= 250000 then 赤;Grayband;TypeT;Sum=合計;Counts=商品名;Numbering;承認印=責任者;承認日印=上長;認印=担当者名).csv / rows=24 / row_data keys: 会社名, 責任者, 責任者確認日, 上長, 担当者名, 受注日, 顧客ID, 会社名, 郵便番号, 住所, 商品ID, 商品名, 商品定価, 本数, 合計
+
+【正解へ近づく定番SQLパターン】
+- CSVファイル数と実データ行数: SELECT COUNT(DISTINCT f.id) AS total_csv_files, COUNT(r.id) AS total_csv_rows FROM project_csv_files f LEFT JOIN project_csv_rows r ON f.id = r.csv_file_id
+- CSV本文のキー抽出: JSON_UNQUOTE(JSON_EXTRACT(r.row_data, '$."実在キー名"'))
+- CSVキー別集計: SELECT JSON_UNQUOTE(JSON_EXTRACT(r.row_data, '$."実在キー名"')) AS item, COUNT(*) AS cnt FROM project_csv_rows r GROUP BY item ORDER BY cnt DESC
+- 会話履歴要約用抽出: SELECT role, message, created_at FROM chat_history ORDER BY created_at ASC LIMIT 50
+- PDF本文抽出: SELECT d.title, c.page_number, c.chunk_text FROM doc_chunks c JOIN documents d ON c.doc_id = d.id LIMIT 30
+
+【禁止】
+- 許可リスト外の架空テーブル・架空カラムを作らない。
+- SELECT '文字列' のような実テーブルを読まないダミーSQLで突破しない。
+- project_csv_rows.row_count は存在しない。行数は COUNT(project_csv_rows.id) を使う。
+- row_data->>$.日本語キー は禁止。JSON_UNQUOTE(JSON_EXTRACT(..., '$."キー"')) を使う。
+
+[2026-06-02 20:35:51] [CHAT_STREAM] [OLLAMA-RAW-RESPONSE] (集計試行 1/3) 受信生データ:
+SELECT * FROM documents
+[2026-06-02 20:35:51] [CHAT_STREAM] [Text-to-SQL-AFTER] (集計試行 1/3) 補正後実行SQL: SELECT * FROM documents
+[2026-06-02 20:35:51] [CHAT_STREAM] [SECURITY APPROVED] 動的ホワイトリスト監査パスを安全承認します。
+[2026-06-02 20:35:51] [CHAT_STREAM] [DEBUG-LOOP] SQLの正常実行開通を確認しました。
+[2026-06-02 20:35:51] [CHAT_STREAM] [DEBUG] バッチスライス巡回中... (1/1)
+[2026-06-02 20:36:40] [CHAT_STREAM] [ADV-TIMING] シーケンス1 SQL分析完了 | subQueries: 1 | subAnswers: 1 | elapsed: 113.93秒
+[2026-06-02 20:37:09] [CHAT_STREAM] [PLANNER-RAW-RESPONSE] Ollamaから受信した生の計画データ:
+{"step": 1, "table": "doc_chunks", "purpose": "アップロードされた資料PDFから、案件に関する主要な留意点や重要なテキスト情報を抽出する。"}
+[2026-06-02 20:37:09] [CHAT_STREAM] [FORMAT-RECOVERY] 単一の計画オブジェクトを配列構造に自動ラップ救済しました。
+[2026-06-02 20:37:09] [CHAT_STREAM] 策定された実行計画ステップ数: 1
+[2026-06-02 20:37:09] [CHAT_STREAM] 【フル思考】フェーズ2.1: テーブル「doc_chunks」の動的マスキングスキャン実行中...
+[2026-06-02 20:37:41] [CHAT_STREAM] [AUTO-SQL-RAW] (ステップ 1) 受信生クエリデータ: {"sql": "SELECT DISTINCT chunk_text FROM doc_chunks WHERE 1=1"}
+[2026-06-02 20:37:41] [CHAT_STREAM] [AGENT-SQL-BEFORE] (ステップ 1) プログラム補正前の素のSQL: SELECT DISTINCT chunk_text FROM doc_chunks WHERE 1=1
+[2026-06-02 20:37:41] [CHAT_STREAM] [AGENT-SQL-AFTER]  (ステップ 1) プログラム補正後の最終実行SQL: SELECT DISTINCT chunk_text FROM doc_chunks WHERE 1=1
+[2026-06-02 20:38:19] [CHAT_STREAM] [ADV-TIMING] シーケンス2 資料RAG巡回完了 | planSteps: 1 | stepResults: 1 | elapsed: 99.36秒
+[2026-06-02 20:38:19] [CHAT_STREAM] ==================================================
+[2026-06-02 20:38:19] [CHAT_STREAM] 【フル思考フェーズ3】バルクMap-Reduce超解像度ループを起動します。
+[2026-06-02 20:38:19] [CHAT_STREAM] ==================================================
+[2026-06-02 20:38:19] [CHAT_STREAM] 【物理全件検知】プロジェクトID: 4 から合計 53 件の生レコードをロードしました。
+[2026-06-02 20:38:58] [CHAT_STREAM] [BATCH-MAP-SUCCESS] スライス巡回成功 [塊: 1/6]
+[2026-06-02 20:39:35] [CHAT_STREAM] [BATCH-MAP-SUCCESS] スライス巡回成功 [塊: 2/6]
+[2026-06-02 20:40:20] [CHAT_STREAM] [BATCH-MAP-SUCCESS] スライス巡回成功 [塊: 3/6]
+[2026-06-02 20:41:15] [CHAT_STREAM] [BATCH-MAP-SUCCESS] スライス巡回成功 [塊: 4/6]
+[2026-06-02 20:42:16] [CHAT_STREAM] [BATCH-MAP-SUCCESS] スライス巡回成功 [塊: 5/6]
+[2026-06-02 20:43:10] [CHAT_STREAM] [BATCH-MAP-SUCCESS] スライス巡回成功 [塊: 6/6]
+[2026-06-02 20:44:40] [CHAT_STREAM] [DEBUG] ChatEvaluator 品質審査完了。
+[2026-06-02 20:44:40] [CHAT_STREAM] [CRITIC-NG] 門番による差し戻し執行。verdict=reject | 作戦指示: ユーザーは「この案件に関連する資料PDFから主要な留意点を抽出してください」という、具体的なデータ抽出・分析の指示を出しています。しかし、AIの回答ドラフトは「質問が不明」として、質問を再要求する形で応答しています。これは、与えられたContext（参照資料）の内容を完全に無視し、ユーザーの要求を遂行できていないため、回答として成立していません。
+
+**修正指示:** Contextには、PDF資料から抽出された「電子テキスト本文」の抜粋が多数含まれています。これらは、建築図面や仕様書から抽出された「主要な留意点」そのものです。これらの抜粋を構造化し、単なるテキストの羅列ではなく、「留意点」として整理して提示する必要があります。
+
+特に、以下の要素を抽出・整理してください：
+1.  **建築・設計上の留意点:** (例: 防火地域、天井高、有効幅員、消火器の設置間隔など)
+2.  **プロジェクト情報:** (例: 工事名称、所在地、構造形式など)
+3.  **データソースの明記:** どのテキストチャンクから抽出した情報かを明確に示し、信頼性を高めてください。
+[2026-06-02 20:45:40] [CHAT_STREAM] [CRITIC-TEXT-ONLY] verdict=reject のためdoc_chunks追加探索を行わず最終回答を文章修正しました。
+[2026-06-02 20:45:40] [CHAT_STREAM] [ADV-TIMING] シーケンス3 統合・品質審査完了 | responseChars: 1204 | retryCount: 1 | elapsed: 441.03秒
+[2026-06-02 20:45:40] [CHAT_STREAM] [DEBUG] DBトランザクションを開始し、ステップ99・対話ログ・評価スコアを一元コミットします...
+[2026-06-02 20:45:40] [CHAT_STREAM] [DEBUG] chat_reasoning_steps の最終ステップ(99)をトランザクション内で正常に完了記録しました。
+[2026-06-02 20:45:40] [CHAT_STREAM] [DEBUG] chat_history 登録成功。ID: 43
+[2026-06-02 20:45:40] [CHAT_STREAM] [DEBUG] chat_evaluations へ品質審査スコアを一元トランザクション内で同期登録しました。
+[2026-06-02 20:45:40] [CHAT_STREAM] [DEBUG] DBトランザクションコミット成功。すべての書き込みデータ整合性を完全保護しました。
+[2026-06-02 20:45:40] [CHAT_STREAM] === [MoA大統合ハブコントローラー] ハイブリッド並列多重推論パイプライン全線開通・処理完了 ===
+[2026-06-02 20:45:40] [CHAT_STREAM] [ADV-TIMING] シーケンス4 保存・出荷完了 | elapsed: 0.07秒
+[2026-06-02 20:45:40] [CHAT_STREAM] [ADV-TIMING] フル思考ルート全体完了 | totalElapsed: 654.45秒
+[2026-06-02 20:45:40] [CHAT_STREAM] [SMART-ROUTER] ルート処理完了: advanced_hybrid | elapsed: 654.52秒

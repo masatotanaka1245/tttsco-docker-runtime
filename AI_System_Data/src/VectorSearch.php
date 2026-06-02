@@ -60,6 +60,67 @@ class VectorSearch {
         return $dotProduct / (sqrt($normA) * sqrt($normB));
     }
 
+    private function extractSearchTerms(string $queryText): array {
+        $terms = [];
+        $source = mb_strtolower($queryText);
+
+        $knownTerms = [
+            'pdf', 'csv', '資料', '図面', '報告書', '仕様書', '留意点', '課題', '提案',
+            '防火', '構造', '所在地', '工事', '建築', '設計', '表', 'グラフ', '集計',
+            '概要', '要約', '項目', '内容', 'コメント', 'faq'
+        ];
+        foreach ($knownTerms as $term) {
+            if (mb_stripos($source, mb_strtolower($term)) !== false) {
+                $terms[$term] = true;
+            }
+        }
+
+        if (preg_match_all('/[A-Za-z0-9_]{2,}|[\p{Han}\p{Katakana}]{2,}/u', $queryText, $matches)) {
+            foreach ($matches[0] as $term) {
+                $term = trim((string)$term);
+                if ($term === '' || mb_strlen($term) < 2) {
+                    continue;
+                }
+                $terms[$term] = true;
+                if (count($terms) >= 10) {
+                    break;
+                }
+            }
+        }
+
+        return array_slice(array_keys($terms), 0, 10);
+    }
+
+    private function buildSearchSql(int $projectId, ?int $targetPage, array $terms, bool $includeImageDescription = true, int $candidateLimit = 800): array {
+        $imageColumn = $includeImageDescription ? ', c.image_description' : '';
+        $sql = "SELECT c.id, c.doc_id, d.title, c.chunk_text, c.page_number, c.embedding{$imageColumn}
+                FROM doc_chunks c
+                JOIN documents d ON c.doc_id = d.id
+                WHERE d.project_id = ?";
+        $params = [$projectId];
+
+        if ($targetPage !== null) {
+            $sql .= " AND c.page_number = ?";
+            $params[] = $targetPage;
+        } elseif (!empty($terms)) {
+            $likeConditions = ["c.page_number = 0"];
+            foreach ($terms as $term) {
+                $likeConditions[] = "c.chunk_text LIKE ?";
+                $params[] = '%' . $term . '%';
+                if ($includeImageDescription) {
+                    $likeConditions[] = "c.image_description LIKE ?";
+                    $params[] = '%' . $term . '%';
+                }
+                $likeConditions[] = "d.title LIKE ?";
+                $params[] = '%' . $term . '%';
+            }
+            $sql .= " AND (" . implode(' OR ', $likeConditions) . ")";
+            $sql .= " ORDER BY CASE WHEN c.page_number = 0 THEN 0 ELSE 1 END, c.id DESC LIMIT " . max(50, $candidateLimit);
+        }
+
+        return [$sql, $params];
+    }
+
     /**
      * 質問ベクトルに近いチャンクを検索
      * @param array $queryEmbedding 質問のベクトルデータ
@@ -67,42 +128,27 @@ class VectorSearch {
      * @param int $limit 取得上限数
      * @param int|null $targetPage 絞り込み対象のページ番号
      */
-    public function search(array $queryEmbedding, int $projectId, int $limit = 6, ?int $targetPage = null): array {
+    public function search(array $queryEmbedding, int $projectId, int $limit = 6, ?int $targetPage = null, string $queryText = ''): array {
         self::writeDebugLog("=== セマンティック検索 開始 ===");
         self::writeDebugLog("Searching for project_id: $projectId | Target Page: " . ($targetPage !== null ? $targetPage : 'ALL_PAGES'));
-        
+
+        $terms = $targetPage === null ? $this->extractSearchTerms($queryText) : [];
+        $usedKeywordPrefilter = !empty($terms);
+        if ($usedKeywordPrefilter) {
+            self::writeDebugLog("Keyword prefilter terms: " . implode(', ', $terms));
+        }
+
         $stmt = null;
         try {
-            // ベースSQLの組み立て
-            $sql = "SELECT c.id, c.doc_id, d.title, c.chunk_text, c.page_number, c.embedding, c.image_description 
-                    FROM doc_chunks c
-                    JOIN documents d ON c.doc_id = d.id
-                    WHERE d.project_id = ?";
-            
-            $params = [$projectId];
-
-            // 特定のページが指定されている場合、SQLレベルで対象ページを厳格にロックオン
-            if ($targetPage !== null) {
-                $sql .= " AND c.page_number = ?";
-                $params[] = $targetPage;
-            }
-            
+            [$sql, $params] = $this->buildSearchSql($projectId, $targetPage, $terms, true);
             $stmt = $this->pdo->prepare($sql);
             $stmt->execute($params);
         } catch (PDOException $e) {
             // カラムが存在しない場合などのフォールバック
             self::writeDebugLog("Column 'image_description' might be missing, retrying with minimal columns...");
-            
+
             if ($e->getCode() == '42S22') {
-                $sql = "SELECT c.id, c.doc_id, d.title, c.chunk_text, c.embedding 
-                        FROM doc_chunks c
-                        JOIN documents d ON c.doc_id = d.id
-                        WHERE d.project_id = ?";
-                $params = [$projectId];
-                if ($targetPage !== null) {
-                    $sql .= " AND c.page_number = ?";
-                    $params[] = $targetPage;
-                }
+                [$sql, $params] = $this->buildSearchSql($projectId, $targetPage, $terms, false);
                 $stmt = $this->pdo->prepare($sql);
                 $stmt->execute($params);
             } else {
@@ -134,6 +180,11 @@ class VectorSearch {
         }
 
         self::writeDebugLog("ベクトルマッチング結果: DBレコード抽出数 = $fetchedCount 件, 有効ベクトル数 = " . count($results) . " 件");
+
+        if ($usedKeywordPrefilter && count($results) === 0) {
+            self::writeDebugLog("Keyword prefilter returned no valid vectors. Falling back to full project vector scan.");
+            return $this->search($queryEmbedding, $projectId, $limit, $targetPage, '');
+        }
 
         // 類似度スコアが高い順にソート
         usort($results, function($a, $b) {

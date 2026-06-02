@@ -47,16 +47,34 @@ class NormalStreamingRouteProcessor {
         $this->pdo                = $pdo;
         $this->ollama_host        = $ollama_host;
         $this->projectId          = $projectId;
-        $this->originalMessage    = $originalMessage;
-        $this->searchQuery        = $searchQuery;
+        $this->originalMessage    = $this->normalizeUtf8((string)$originalMessage);
+        $this->searchQuery        = $this->normalizeUtf8((string)$searchQuery);
         $this->model              = $model;
         $this->promptKey          = $promptKey;
-        $this->projectContext     = $projectContext;
-        $this->historySummaryText = $historySummaryText;
+        $this->projectContext     = $this->normalizeUtf8((string)$projectContext);
+        $this->historySummaryText = $this->normalizeUtf8((string)$historySummaryText);
         $this->vectorSearch       = $vectorSearch;
         $this->engine             = $engine;
         $this->user_id            = $user_id;
         $this->role               = $role;
+    }
+
+    private function normalizeUtf8(string $text): string {
+        if ($text === '') {
+            return '';
+        }
+
+        if (!mb_check_encoding($text, 'UTF-8')) {
+            $converted = @iconv('UTF-8', 'UTF-8//IGNORE', $text);
+            if ($converted !== false) {
+                $text = $converted;
+            } else {
+                $text = mb_convert_encoding($text, 'UTF-8', 'UTF-8');
+            }
+        }
+
+        $cleaned = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $text);
+        return $cleaned !== null ? $cleaned : $text;
     }
 
     public function execute(): void {
@@ -155,13 +173,13 @@ class NormalStreamingRouteProcessor {
                         'score' => 1.0
                     ];
                 }
-                $semanticHits = $this->vectorSearch->search($qEmb, $this->projectId, 12, null);
+                $semanticHits = $this->vectorSearch->search($qEmb, $this->projectId, 12, null, $this->searchQuery);
                 foreach ($semanticHits as $sHit) {
                     if ($sHit['page_number'] == 0 || $sHit['page_number'] === '0') continue;
                     $all_hits[] = $sHit;
                 }
             } else {
-                $all_hits = $this->vectorSearch->search($qEmb, $this->projectId, 9999, $this->targetPage);
+                $all_hits = $this->vectorSearch->search($qEmb, $this->projectId, 9999, $this->targetPage, $this->searchQuery);
             }
 
             $pdf_hits = [];
@@ -340,11 +358,11 @@ class NormalStreamingRouteProcessor {
 
             // 1. ユーザー履歴保存
             $stmtUser = $this->pdo->prepare("INSERT INTO chat_history (project_id, user_id, role, message, created_at) VALUES (?, ?, 'user', ?, NOW())");
-            $stmtUser->execute([$this->projectId, $this->user_id, $this->originalMessage]);
+            $stmtUser->execute([$this->projectId, $this->user_id, $this->normalizeUtf8($this->originalMessage)]);
 
             // 2. AI履歴保存
             $stmtAi = $this->pdo->prepare("INSERT INTO chat_history (project_id, user_id, role, message, created_at) VALUES (?, ?, 'assistant', ?, NOW())");
-            $stmtAi->execute([$this->projectId, $this->user_id, $this->fullResponse]);
+            $stmtAi->execute([$this->projectId, $this->user_id, $this->normalizeUtf8($this->fullResponse)]);
             $historyId = $this->pdo->lastInsertId();
             chatLogger("[DEBUG] chat_history 登録成功。ID: {$historyId}");
 
@@ -363,7 +381,7 @@ class NormalStreamingRouteProcessor {
                     $this->evalResult['scores']['answer_relevance'] ?? 0, // ★JSONキー「answer_relevance」から等価抽出して :relevance_score 側へバインド
                     $this->evalResult['scores']['clarity'] ?? 0,
                     $this->evalResult['total_score'] ?? 0,
-                    $this->evalResult['feedback'] ?? '',
+                    $this->normalizeUtf8((string)($this->evalResult['feedback'] ?? '')),
                     $this->retryCount ?? 0
                 ]);
                 chatLogger("[DEBUG] chat_evaluations へ通常RAG品質審査スコアを正常に登録・同期しました。");

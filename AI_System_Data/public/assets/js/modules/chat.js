@@ -8,7 +8,7 @@
  */
 import { secureFetch, getConfig } from './api.js?v=4';
 import { scrollToBottom } from './ui.js?v=4';
-import { AiRenderer } from './aiRenderer.js?v=5';
+import { AiRenderer } from './aiRenderer.js?v=6';
 
 // 生成された Chart.js のインスタンスを保持し、メモリリークや二重描画を防ぐグローバル管理マップ
 window.chartInstances = window.chartInstances || {};
@@ -331,7 +331,7 @@ function renderMermaidInContainer(parentContainer) {
     });
 
     parentContainer.querySelectorAll('.mermaid-card-wrapper').forEach(wrapper => {
-        if (wrapper.dataset.rendered === 'true' || wrapper.dataset.rendered === 'pending') return;
+        if (['true', 'pending', 'error'].includes(wrapper.dataset.rendered)) return;
         const mermaidId = wrapper.dataset.mermaidId;
         const source = wrapper.dataset.mermaidSource || '';
         const target = wrapper.querySelector('.mermaid-render-target');
