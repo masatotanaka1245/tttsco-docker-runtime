@@ -11,7 +11,7 @@
 
 import { openAppModal, closeProjectModal, closeEditModal, bindModalEvents, closeTab, scrollToBottom, initChatInput, injectPdfLoadingMask, switchTab, openPdfTab, initResizer } from './modules/ui.js?v=4';
 import { handleCsvUpload, loadCsvData, handleDeleteCsv, handlePostgresImport, openCsvPreviewByDocId } from './modules/csv.js?v=4';
-import { handleChat, appendMsg, initExistingCharts, initDebugLogViewer } from './modules/chat.js?v=9';
+import { handleChat, appendMsg, initExistingCharts, initDebugLogViewer } from './modules/chat.js?v=10';
 import * as Project from './modules/project.js?v=5';
 // ★最終繋ぎ込み要件1: 100点満点でクレンジングが完了した map.js から回線を引き受ける
 import { searchAddress, copyCoords, initModalMap } from './modules/map.js?v=4';

@@ -340,6 +340,17 @@ class NormalStreamingRouteProcessor {
                 chatLogger("[DEBUG] chat_evaluations へ通常RAG品質審査スコアを正常に登録・同期しました。");
             }
 
+            require_once __DIR__ . '/../../src/FaqAutoRegistrar.php';
+            $faqRegistrar = new FaqAutoRegistrar($this->pdo);
+            $faqRegistrar->registerIfQualified(
+                $this->projectId,
+                (int)$historyId,
+                (int)$this->user_id,
+                $this->originalMessage,
+                $this->fullResponse,
+                $this->evalResult
+            );
+
             // すべてのインサートが完全に成功したため一括コミットを執行
             $this->pdo->commit();
             chatLogger("[DEBUG] DBトランザクションコミット成功。通常RAGのデータ整合性を完全保護しました。");

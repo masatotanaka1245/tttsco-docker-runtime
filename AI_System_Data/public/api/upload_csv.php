@@ -110,6 +110,33 @@ if (!function_exists('updateCsvProgress')) {
     }
 }
 
+if (!function_exists('csvElapsedSeconds')) {
+    function csvElapsedSeconds(float $start): string {
+        return number_format(microtime(true) - $start, 2) . '秒';
+    }
+}
+
+if (!function_exists('buildCsvNaturalText')) {
+    function buildCsvNaturalText(string $fileName, int $rowIndex, array $assocRow): string {
+        $naturalSentences = [];
+        foreach ($assocRow as $colName => $val) {
+            $val = trim((string)$val);
+            if ($val === '') {
+                continue;
+            }
+            $cleanVal = mb_strlen($val) > 200 ? mb_substr($val, 0, 200) . '...[省略]' : $val;
+            $naturalSentences[] = "{$colName}は「{$cleanVal}」";
+        }
+
+        $chunkText = "CSV「{$fileName}」の第{$rowIndex}行のデータ：" . implode("、", $naturalSentences) . "です。";
+        if (mb_strlen($chunkText) > 4000) {
+            $chunkText = mb_substr($chunkText, 0, 4000) . '...[以降省略]';
+        }
+
+        return $chunkText;
+    }
+}
+
 // 2. CSRFトークン検証
 $csrfToken = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
 if (!verifyCsrfToken($csrfToken)) {
@@ -189,11 +216,15 @@ try {
     if ($first_line !== false) {
         $comma_count = substr_count($first_line, ',');
         $tab_count = substr_count($first_line, "\t");
-        if ($tab_count > $comma_count) {
+        $semicolon_count = substr_count($first_line, ';');
+        if ($tab_count > $comma_count && $tab_count >= $semicolon_count) {
             $delimiter = "\t";
+        } elseif ($semicolon_count > $comma_count && $semicolon_count > $tab_count) {
+            $delimiter = ';';
         }
     }
-    logger("区切り文字判定: " . ($delimiter === "\t" ? "タブ(TSV)" : "カンマ(CSV)"));
+    $delimiterLabel = $delimiter === "\t" ? "タブ(TSV)" : ($delimiter === ';' ? "セミコロン(CSV)" : "カンマ(CSV)");
+    logger("区切り文字判定: " . $delimiterLabel);
 
     // 総行数（有効レコード数）の事前解析
     logger("総有効レコード数の算出を開始します...");
@@ -244,6 +275,7 @@ try {
     logger("抽出された列名ヘッダー: " . $column_headers_json);
 
     $embed_model = "mxbai-embed-large";
+    $is_large_csv = $total_rows > 1000;
 
     // =========================================================================
     // ★[大幅改善・超高速化] cURLハンドルの再利用（永続化接続）
@@ -252,8 +284,9 @@ try {
     // =========================================================================
     $curl_share_handle = curl_init();
     
-    $embedWithRetry = function($text, $row_idx) use ($ollama_host, $embed_model, $curl_share_handle) {
-        $max_retries = 5;
+    $embedWithRetry = function($text, $row_idx) use ($ollama_host, $embed_model, $curl_share_handle, $is_large_csv) {
+        $max_retries = $is_large_csv ? 2 : 3;
+        $timeout = $is_large_csv ? 30 : 60;
         $delay = 1; // 秒
         $apiUrl = rtrim($ollama_host, '/') . '/api/embeddings';
         
@@ -278,7 +311,7 @@ try {
                 ]));
                 
                 curl_setopt($curl_share_handle, CURLOPT_RETURNTRANSFER, true);
-                curl_setopt($curl_share_handle, CURLOPT_TIMEOUT, 120); // タイムアウトを長めに設定
+                curl_setopt($curl_share_handle, CURLOPT_TIMEOUT, $timeout);
                 
                 $res = curl_exec($curl_share_handle);
                 
@@ -303,7 +336,7 @@ try {
                 if ($i === $max_retries - 1) {
                     throw $e; // 最終試行が失敗したら例外を投げる
                 }
-                logger("[Ollama-Embeddingリトライ警告] 行: {$row_idx} | 試行回数: " . ($i + 1) . " | 待機秒数: {$delay}s | エラー: " . $e->getMessage());
+                logger("[Ollama-Embeddingリトライ警告] 対象: {$row_idx} | 試行回数: " . ($i + 1) . " | 待機秒数: {$delay}s | timeout: {$timeout}s | エラー: " . $e->getMessage());
                 sleep($delay);
                 $delay *= 2; // 指数バックオフ
             }
@@ -311,7 +344,8 @@ try {
         return null;
     };
 
-    // 6. DBトランザクション開始 (不整合を100%防止)
+    // 6. DBトランザクション開始。ここではCSV本体だけを高速・確実に保存する。
+    $dbImportStart = microtime(true);
     $pdo->beginTransaction();
     logger("データベース・トランザクションを開始しました。");
 
@@ -341,11 +375,6 @@ try {
         VALUES (?, ?, ?, NOW())
     ");
 
-    $insert_chunk_stmt = $pdo->prepare("
-        INSERT INTO doc_chunks (doc_id, page_number, chunk_text, embedding, image_description) 
-        VALUES (?, ?, ?, ?, ?)
-    ");
-
     while (($row_data = fgetcsv($stream, 0, $delimiter)) !== false) {
         
         // セルがすべて空の行（ゴミデータ）は完全にスキップ
@@ -368,42 +397,12 @@ try {
         $row_json = json_encode($assoc_row, JSON_UNESCAPED_UNICODE);
         $insert_rows_stmt->execute([$csv_file_id, $row_index, $row_json]);
 
-        // ── C. RAG用の自然言語ドキュメント（文章）の自動作成 ──
-        $natural_sentences = [];
-        foreach ($assoc_row as $col_name => $val) {
-            if ($val !== '') {
-                // RAGの検索ノイズとDBエラーを防ぐため、1セルあたりの文字数を制限
-                $clean_val = mb_strlen($val) > 200 ? mb_substr($val, 0, 200) . '...[省略]' : $val;
-                $natural_sentences[] = "{$col_name}は「{$clean_val}」";
-            }
-        }
-        
-        $chunk_text = "CSV「{$file_name}」の第{$row_index}行のデータ：" . implode("、", $natural_sentences) . "です。";
-
-        // データベースの chunk_text カラム容量超過を防ぐための全体文字数制限
-        if (mb_strlen($chunk_text) > 4000) {
-            $chunk_text = mb_substr($chunk_text, 0, 4000) . '...[以降省略]';
-        }
-
-        // GPU最適化済みの関数でベクトル化
-        $vector = $embedWithRetry($chunk_text, $row_index);
-        $vector_json = json_encode($vector);
-
-        // doc_chunksに登録
-        $insert_chunk_stmt->execute([$document_id, 1, $chunk_text, $vector_json, "CSVデータ行レコード"]);
-
-        // =========================================================================
-        // ★[改善] 低スペック向け安定化スマート・インターバル・チューニング
-        // 5行ごとの1秒スリープは非効率なため、「20行ごとに 250ms(0.25秒)」に最適化。
-        // これにより、安全性は維持したままインポート速度を大幅に引き上げます。
-        // =========================================================================
-        if ($row_index % 20 === 0) {
-            // 画面上への進捗書き込み
-            $statusMsg = "({$row_index}/{$total_rows}行目) ベクトル変換・データ格納中...";
+        if ($row_index % 1000 === 0 || $row_index === 1) {
+            $elapsed = max(0.001, microtime(true) - $dbImportStart);
+            $rowsPerSec = number_format($row_index / $elapsed, 1);
+            $statusMsg = "({$row_index}/{$total_rows}行目) CSVレコードをデータベースへ保存中... {$rowsPerSec} rows/sec";
             updateCsvProgress('processing', 'storing', $row_index, $total_rows, $statusMsg);
-
-            // AIサーバーのVRAMキューをリフレッシュするためのショートブレイク
-            usleep(250000); 
+            logger("[CSV-DB] 保存進捗 - rows: {$row_index}/{$total_rows} | speed: {$rowsPerSec} rows/sec | elapsed: " . csvElapsedSeconds($dbImportStart));
         }
 
         $row_index++;
@@ -422,17 +421,143 @@ try {
 
     // すべての処理が成功したらトランザクションをコミット
     $pdo->commit();
-    logger("=== コミット成功: CSVデータの取り込み完了 (計 {$total_rows_imported} 件) ===");
+    logger("=== コミット成功: CSV本体の取り込み完了 (計 {$total_rows_imported} 件) | elapsed: " . csvElapsedSeconds($dbImportStart) . " ===");
+
+    // 7. RAG用 doc_chunks はCSV本体コミット後に分離生成する。
+    // 大規模CSVでは1行1Embeddingを避け、複数行を束ねたチャンクで検索可能性と速度を両立する。
+    $ragStart = microtime(true);
+    $rag_chunk_count = 0;
+    $embedding_failure_count = 0;
+    $embedding_circuit_open = false;
+    $consecutive_embedding_failures = 0;
+    $rag_warning = null;
+    $rag_batch_size = $total_rows_imported > 1000 ? 200 : 1;
+
+    try {
+        logger("[CSV-RAG] RAGチャンク生成フェーズ開始 - rows: {$total_rows_imported} | batchSize: {$rag_batch_size}");
+        updateCsvProgress('processing', 'rag', 0, max(1, $total_rows_imported), "CSV本体の登録が完了しました。RAG検索用チャンクを生成しています...");
+
+        $insert_chunk_stmt = $pdo->prepare("
+            INSERT INTO doc_chunks (doc_id, page_number, chunk_text, embedding, image_description)
+            VALUES (?, ?, ?, ?, ?)
+        ");
+
+        $select_rows_stmt = $pdo->prepare("
+            SELECT row_index, row_data
+            FROM project_csv_rows
+            WHERE csv_file_id = ?
+            ORDER BY row_index ASC
+        ");
+        $select_rows_stmt->execute([$csv_file_id]);
+
+        $pdo->beginTransaction();
+
+        $batchTexts = [];
+        $batchFirstRow = null;
+        $batchLastRow = null;
+
+        $flushRagBatch = function() use (
+            &$batchTexts,
+            &$batchFirstRow,
+            &$batchLastRow,
+            &$rag_chunk_count,
+            &$embedding_failure_count,
+            &$embedding_circuit_open,
+            &$consecutive_embedding_failures,
+            $insert_chunk_stmt,
+            $embedWithRetry,
+            $document_id,
+            $file_name,
+            $total_rows_imported,
+            $ragStart
+        ) {
+            if (empty($batchTexts)) {
+                return;
+            }
+
+            $rangeLabel = ($batchFirstRow === $batchLastRow)
+                ? "第{$batchFirstRow}行"
+                : "第{$batchFirstRow}〜{$batchLastRow}行";
+            $chunkText = "CSV「{$file_name}」の{$rangeLabel}のデータ:\n" . implode("\n", $batchTexts);
+            if (mb_strlen($chunkText) > 12000) {
+                $chunkText = mb_substr($chunkText, 0, 12000) . "\n...[以降省略]";
+            }
+
+            $vector = [];
+            if (!$embedding_circuit_open) {
+                try {
+                    $vector = $embedWithRetry($chunkText, "RAG {$rangeLabel}");
+                    $consecutive_embedding_failures = 0;
+                } catch (Exception $e) {
+                    $embedding_failure_count++;
+                    $consecutive_embedding_failures++;
+                    logger("[CSV-RAG] Embedding失敗のため空ベクトルで継続 - {$rangeLabel} | error: " . $e->getMessage());
+                    if ($consecutive_embedding_failures >= 3) {
+                        $embedding_circuit_open = true;
+                        logger("[CSV-RAG] Embedding連続失敗を検知。以降はOllama呼び出しを停止し、空ベクトルでRAGチャンク登録を継続します。");
+                    }
+                }
+            }
+
+            $description = count($batchTexts) === 1 ? "CSVデータ行レコード" : "CSVデータ行レコード（バッチ）";
+            $insert_chunk_stmt->execute([$document_id, 1, $chunkText, json_encode($vector), $description]);
+            $rag_chunk_count++;
+
+            if ($rag_chunk_count % 20 === 0 || $rag_chunk_count === 1) {
+                $processedRows = min($total_rows_imported, (int)$batchLastRow);
+                updateCsvProgress('processing', 'rag', $processedRows, max(1, $total_rows_imported), "RAGチャンク生成中... {$rag_chunk_count}件作成済み");
+                logger("[CSV-RAG] チャンク生成進捗 - chunks: {$rag_chunk_count} | rowsUpTo: {$processedRows}/{$total_rows_imported} | embeddingFailures: {$embedding_failure_count} | elapsed: " . csvElapsedSeconds($ragStart));
+            }
+
+            $batchTexts = [];
+            $batchFirstRow = null;
+            $batchLastRow = null;
+        };
+
+        while ($row = $select_rows_stmt->fetch(PDO::FETCH_ASSOC)) {
+            $rowIndex = (int)$row['row_index'];
+            $assocRow = json_decode((string)$row['row_data'], true);
+            if (!is_array($assocRow)) {
+                $assocRow = [];
+            }
+
+            if ($batchFirstRow === null) {
+                $batchFirstRow = $rowIndex;
+            }
+            $batchLastRow = $rowIndex;
+            $batchTexts[] = buildCsvNaturalText($file_name, $rowIndex, $assocRow);
+
+            if (count($batchTexts) >= $rag_batch_size) {
+                $flushRagBatch();
+            }
+        }
+
+        $flushRagBatch();
+        $pdo->commit();
+        logger("[CSV-RAG] RAGチャンク生成フェーズ完了 - chunks: {$rag_chunk_count} | embeddingFailures: {$embedding_failure_count} | elapsed: " . csvElapsedSeconds($ragStart));
+    } catch (Throwable $ragEx) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        $rag_warning = 'CSV本体は登録済みですが、RAGチャンク生成でエラーが発生しました: ' . $ragEx->getMessage();
+        logger("[CSV-RAG] RAGチャンク生成フェーズで例外。CSV本体はコミット済みのため保持します: " . $ragEx->getMessage());
+    }
 
     // 進捗JSONを完了ステータスに変更
-    updateCsvProgress('completed', 'done', $total_rows_imported, $total_rows_imported, 'CSVデータの取り込みがすべて完了しました！');
+    $completeMessage = $rag_warning
+        ? 'CSV本体の取り込みは完了しました。RAGチャンク生成に一部課題があります。'
+        : 'CSVデータの取り込みとRAGチャンク生成が完了しました！';
+    updateCsvProgress('completed', 'done', $total_rows_imported, $total_rows_imported, $completeMessage);
 
     echo json_encode([
         'success'     => true,
-        'message'     => 'CSVファイルを正常にデータベースへ格納し、RAGへの登録が完了しました。',
+        'message'     => $completeMessage,
         'file_id'     => $csv_file_id,
         'document_id' => $document_id,
-        'total_rows'  => $total_rows_imported
+        'total_rows'  => $total_rows_imported,
+        'rag_chunks'  => $rag_chunk_count,
+        'embedding_failures' => $embedding_failure_count,
+        'warning' => $rag_warning
     ]);
 
 } catch (Exception $e) {

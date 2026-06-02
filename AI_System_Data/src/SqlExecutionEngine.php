@@ -109,6 +109,19 @@ class SqlExecutionEngine {
      * LLMが出しやすいCSV/JSON関連の誤SQLを、実行前にMySQL 8.0で通る形へ寄せる。
      */
     private function normalizeGeneratedSql(string $sql): string {
+        $sql = preg_replace('/\b(documents_content|doc_contents|document_chunks)\b/i', 'doc_chunks', $sql) ?? $sql;
+        $sql = preg_replace('/\bdoc_chunks\.document_id\b/i', 'doc_chunks.doc_id', $sql) ?? $sql;
+
+        $chunksAlias = $this->getTableAlias($sql, 'doc_chunks');
+        if ($chunksAlias !== '') {
+            $quotedChunksAlias = preg_quote($chunksAlias, '/');
+            $sql = preg_replace(
+                '/\b' . $quotedChunksAlias . '\.document_id\b/i',
+                $chunksAlias . '.doc_id',
+                $sql
+            ) ?? $sql;
+        }
+
         $rowsAlias = $this->getTableAlias($sql, 'project_csv_rows');
 
         if ($rowsAlias !== '') {
@@ -257,10 +270,22 @@ class SqlExecutionEngine {
             $injectionText = implode(" AND ", $conditions);
             $whereClause = $this->findTopLevelClause($sql, ['WHERE']);
             if ($whereClause !== null) {
-                $insertAt = $whereClause['offset'] + $whereClause['length'];
-                $sql = substr($sql, 0, $insertAt) . ' ' . $injectionText . ' AND ' . substr($sql, $insertAt);
+                $whereBodyStart = $whereClause['offset'] + $whereClause['length'];
+                $nextClause = $this->findTopLevelClause($sql, ['GROUP BY', 'HAVING', 'ORDER BY', 'LIMIT']);
+                $whereBodyEnd = ($nextClause !== null && $nextClause['offset'] > $whereBodyStart)
+                    ? $nextClause['offset']
+                    : strlen($sql);
+
+                $prefix = rtrim(substr($sql, 0, $whereClause['offset']));
+                $whereBody = trim(substr($sql, $whereBodyStart, $whereBodyEnd - $whereBodyStart));
+                $suffix = ltrim(substr($sql, $whereBodyEnd));
+
+                $mergedWhere = $whereBody !== ''
+                    ? " WHERE ({$injectionText}) AND ({$whereBody})"
+                    : " WHERE {$injectionText}";
+                $sql = trim($prefix . $mergedWhere . ($suffix !== '' ? ' ' . $suffix : ''));
             } else {
-                $nextClause = $this->findTopLevelClause($sql, ['GROUP BY', 'ORDER BY', 'LIMIT']);
+                $nextClause = $this->findTopLevelClause($sql, ['GROUP BY', 'HAVING', 'ORDER BY', 'LIMIT']);
                 if ($nextClause !== null) {
                     $offset = $nextClause['offset'];
                     $sql = substr($sql, 0, $offset) . " WHERE " . $injectionText . " " . substr($sql, $offset);

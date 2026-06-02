@@ -45,12 +45,12 @@ export class AiRenderer {
 
         div.innerHTML = `
             ${avatarHtml}
-            <div class="flex flex-col ${isAsst ? 'items-start' : 'items-end'} max-w-[82%] gap-0.5 w-full">
+            <div class="chat-message-stack flex flex-col ${isAsst ? 'items-start' : 'items-end'} gap-0.5 w-full">
                 <div class="flex items-center gap-1.5 px-1">
                     <span class="text-[9px] font-black text-slate-500 uppercase tracking-tight">${isAsst ? 'AI Assistant' : 'You'}</span>
                     <span class="text-[8px] text-slate-400 font-mono tracking-tighter">${timeStr}</span>
                 </div>
-                <div class="${isAsst ? 'bg-white border text-slate-800 rounded-tl-none border-slate-200/80' : 'bg-[#4F5D95] text-white rounded-tr-none border-[#3d4975] shadow-md'} p-3.5 rounded-2xl text-xs shadow-sm w-full leading-relaxed will-change-[height,transform]">
+                <div class="chat-message-bubble chat-message-body ${isAsst ? 'chat-assistant rounded-tl-none border-slate-200/80' : 'chat-user rounded-tr-none border-[#3d4975] shadow-md'} p-4 shadow-sm will-change-[height,transform]">
                     
                     <div class="ai-progress-container w-full bg-slate-50 border border-slate-100 rounded-xl p-4 my-2 transition-all duration-300">
                         <div class="flex justify-between items-center text-[10px] text-slate-400 font-bold mb-3.5 px-1">
@@ -82,7 +82,7 @@ export class AiRenderer {
                         </div>
                     </div>
 
-                    <div class="ai-text-body markdown-body w-full will-change-[height,transform] transition-all duration-150"></div>
+                    <div class="ai-text-body markdown-body chat-markdown w-full will-change-[height,transform] transition-all duration-150"></div>
                 </div>
             </div>
         `;

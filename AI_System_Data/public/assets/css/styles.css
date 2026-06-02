@@ -128,33 +128,170 @@ iframe {
    AI出力（Markdown）の反映用スタイル
    ========================================================================== */
 
-/* AI出力のMarkdown装飾 */
-#chat-box strong { font-weight: 800; color: #1e293b; }
+/* チャット本文の共通タイポグラフィ */
+.chat-message-stack {
+    max-width: min(88%, 720px);
+}
 
-#chat-box table {
+.chat-message-bubble {
     width: 100%;
-    border-collapse: collapse;
-    margin: 10px 0;
-    font-size: 0.8rem;
-    background: white;
-    border-radius: 4px;
-    overflow: hidden;
-}
-
-#chat-box th, #chat-box td {
+    border-radius: 16px;
     border: 1px solid #e2e8f0;
-    padding: 8px;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.chat-message-body {
+    font-size: 13.5px;
+    line-height: 1.72;
+    letter-spacing: 0;
+    overflow-wrap: anywhere;
+    word-break: normal;
+}
+
+.chat-message-body.chat-assistant {
+    background: #ffffff;
+    color: #263246;
+    font-weight: 450;
+}
+
+.chat-message-body.chat-user {
+    background: linear-gradient(135deg, #4f5d95, #3f4a7a);
+    color: #ffffff;
+    font-size: 13px;
+    line-height: 1.65;
+    font-weight: 500;
+}
+
+.chat-message-body.chat-user * {
+    color: #ffffff !important;
+}
+
+.chat-markdown p {
+    margin: 0 0 0.85em;
+}
+
+.chat-markdown p:last-child,
+.chat-markdown ul:last-child,
+.chat-markdown ol:last-child,
+.chat-markdown table:last-child,
+.chat-markdown pre:last-child {
+    margin-bottom: 0;
+}
+
+.chat-markdown h1,
+.chat-markdown h2,
+.chat-markdown h3,
+.chat-markdown h4 {
+    margin: 1.15em 0 0.55em;
+    color: #0f172a;
+    font-weight: 800;
+    line-height: 1.35;
+}
+
+.chat-markdown h1:first-child,
+.chat-markdown h2:first-child,
+.chat-markdown h3:first-child,
+.chat-markdown h4:first-child {
+    margin-top: 0;
+}
+
+.chat-markdown h1 { font-size: 1.25em; }
+.chat-markdown h2 { font-size: 1.18em; }
+.chat-markdown h3 { font-size: 1.1em; }
+.chat-markdown h4 { font-size: 1.02em; }
+
+.chat-markdown strong {
+    font-weight: 800;
+    color: #172033;
+}
+
+.chat-markdown ul,
+.chat-markdown ol {
+    margin: 0.65em 0 0.85em;
+    padding-left: 1.45em;
+}
+
+.chat-markdown ul { list-style-type: disc; }
+.chat-markdown ol { list-style-type: decimal; }
+
+.chat-markdown li {
+    margin: 0.25em 0;
+    padding-left: 0.1em;
+}
+
+.chat-markdown table {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    border-collapse: collapse;
+    margin: 0.9em 0;
+    font-size: 12px;
+    line-height: 1.5;
+    background: white;
+    border-radius: 8px;
+}
+
+.chat-markdown th,
+.chat-markdown td {
+    border: 1px solid #e2e8f0;
+    padding: 8px 10px;
     text-align: left;
+    vertical-align: top;
+    min-width: 96px;
 }
 
-#chat-box th {
+.chat-markdown th {
     background-color: #f8fafc;
-    font-weight: bold;
+    color: #334155;
+    font-weight: 800;
 }
 
-/* 箇条書きのポインタを表示させる */
-#chat-box ul { list-style-type: disc; padding-left: 20px; }
-#chat-box ol { list-style-type: decimal; padding-left: 20px; }
+.chat-markdown tr:nth-child(even) td {
+    background-color: #f8fafc;
+}
+
+.chat-markdown code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    font-size: 0.92em;
+    background: #f1f5f9;
+    color: #334155;
+    border: 1px solid #e2e8f0;
+    border-radius: 5px;
+    padding: 0.08em 0.35em;
+}
+
+.chat-markdown pre {
+    overflow-x: auto;
+    margin: 0.9em 0;
+    padding: 12px;
+    background: #0f172a;
+    color: #e2e8f0;
+    border-radius: 10px;
+    line-height: 1.55;
+}
+
+.chat-markdown pre code {
+    display: block;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    color: inherit;
+    font-size: 12px;
+}
+
+.chat-markdown blockquote {
+    margin: 0.85em 0;
+    padding: 0.35em 0 0.35em 0.9em;
+    border-left: 3px solid #cbd5e1;
+    color: #475569;
+    background: #f8fafc;
+}
+
+.chat-reasoning-body {
+    font-size: 11.5px;
+    line-height: 1.6;
+}
 
 /* ==========================================================================
    AIチャット内のMarkdownリンク装飾 (業務支援画面への遷移リンクなど)

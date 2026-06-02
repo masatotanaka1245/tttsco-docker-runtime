@@ -60,7 +60,8 @@
     font-weight: bold;
   }
   pre { border-radius: 0 0 0.75rem 0.75rem; overflow-x: auto; margin: 0 !important; }
-  code { font-family: 'Consolas', 'Monaco', monospace; }
+  code { font-family: 'Consolas', 'Monaco', monospace; background: #f1f5f9; color: #334155; border: 1px solid #e2e8f0; border-radius: 0.35rem; padding: 0.08rem 0.32rem; font-size: 0.92em; }
+  pre code { background: transparent; color: inherit; border: 0; padding: 0; font-size: inherit; }
   .toc-link:hover { color: #4F5D95; background-color: #f1f5f9; }
   .ui-mockup { background: #f1f5f9; border: 2px solid #cbd5e1; border-radius: 12px; padding: 0px; overflow: hidden; position: relative; }
   .screen-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin-bottom: 16px; height: 100%; }
@@ -198,23 +199,23 @@
           <tbody class="divide-y divide-slate-200 bg-white text-sm">
             <tr class="hover:bg-slate-50 transition">
               <td class="px-6 py-4 font-bold text-slate-700">実行基盤</td>
-              <td class="px-6 py-4 text-slate-600">Windows本番サーバー。Apache 2.4.57 のDocumentRootを `AI_System_Data/public` に向け、PHP 8.2.8でアプリケーションを実行する。</td>
+              <td class="px-6 py-4 text-slate-600">Windows本番サーバー。Apache 2.4.57 のDocumentRootを <code>AI_System_Data/public</code> に向け、PHP 8.2.8でアプリケーションを実行する。</td>
             </tr>
             <tr class="hover:bg-slate-50 transition">
               <td class="px-6 py-4 font-bold text-slate-700">Web / DB</td>
-              <td class="px-6 py-4 text-slate-600">PHP 8.2.8、Apache 2.4.57、MySQL 8.0.33、phpMyAdmin。DBは `tepscoapp`、接続先は本番Windows環境では `localhost` または本番DBホスト名を使用する。</td>
+              <td class="px-6 py-4 text-slate-600">PHP 8.2.8、Apache 2.4.57、MySQL 8.0.33、phpMyAdmin。DBは <code>tepscoapp</code>、接続先は本番Windows環境では <code>localhost</code> または本番DBホスト名を使用する。</td>
             </tr>
             <tr class="hover:bg-slate-50 transition">
               <td class="px-6 py-4 font-bold text-slate-700">AI 推論 / 解析</td>
-              <td class="px-6 py-4 text-slate-600">Ollama API。チャット・VLMはユーザー設定の `default_model` / `sub_model`、ベクトル化は `mxbai-embed-large` を既定値とする。PDF解析には本番Windows上のPoppler系ツール（pdfinfo / pdftotext / pdftoppm相当）を使用する。</td>
+              <td class="px-6 py-4 text-slate-600">Ollama API。チャット・VLMはユーザー設定の <code>default_model</code> と <code>sub_model</code>、ベクトル化は <code>mxbai-embed-large</code> を既定値とする。PDF解析には本番Windows上のPoppler系ツール（pdfinfo / pdftotext / pdftoppm相当）を使用する。</td>
             </tr>
             <tr class="hover:bg-slate-50 transition">
               <td class="px-6 py-4 font-bold text-slate-700">フロントエンド</td>
-              <td class="px-6 py-4 text-slate-600">Tailwind CSS、Leaflet.js、Chart.js、Mermaid.js、Marked、DOMPurify、モジュール化JavaScript（`support.js`、`modules/project.js`、`modules/csv.js`、`modules/chat.js`、`modules/aiRenderer.js`、`modules/map.js`）。SSEで受け取ったMarkdown回答をリアルタイム描画し、`json:chart` ブロックと `mermaid` ブロックをチャット内に展開する。</td>
+              <td class="px-6 py-4 text-slate-600">Tailwind CSS、Leaflet.js、Chart.js、Mermaid.js、Marked、DOMPurify、モジュール化JavaScript（<code>support.js</code>、<code>modules/project.js</code>、<code>modules/csv.js</code>、<code>modules/chat.js</code>、<code>modules/aiRenderer.js</code>、<code>modules/map.js</code>）。SSEで受け取ったMarkdown回答をリアルタイム描画し、<code>json:chart</code> ブロックと <code>mermaid</code> ブロックをチャット内に展開する。</td>
             </tr>
             <tr class="hover:bg-slate-50 transition">
               <td class="px-6 py-4 font-bold text-slate-700">セキュリティ</td>
-              <td class="px-6 py-4 text-slate-600">PHPセッション認証、CSRFトークン、`ProjectAccess.php` による案件参照・管理権限、APIごとの権限ガード、詳細エラーのログ分離。</td>
+              <td class="px-6 py-4 text-slate-600">PHPセッション認証、CSRFトークン、<code>ProjectAccess.php</code> による案件参照・管理権限、APIごとの権限ガード、詳細エラーのログ分離。</td>
             </tr>
           </tbody>
         </table>
@@ -247,7 +248,7 @@
 │   │   ├── <span class="text-green-400">chat.php</span> <span class="text-slate-500"># AIチャットのエントリーポイント、スマートルーティング</span>
 │   │   ├── <span class="text-green-400">chat_normal.php / chat_advanced.php / chat_analysis.php / chat_global.php</span>
 │   │   ├── <span class="text-green-400">upload.php</span> <span class="text-slate-500"># PDF解析、VLM/OCR、チャンク化、ベクトル登録</span>
-│   │   ├── <span class="text-green-400">upload_csv.php</span> <span class="text-slate-500"># CSV/TSV取込、JSON行保存、自然言語チャンク化</span>
+│   │   ├── <span class="text-green-400">upload_csv.php</span> <span class="text-slate-500"># CSV/TSV取込、DB先行保存、自然言語チャンク化</span>
 │   │   ├── <span class="text-green-400">import_postgresql.php</span> <span class="text-slate-500"># 外部PostgreSQL抽出結果をCSV同等に登録</span>
 │   │   └── <span class="text-green-400">add/update/delete_project*.php</span> <span class="text-slate-500"># 案件、コメント、FAQ、メンバーCRUD</span>
 │   ├── <span class="text-indigo-400 font-bold">01_RAG_Documents/</span>
@@ -261,7 +262,8 @@
 │   ├── <span class="text-green-400">ProjectAccess.php</span>    <span class="text-slate-500"># 案件参照/管理権限</span>
 │   ├── <span class="text-green-400">VectorSearch.php</span>     <span class="text-slate-500"># doc_chunks類似度検索</span>
 │   ├── <span class="text-green-400">SqlExecutionEngine.php</span><span class="text-slate-500"># Text-to-SQL安全実行</span>
-│   └── <span class="text-green-400">ChatEvaluator.php</span>    <span class="text-slate-500"># LLM-as-a-Judge評価</span>
+│   ├── <span class="text-green-400">ChatEvaluator.php</span>    <span class="text-slate-500"># LLM-as-a-Judge評価</span>
+│   └── <span class="text-green-400">FaqAutoRegistrar.php</span> <span class="text-slate-500"># 高評価回答のFAQ自動登録</span>
 └── <span class="text-indigo-400 font-bold">logs/</span> <span class="text-slate-500"># app_error、chat_debug、upload_debug、進捗JSON</span></pre>
         </div>
       </div>
@@ -304,7 +306,7 @@
 
       <h2 class="text-xl font-semibold sub-section text-slate-800">3.3 現行主要テーブルと役割</h2>
       <p class="text-sm md:text-base text-slate-700 mb-3">
-        現行コードは、案件を中心に `documents`、`doc_chunks`、`project_csv_files`、`project_csv_rows`、`chat_history`、`chat_reasoning_steps` を関連付ける。PDFとCSVはいずれも `documents` を親レコードとして持ち、AI検索対象は最終的に `doc_chunks` に集約される。
+        現行コードは、案件を中心に <code>documents</code>、<code>doc_chunks</code>、<code>project_csv_files</code>、<code>project_csv_rows</code>、<code>chat_history</code>、<code>chat_reasoning_steps</code> を関連付ける。PDFとCSVはいずれも <code>documents</code> を親レコードとして持ち、AI検索対象は最終的に <code>doc_chunks</code> に集約される。
       </p>
       <div class="overflow-hidden rounded-2xl border border-slate-200 shadow-sm mb-8">
         <table class="min-w-full divide-y divide-slate-200 m-0">
@@ -319,7 +321,7 @@
             <tr><td class="font-bold">users</td><td>ログイン、権限、部署、Ollama接続先、既定モデル設定</td><td>Auth.php、header.php、save_user_settings.php</td></tr>
             <tr><td class="font-bold">projects</td><td>案件本体。名称、概要、期間、住所、緯度経度、状態、作成者を管理</td><td>SupportController.php、add/update/delete_project.php</td></tr>
             <tr><td class="font-bold">project_members</td><td>案件ごとの参加者と役割（manager/member/viewer）</td><td>ProjectAccess.php、add/remove_project_member.php</td></tr>
-            <tr><td class="font-bold">documents</td><td>PDFまたはCSV由来RAG親データ。`file_path` が物理PDFまたは `csv_db_record_ID` を保持</td><td>upload.php、upload_csv.php、view_pdf.php、delete_pdf.php</td></tr>
+            <tr><td class="font-bold">documents</td><td>PDFまたはCSV由来RAG親データ。<code>file_path</code> が物理PDFまたは <code>csv_db_record_ID</code> を保持</td><td>upload.php、upload_csv.php、view_pdf.php、delete_pdf.php</td></tr>
             <tr><td class="font-bold">doc_chunks</td><td>AI検索対象の本文チャンク、ページ番号、embedding、画像説明</td><td>VectorSearch.php、chat_normal.php、upload.php、upload_csv.php</td></tr>
             <tr><td class="font-bold">project_csv_files / project_csv_rows</td><td>CSVメタデータと行データ。行データはJSONで保存し、表示とText-to-SQL分析に使用</td><td>upload_csv.php、get_csv_data.php、SqlExecutionEngine.php</td></tr>
             <tr><td class="font-bold">project_comments / project_faqs</td><td>案件メモ、申し送り、手動登録ナレッジ</td><td>add_comment.php、add_faq.php、support.php</td></tr>
@@ -352,65 +354,66 @@
 
       <h2 class="text-xl font-semibold sub-section text-slate-800">4.2 案件管理・CRUD</h2>
       <p class="text-sm md:text-base text-slate-700">
-        案件は `projects` を中心に管理する。作成者は `created_by` に保存され、一般ユーザーは自分が作成した案件または `project_members` に登録された案件のみ参照できる。編集、削除、メンバー変更、PDF/CSV削除などの管理操作は `canManageProject()` により、admin、作成者、manager/member権限のメンバーに限定される。
+        案件は <code>projects</code> を中心に管理する。作成者は <code>created_by</code> に保存され、一般ユーザーは自分が作成した案件または <code>project_members</code> に登録された案件のみ参照できる。編集、削除、メンバー変更、PDF/CSV削除などの管理操作は <code>canManageProject()</code> により、admin、作成者、manager/member権限のメンバーに限定される。
       </p>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
         <div class="bg-slate-50 border border-slate-200 rounded-xl p-5">
           <h3 class="font-bold text-slate-800 mb-2">主なAPI</h3>
           <ul class="list-disc list-inside text-slate-600 space-y-1">
-            <li>`add_project.php`、`update_project.php`、`delete_project.php`</li>
-            <li>`add_comment.php`、`delete_comment.php`</li>
-            <li>`add_faq.php`、`delete_faq.php`</li>
-            <li>`add_project_member.php`、`remove_project_member.php`</li>
+            <li><code>add_project.php</code>、<code>update_project.php</code>、<code>delete_project.php</code></li>
+            <li><code>add_comment.php</code>、<code>delete_comment.php</code></li>
+            <li><code>add_faq.php</code>、<code>delete_faq.php</code></li>
+            <li><code>add_project_member.php</code>、<code>remove_project_member.php</code></li>
           </ul>
         </div>
         <div class="bg-slate-50 border border-slate-200 rounded-xl p-5">
           <h3 class="font-bold text-slate-800 mb-2">フロントエンド制御</h3>
           <ul class="list-disc list-inside text-slate-600 space-y-1">
-            <li>`support.js` がUI、チャット、CSV、地図、案件モジュールを統合</li>
-            <li>`modules/project.js` が実際のCRUD関数を `window` に公開</li>
-            <li>`modules/api.js` がCSRF付き `secureFetch()` を提供</li>
+            <li><code>support.js</code> がUI、チャット、CSV、地図、案件モジュールを統合</li>
+            <li><code>modules/project.js</code> が実際のCRUD関数を <code>window</code> に公開</li>
+            <li><code>modules/api.js</code> がCSRF付き <code>secureFetch()</code> を提供</li>
           </ul>
         </div>
       </div>
 
       <h2 class="text-xl font-semibold sub-section text-slate-800">4.3 PDF登録・RAG化</h2>
       <p class="text-sm md:text-base text-slate-700">
-        PDFアップロードは `upload.php` が担当する。画面から送られた `document` または互換用 `pdf` フィールドを受け取り、`public/01_RAG_Documents/{project_id}/` に保存する。`pdfinfo` でページ数を取得し、`pdftotext` でネイティブテキストを抽出する。画像化が必要な場合は `pdftoppm` でPNG化し、VLMへページ分類、2x2タイル、1x8水平スライス、全体解析を依頼する。抽出結果は500文字程度に分割され、Ollama Embedding APIでベクトル化したうえで `doc_chunks` に保存される。
+        PDFアップロードは <code>upload.php</code> が担当する。画面から送られた <code>document</code> または互換用 <code>pdf</code> フィールドを受け取り、<code>public/01_RAG_Documents/{project_id}/</code> に保存する。<code>pdfinfo</code> でページ数を取得し、<code>pdftotext</code> でネイティブテキストを抽出する。画像化が必要な場合は <code>pdftoppm</code> でPNG化し、VLMへページ分類、2x2タイル、1x8水平スライス、全体解析を依頼する。抽出結果は500文字程度に分割され、Ollama Embedding APIでベクトル化したうえで <code>doc_chunks</code> に保存される。
       </p>
 
       <h2 class="text-xl font-semibold sub-section text-slate-800">4.4 CSV/TSV登録・外部PostgreSQL取込</h2>
       <p class="text-sm md:text-base text-slate-700">
-        `upload_csv.php` はCSV/TSVの文字コードと区切り文字を判定し、列名を `project_csv_files.column_headers` に、各行を `project_csv_rows.row_data` にJSONとして格納する。同時に `documents` に `[CSVデータ] ファイル名` の親レコードを作り、各行を「列名は値です」という自然文に変換して `doc_chunks` へ登録する。`import_postgresql.php` は外部PostgreSQLへ接続し、抽出結果をCSV取込と同じ構造に流し込む。
+        <code>upload_csv.php</code> はCSV/TSVの文字コードと区切り文字を判定し、列名を <code>project_csv_files.column_headers</code> に、各行を <code>project_csv_rows.row_data</code> にJSONとして格納する。現在はDB登録を先に完了し、その後でRAG用の自然言語チャンクとEmbeddingを作成する。大規模CSVでは複数行をまとめたRAGチャンクを生成し、Embeddingが連続失敗した場合もCSV本体の登録を維持する。<code>import_postgresql.php</code> は外部PostgreSQLへ接続し、抽出結果をCSV取込と同じ構造に流し込む。
       </p>
 
       <h2 class="text-xl font-semibold sub-section text-slate-800">4.5 AIチャット・分析モード</h2>
       <p class="text-sm md:text-base text-slate-700">
-        `chat.php` はSSE形式のチャットエントリーポイントで、質問内容に応じて通常RAG、フル思考、CSV証拠読解、Text-to-SQL分析、admin専用全社横断調査の各ルートへ分岐する。通常RAGは `chat_normal.php`、多段階推論は `chat_advanced.php`、CSV証拠読解とText-to-SQL集計は `chat_analysis.php`、admin専用の全社横断調査は `chat_global.php` が担当する。回答と質問は `chat_history` に保存され、推論過程は `chat_reasoning_steps`、品質評価は `chat_evaluations` に保存される。`SupportController.php` は保存済み推論ステップを再取得し、ブラウザ更新後もプロセス表示を復元する。
+        <code>chat.php</code> はSSE形式のチャットエントリーポイントで、質問内容に応じて通常RAG、フル思考、CSV証拠読解、Text-to-SQL分析、admin専用全社横断調査の各ルートへ分岐する。通常RAGは <code>chat_normal.php</code>、多段階推論は <code>chat_advanced.php</code>、CSV証拠読解とText-to-SQL集計は <code>chat_analysis.php</code>、admin専用の全社横断調査は <code>chat_global.php</code> が担当する。回答と質問は <code>chat_history</code> に保存され、推論過程は <code>chat_reasoning_steps</code>、品質評価は <code>chat_evaluations</code> に保存される。高評価の回答は要点化され、FAQ候補として <code>project_faqs</code> に自動登録される。<code>SupportController.php</code> は保存済み推論ステップを再取得し、ブラウザ更新後もプロセス表示を復元する。
       </p>
 
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm mt-4">
         <div class="bg-indigo-50 border border-indigo-100 rounded-xl p-5">
           <h3 class="font-bold text-indigo-800 mb-2">チャットUI描画</h3>
           <ul class="list-disc list-inside text-slate-600 space-y-1">
-            <li>SSEの `status` / `chunk` / `result` を受信し、本文をリアルタイム描画</li>
-            <li>Markdown、Chart.js用 `json:chart`、Mermaid図をチャット内にJIT描画</li>
-            <li>Markedのコードブロック互換差異、DOMPurifyによる `canvas` / `data-*` 削除を考慮</li>
+            <li>SSEの <code>status</code>、<code>chunk</code>、<code>result</code> を受信し、本文をリアルタイム描画</li>
+            <li>Markdown、Chart.js用 <code>json:chart</code>、Mermaid図をチャット内にJIT描画</li>
+            <li>Markedのコードブロック互換差異、DOMPurifyによる <code>canvas</code> と <code>data-*</code> 削除を考慮</li>
           </ul>
         </div>
         <div class="bg-emerald-50 border border-emerald-100 rounded-xl p-5">
           <h3 class="font-bold text-emerald-800 mb-2">CSV即答・証拠読解</h3>
           <ul class="list-disc list-inside text-slate-600 space-y-1">
             <li>100行以下のCSV概要質問はOllamaを呼ばず、DBレコードから即時サマリー生成</li>
-            <li>詳細読解が必要な場合はCSV全件をバッチ化し、中間読解結果を保存して統合</li>
-            <li>各段階の件数、文字数、Ollama呼び出し時間を `chat_debug.log` に記録</li>
+            <li>詳細読解が必要な場合は、先にDB検索で対象行を絞り込み、ヒット行だけをバッチ読解</li>
+            <li>検索語が弱い大規模CSV質問は、全件AI読解ではなくメタデータと代表サンプルの概況回答へ切替</li>
+            <li>各段階の件数、検索語、ヒット件数、文字数、Ollama呼び出し時間を <code>chat_debug.log</code> に記録</li>
           </ul>
         </div>
       </div>
 
       <h2 class="text-xl font-semibold sub-section text-slate-800">4.6 ログ・運用設定</h2>
       <p class="text-sm md:text-base text-slate-700">
-        ログは `logs/` 配下に出力する。`upload_debug.log` はアップロードやCSV/PG取込の進捗、`chat_debug.log` はチャットのルート判定、DB収集、SQL生成・監査、Ollama送受信、評価、履歴保存までの詳細ログ、`app_error.log` はAPI内部エラーを記録する。support.phpにはadmin向けのリアルタイムログビューアがあり、`chat_debug_tail.php` で追記分をtail表示できる。本番では詳細例外を画面に出さず、ログ肥大化に注意して運用する。
+        ログは <code>logs/</code> 配下に出力する。<code>upload_debug.log</code> はアップロードやCSV/PG取込の進捗、<code>chat_debug.log</code> はチャットのルート判定、DB収集、SQL生成・監査、Ollama送受信、評価、履歴保存までの詳細ログ、<code>app_error.log</code> はAPI内部エラーを記録する。support.phpにはadmin向けのリアルタイムログビューアがあり、<code>chat_debug_tail.php</code> で追記分をtail表示できる。本番では詳細例外を画面に出さず、ログ肥大化に注意して運用する。
       </p>
     </section>
 
@@ -605,12 +608,12 @@ graph TD
         <span class="section-number">7</span>AI回答生成 (RAG) アーキテクチャとシーケンス図
       </h1>
       <p class="text-slate-700 mb-6 text-sm md:text-base leading-relaxed">
-        本システムにおけるAI対話パイプラインは、`public/api/chat.php` を入口としてSSEで進捗と最終回答を返す。ユーザー入力の内容、文字数、分析キーワード、全社横断キーワード、フロント側のモード指定に基づき、通常RAG、フル思考、Text-to-SQL分析、admin専用グローバル調査へ分岐する。
+        本システムにおけるAI対話パイプラインは、<code>public/api/chat.php</code> を入口としてSSEで進捗と最終回答を返す。ユーザー入力の内容、文字数、分析キーワード、CSV読解キーワード、全社横断キーワード、フロント側のモード指定に基づき、通常RAG、フル思考、Text-to-SQL分析、CSV検索先行読解、admin専用グローバル調査へ分岐する。
       </p>
 
       <h2 class="text-xl font-semibold sub-section text-slate-800 border-l-4 border-primary pl-3 mb-4">7.1 【軽量ルート】一問一答型RAG（文脈補正・一発検索）</h2>
       <p class="text-slate-700 text-xs md:text-sm mb-4">
-        `chat_normal.php` が担当する基本ルートです。質問ベクトルを生成し、案件内の `doc_chunks` を検索する。PDF本文、PDF画像説明、CSVから自然言語化された行データを同じ検索対象として扱い、関連チャンクをプロンプトに入れて回答を生成する。
+        <code>chat_normal.php</code> が担当する基本ルートです。質問ベクトルを生成し、案件内の <code>doc_chunks</code> を検索する。PDF本文、PDF画像説明、CSVから自然言語化された行データを同じ検索対象として扱い、関連チャンクをプロンプトに入れて回答を生成する。
       </p>
       <div class="mermaid-container mb-10">
         <div class="mermaid">
@@ -658,7 +661,7 @@ sequenceDiagram
 
       <h2 class="text-xl font-semibold sub-section text-slate-800 border-l-4 border-indigo-500 pl-3 mb-4">7.2 【重厚ルート】フル思考モード</h2>
       <p class="text-slate-700 text-xs md:text-sm mb-4">
-        `chat_advanced.php` が担当する多段階推論ルートです。質問を複数観点へ分解し、観点ごとに資料・CSV・コメント・FAQを探索する。中間結果は `chat_reasoning_steps` に保存され、最終回答は統合モデルで生成する。進捗はSSEでリアルタイムにプッシュされます。
+        <code>chat_advanced.php</code> が担当する多段階推論ルートです。質問を複数観点へ分解し、観点ごとに資料・CSV・コメント・FAQを探索する。中間結果は <code>chat_reasoning_steps</code> に保存され、最終回答は統合モデルで生成する。進捗はSSEでリアルタイムにプッシュされます。
       </p>
       <div class="mermaid-container mb-10">
         <div class="mermaid">
@@ -718,7 +721,7 @@ sequenceDiagram
 
       <h2 class="text-xl font-semibold sub-section text-slate-800 border-l-4 border-[#00758F] pl-3 mb-4">7.3 階層型コンテキスト・段階的マルチレイヤー検索ロジック</h2>
       <p class="text-slate-700 text-xs md:text-sm mb-4">
-        対話履歴（会話の往復ターン数）と、直近の推論プロセス（中間サブクエリデータ `chat_reasoning_steps`）の有無を判断材料にし、検索エンジンを動的に多重グラウンディング（Multi-layer Grounding）させる高度なハイブリッド検索ロジックです。
+        対話履歴（会話の往復ターン数）と、直近の推論プロセス（中間サブクエリデータ <code>chat_reasoning_steps</code>）の有無を判断材料にし、検索エンジンを動的に多重グラウンディング（Multi-layer Grounding）させる高度なハイブリッド検索ロジックです。
       </p>
       <div class="mermaid-container mb-6">
         <div class="mermaid">
@@ -810,7 +813,7 @@ graph TD
             </tr>
             <tr class="hover:bg-slate-50/80 odd:bg-slate-50/30 transition">
               <td class="px-6 py-4 font-bold text-purple-800">3. プログラマブル・フィルタ</td>
-              <td class="px-6 py-4 text-slate-600">時間軸や空間のメタデータを動的抽出し、MySQLへのRAGクエリ時にSQLの `WHERE` 句として自動埋め込み。</td>
+              <td class="px-6 py-4 text-slate-600">時間軸や空間のメタデータを動的抽出し、MySQLへのRAGクエリ時にSQLの <code>WHERE</code> 句として自動埋め込み。</td>
               <td class="px-6 py-4 text-slate-700">概念的な検索が苦手とする厳密な条件抽出を<strong>100%の精度で物理ロック</strong>します。</td>
             </tr>
           </tbody>
@@ -823,7 +826,7 @@ graph TD
         <span class="section-number">8</span>CRUD・アップロード シーケンス図
       </h1>
       <p class="text-slate-700 mb-6 text-sm md:text-base leading-relaxed">
-        主要なデータフローを、CRUD機能（Create, Read, Update, Delete）のセクションに分けて整理したシーケンス図です。すべての更新系APIはログイン状態とCSRFトークンを検証し、案件単位の操作は `ProjectAccess.php` による参照・管理権限を確認する。
+        主要なデータフローを、CRUD機能（Create, Read, Update, Delete）のセクションに分けて整理したシーケンス図です。すべての更新系APIはログイン状態とCSRFトークンを検証し、案件単位の操作は <code>ProjectAccess.php</code> による参照・管理権限を確認する。
       </p>
 
       <h2 class="text-xl font-semibold sub-section text-slate-800 border-l-4 border-primary pl-3 mb-4">8.1 新規案件登録 ＆ PDF/CSVアップロード・解析 (Create)</h2>
@@ -872,11 +875,13 @@ sequenceDiagram
         API->>DB: documents に RAG連動用の親データをINSERT
         loop 行（レコード）ごとに処理
             API->>DB: JSON形式で project_csv_rows にデータレコードをINSERT
-            API->>API: 列名と値を結合して「自然言語文章」を自動生成
-            API->>AI: 自然言語文章のベクトル化を要求
-            AI-->>API: ベクトルデータを返却
-            API->>DB: doc_chunksに自然言語チャンクとして保存
         end
+        API->>DB: CSV本体を先にコミット
+        API->>API: 小規模CSVは行単位、大規模CSVは複数行単位で自然言語チャンク化
+        API->>AI: RAGチャンクのベクトル化を要求
+        AI-->>API: ベクトルデータを返却
+        API->>DB: doc_chunksに自然言語チャンクとして保存
+        Note over API: Embedding失敗が続いてもCSV本体登録は維持
     end
     API-->>UI: 解析完了
         </div>
@@ -982,7 +987,7 @@ sequenceDiagram
         <span class="section-number" style="background-color: #00758F;">9</span>データ分析エージェント (Text-to-SQL) ＆ グラフ自動生成
       </h1>
       <p class="text-slate-700 mb-6 text-sm md:text-base leading-relaxed">
-        本システムは、RAGによる「文章の検索・要約」だけでなく、構造化データ（CSV等）に対する「正確な数値集計」「全件証拠読解」「視覚的なグラフ化」をチャット上で行うデータ分析エージェントを搭載しています。`SqlExecutionEngine.php` が生成SQLを監査し、SELECT系の安全なSQLだけを案件スコープ内で実行することで、LLM特有の数値ハルシネーションを抑制します。小規模CSVの概要質問では、AI推論を待たずにDBレコードから即時サマリーを生成します。
+        本システムは、RAGによる「文章の検索・要約」だけでなく、構造化データ（CSV等）に対する「正確な数値集計」「検索先行の証拠読解」「視覚的なグラフ化」をチャット上で行うデータ分析エージェントを搭載しています。<code>SqlExecutionEngine.php</code> が生成SQLを監査し、SELECT系の安全なSQLだけを案件スコープ内で実行することで、LLM特有の数値ハルシネーションを抑制します。小規模CSVの概要質問では、AI推論を待たずにDBレコードから即時サマリーを生成します。
       </p>
 
       <h2 class="text-xl font-semibold sub-section text-slate-800 border-l-4 border-[#00758F] pl-3 mb-4">9.1 JSON動的スキーマとText-to-SQLの統合</h2>
@@ -1025,6 +1030,14 @@ sequenceDiagram
     alt 小規模CSVの概要・要約質問
       API->>DB: project_csv_files / project_csv_rows を取得
       API->>API: PHP側で列、件数、値サンプル、内容概要を即時生成
+    else CSV証拠読解質問
+      API->>API: 質問文から検索語を抽出
+      API->>DB: row_data / ファイル名 / ヘッダーをLIKE検索
+      alt ヒットあり
+        API->>API: 最大300件を読解対象としてバッチ分割
+      else ヒットなし、または検索語が弱い大規模CSV
+        API->>API: メタデータと代表サンプルの概況回答へ切替
+      end
     else 集計・グラフ化質問
     API->>DB: 対象のCSVヘッダー(スキーマ情報)を取得
     API->>AI: スキーマ情報を渡し、集計SQLの作成を要求
@@ -1046,7 +1059,7 @@ sequenceDiagram
     rect rgb(238, 242, 255)
     Note right of API: 【3. レポート・グラフ生成】
     API->>AI: 集計結果を渡し、解説とChart.js用JSONまたはMermaid図の作成を要求
-    AI-->>API: Markdown + ```json:chart または ```mermaid を含む回答を返却
+    AI-->>API: Markdown + json:chart または mermaid ブロックを含む回答を返却
     end
 
     API-->>UI: SSEで回答、推論ステップ、評価結果をレスポンス
@@ -1059,7 +1072,7 @@ sequenceDiagram
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm mb-6">
         <div class="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
           <h3 class="font-bold text-slate-800 mb-2">実在スキーマ誘導</h3>
-          <p class="text-xs md:text-sm text-slate-600 leading-relaxed">`INFORMATION_SCHEMA` とDBメモリから実在テーブル・カラムをAIへ提示し、架空テーブルや物理カラム誤認を抑制する。</p>
+          <p class="text-xs md:text-sm text-slate-600 leading-relaxed"><code>INFORMATION_SCHEMA</code> とDBメモリから実在テーブル・カラムをAIへ提示し、架空テーブルや物理カラム誤認を抑制する。</p>
         </div>
         <div class="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
           <h3 class="font-bold text-slate-800 mb-2">監査拒否と修復</h3>
@@ -1119,14 +1132,14 @@ sequenceDiagram
         <div class="bg-white border border-slate-200 rounded-xl p-6 shadow-sm border-l-4 border-l-slate-500">
           <h3 class="text-lg font-bold text-slate-800 mb-2">10.4 進捗監視とキャンセル制御</h3>
           <p class="text-xs md:text-sm text-slate-600 leading-relaxed">
-            PDF/CSV/外部PostgreSQLの重い処理では、セッションID単位の `logs/progress_{session_id}.json` に進捗を書き出し、`get_upload_status.php` がフロントエンドへ状態を返す。PDF解析は `cancel_{session_id}.flag` を検知して処理を中断できる。セッションロックを早期解放するため、アップロード中でもポーリングや別APIの応答がブロックされにくい。
+            PDF/CSV/外部PostgreSQLの重い処理では、セッションID単位の <code>logs/progress_{session_id}.json</code> に進捗を書き出し、<code>get_upload_status.php</code> がフロントエンドへ状態を返す。PDF解析は <code>cancel_{session_id}.flag</code> を検知して処理を中断できる。セッションロックを早期解放するため、アップロード中でもポーリングや別APIの応答がブロックされにくい。
           </p>
         </div>
 
         <div id="section-10-4" class="bg-white border border-slate-200 rounded-xl p-6 shadow-sm border-l-4 border-l-amber-500">
           <h3 class="text-lg font-bold text-slate-800 mb-2">10.5 CSV構造化データRAGの高速化・AI推論ボトルネック解消ロジック</h3>
           <p class="text-xs md:text-sm text-slate-600 mb-4 leading-relaxed">
-            同一ファイル由来の大量のCSV翻訳レコードがヒットした場合、精読ループ回数が肥大化し深刻な推論遅延ボトルネックとなっていました。この課題を解決するため、質問意図に応じて「DB即答」「全件証拠読解」「Text-to-SQL集計」を切り替えるルーティングを実装しています。
+            同一ファイル由来の大量のCSV翻訳レコードがヒットした場合、精読ループ回数が肥大化し深刻な推論遅延ボトルネックとなっていました。この課題を解決するため、質問意図に応じて「DB即答」「DB検索先行の証拠読解」「Text-to-SQL集計」「大規模CSV概況回答」を切り替えるルーティングを実装しています。
           </p>
 
           <div class="space-y-4">
@@ -1158,20 +1171,21 @@ sequenceDiagram
             </div>
 
             <div class="border-l-2 border-amber-400 pl-4">
-              <h4 class="font-bold text-slate-800 text-xs md:text-sm mb-1">③ CSV専用ダイナミック類似度トリアージ (Structured Dynamic Thresholding)</h4>
+              <h4 class="font-bold text-slate-800 text-xs md:text-sm mb-1">③ CSV検索先行トリアージ (CSV-SEARCH)</h4>
               <p class="text-xs md:text-sm text-slate-600 mb-2 leading-relaxed">
-                CSVデータは定型記述が繰り返されるため、類似度スコアが高く算出されやすい特性を持ちます。データ氾濫を防ぐため、システムは以下の<strong>動的閾値分岐</strong>を適用します。
+                CSVデータは定型記述が繰り返されるため、類似度スコアだけでは対象行が膨らみやすい特性を持ちます。現在は、質問文から検索語を抽出し、MySQLで先に <code>row_data</code>、ファイル名、列ヘッダーを検索してから読解対象を決めます。
               </p>
               <ul class="list-disc list-inside text-xs md:text-sm text-slate-500 space-y-1.5 pl-2">
-                <li><strong>PDF文書データ:</strong> 類似度スコア `0.35` 以上を網羅（標準設定）</li>
-                <li><strong>CSV構造化データ:</strong> 類似度スコア閾値を **`0.50` 以上**へ自動引き上げ。データの完全性保証のため上限数は設けず全件対象とする。</li>
+                <li><strong>検索語あり:</strong> 該当行を最大300件まで読み込み、ヒット件数と制限有無をログに残す。</li>
+                <li><strong>検索ヒットなし:</strong> 全件AI読解へ進まず、検索語と登録CSV範囲を回答して再質問しやすくする。</li>
+                <li><strong>検索語が弱い大規模CSV:</strong> メタデータと代表サンプルから概況回答を返し、処理時間の肥大化を避ける。</li>
               </ul>
             </div>
 
             <div class="border-l-2 border-sky-400 pl-4">
               <h4 class="font-bold text-slate-800 text-xs md:text-sm mb-1">④ CSV証拠読解ルートの詳細トレース</h4>
               <p class="text-xs md:text-sm text-slate-600 mb-2 leading-relaxed">
-                AI読解が必要な場合でも、DBレコード収集、バッチ分割、バッチAI読解、統合AI回答、履歴保存の各段階で、対象行数、文字数、レスポンス文字数、経過秒を <code>chat_debug.log</code> に出力します。遅延がDB取得なのかOllama推論なのかをログから切り分けられます。
+                AI読解が必要な場合でも、検索語抽出、検索ヒット件数、DBレコード収集、バッチ分割、バッチAI読解、統合AI回答、履歴保存の各段階で、対象行数、文字数、レスポンス文字数、経過秒を <code>chat_debug.log</code> に出力します。遅延がDB検索なのかOllama推論なのかをログから切り分けられます。
               </p>
             </div>
           </div>
@@ -1187,7 +1201,7 @@ sequenceDiagram
             <div class="border-l-2 border-rose-400 pl-4">
               <h4 class="font-bold text-slate-800 text-xs md:text-sm mb-1">① 文字数比例コンテキスト防護バッファ (Structured Context Guard)</h4>
               <p class="text-xs md:text-sm text-slate-600 mb-2 leading-relaxed">
-                類似度スコアの高い行から順番に結合し、生成されたMarkdownテーブルが累積で **`4,000文字`** に達した時点で、自動的にデータの追加を停止。テーブルの末尾にセーフガードによる省略注記を付加してAIへ渡します。
+                類似度スコアやDB検索で抽出された行を順番に結合し、生成されたMarkdownテーブルが累積で <code>4,000文字</code> 程度に達した時点で、自動的にデータの追加を停止。テーブルの末尾にセーフガードによる省略注記を付加してAIへ渡します。
               </p>
             </div>
 
@@ -1207,7 +1221,7 @@ sequenceDiagram
         <span class="section-number" style="background-color: #8b5cf6;">11</span>LLM-as-a-Judge による自律型評価と自己修正ループ
       </h1>
       <p class="text-slate-700 mb-6 text-sm md:text-base leading-relaxed">
-        フル思考モードで生成された最終的な統合回答に対し、システムが裏側でAI自身（評価役）に品質を採点させます。スコアが閾値（合格点）に満たない場合は、AIが自らフィードバックを生成し書き直しを要求します。
+        フル思考モードや分析ルートで生成された最終回答に対し、システムが裏側でAI自身（評価役）に品質を採点させます。スコアが閾値（合格点）に満たない場合は、AIが自らフィードバックを生成し書き直しを要求します。基準値を大きく上回る回答は、質問と回答を要点化したうえでFAQへ自動登録します。
       </p>
 
       <h2 class="text-xl font-semibold sub-section text-slate-800 border-l-4 border-violet-500 pl-3 mb-4">11.1 評価観点（メトリクス）設計</h2>
@@ -1256,8 +1270,23 @@ sequenceDiagram
     end
     
     API->>DB: 分析用として評価スコア・改善履歴を chat_evaluations に蓄積
+    opt 高評価・重複なし・エラー回答ではない
+        API->>DB: 要点化したQ&Aを project_faqs に自動登録
+    end
     API-->>UI: 最終回答をストリーム出力
         </div>
+      </div>
+
+      <h2 class="text-xl font-semibold sub-section text-slate-800 border-l-4 border-violet-500 pl-3 mb-4">11.3 高評価回答のFAQ自動登録</h2>
+      <div class="bg-violet-50 border border-violet-100 rounded-xl p-5 text-sm text-slate-700 leading-relaxed">
+        <p class="mb-3">
+          <code>FaqAutoRegistrar.php</code> は、回答評価が十分に高く、差し戻し対象ではなく、タイムアウトやエラー応答でもない場合に、<code>project_faqs</code> へ自動登録します。登録時はチャット全文をそのまま保存せず、質問は短い要約に、回答はコードブロックや図表定義を除いた要点に整形します。
+        </p>
+        <ul class="list-disc list-inside text-xs md:text-sm text-slate-600 space-y-1.5">
+          <li>重複登録を避けるため、元の <code>chat_history_id</code> と質問要約を確認する。</li>
+          <li>評価プロセスのフェイルセーフや初期ドラフト採用時は自動登録しない。</li>
+          <li>通常チャット、分析チャット、フル思考チャットの履歴保存トランザクション内で実行する。</li>
+        </ul>
       </div>
     </section>
 

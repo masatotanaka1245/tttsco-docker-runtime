@@ -301,12 +301,52 @@ try {
     $advanced_reasoning = false;
     $is_analysis_mode   = false;
     $is_history_summary_mode = false;
+    $prefer_normal_rag = false;
 
     $complex_pattern  = '/(比較|違い|相違|対比|網羅|分析|解析|詳細|詳しく|まとめ|総括|検討|留意点|評価|影響|検証|整合性|关系|どう違う|解説して)/u';
     $analysis_pattern = '/(集計|何種類|割合|平均|カウント|件数|グラフ|チャート|分布|推移|合計)/u';
     $csv_evidence_pattern = '/(CSV|csv|登録済み.*データ|データ.*(内容|概要|項目|列|カラム|入って)|列には|カラムには|項目には)/u';
     $history_summary_pattern = '/((これまで|今まで|過去|直近).*(会話|やりとり|チャット|履歴).*(まとめ|要約|整理)|((会話|やりとり|チャット|履歴).*(まとめ|要約|整理)))/u';
+    $structured_analysis_pattern = '/(transaction_uid|login_seconds|row_data|APP_\d+|ユーザー.*(操作|時間)|操作.*(時間|秒|秒数)|ログイン秒|利用時間|滞在時間|実行時間)/iu';
+    $normal_rag_preferred_pattern = '/(良い案|よい案|方法|支援する方法|設計書案|仕様書案|要件定義|システム.*構築|提案|企画|たたき台|ドラフト)/u';
     $explicit_advanced = (isset($input['advanced_reasoning']) && $input['advanced_reasoning'] === true);
+
+    $dedupeLockFile = null;
+    $dedupeLocked = false;
+    $dedupeWindowSeconds = 45;
+    $dedupeHash = hash('sha256', implode('|', [
+        (string)$user_id,
+        (string)($project_id ?? 'NULL'),
+        mb_strtolower($message, 'UTF-8'),
+        (string)$selected_model
+    ]));
+    $dedupeLockFile = __DIR__ . '/../../logs/chat_request_' . $dedupeHash . '.lock';
+    if (is_file($dedupeLockFile)) {
+        $lockAge = time() - (int)filemtime($dedupeLockFile);
+        if ($lockAge >= 0 && $lockAge < $dedupeWindowSeconds) {
+            chatLogger("[SMART-ROUTER] 重複リクエストを抑止しました。hash: {$dedupeHash} | age: {$lockAge}s");
+            sendSSE('result', [
+                'status' => 'success',
+                'response' => '同じ内容のリクエストが直前に送信され、現在処理中です。完了を待ってから再実行してください。',
+                'sources' => [],
+                'mode_used' => 'duplicate_guard',
+                'detected_page' => null,
+                'hit_count' => 0,
+                'reasoning_steps' => [],
+                'applied_model' => $selected_model,
+                'created_at' => date('Y/m/d H:i')
+            ]);
+            exit;
+        }
+    }
+    @file_put_contents($dedupeLockFile, json_encode([
+        'started_at' => date('c'),
+        'user_id' => $user_id,
+        'project_id' => $project_id,
+        'model' => $selected_model,
+        'message_preview' => mb_substr($message, 0, 120)
+    ], JSON_UNESCAPED_UNICODE));
+    $dedupeLocked = true;
 
     // 🔥【絶対防衛線】フロントから明示指定された場合は「ハイブリッド脳」を最優先する
     if ($explicit_advanced) {
@@ -318,17 +358,25 @@ try {
         $is_history_summary_mode = true;
         chatLogger("[SMART-ROUTER] 会話履歴要約要求を検知。軽量履歴サマリールートを優先します。");
 
+    } elseif ($project_id !== null && preg_match($structured_analysis_pattern, $message)) {
+        $is_analysis_mode = true;
+        chatLogger("[SMART-ROUTER] 構造化データ参照に適した質問を検知。データ分析ルートを優先します。");
+
     } elseif ($project_id !== null && preg_match($csv_evidence_pattern, $message)) {
         // CSVの内容・概要・項目確認は、SQL自由生成より先に「証拠全件読解」分析ルートへ流す
         $is_analysis_mode = true;
         chatLogger("[SMART-ROUTER] CSV証拠読解に適した質問を検知。CSV全件証拠収集ルートを優先します。");
 
-    } elseif (
+    } elseif (preg_match($normal_rag_preferred_pattern, $message)) {
+        $prefer_normal_rag = true;
+        chatLogger("[SMART-ROUTER] 提案・設計書作成系の質問を検知。通常RAGルートを優先します。");
+
+    } elseif (!$prefer_normal_rag && (
         preg_match($complex_pattern, $message) ||
-        mb_strlen($message) >= 50) {
+        mb_strlen($message) >= 50)) {
 
         $advanced_reasoning = true;
-        $is_analysis_mode   = false; 
+        $is_analysis_mode   = false;
         chatLogger("[SMART-ROUTER] 高度なマルチタスク文脈を検知。最優先で「ハイブリッド多重推論統合ハブ(chat_advanced.php Colonial)」をキックします。");
         
     } elseif ($project_id !== null && preg_match($analysis_pattern, $message)) {
@@ -403,44 +451,72 @@ try {
     
     // 全社横断質問の誤判定を100%遮断する最上位ルーティング判定セーフティガード
     $global_cross_pattern = '/(全社|横断|データベース全体|すべての(案件|プロジェクト)|全体を見渡して|全システム|システム全体)/u';
+    $routeStart = microtime(true);
+    $routeName = 'normal_rag';
 
     if ($is_history_summary_mode) {
         // ━━━━【軽量ルート: 会話履歴サマリー】━━━━
+        $routeName = 'history_summary';
+        chatLogger("[SMART-ROUTER] 最終ルート決定: {$routeName}");
         require_once __DIR__ . '/chat_history_summary.php';
         runHistorySummaryRoute($pdo, $project_id, $message, $reasoning_model, $prompt_key, $user_id, $role);
 
     } elseif (preg_match($global_cross_pattern, $message)) {
+        $routeName = 'global_cross';
         chatLogger("[SMART-ROUTER] 明示的な全社横断キーワードを検出。強制的に「グローバル調査エージェント(ReAct)」をキックします。");
-        
+        chatLogger("[SMART-ROUTER] 最終ルート決定: {$routeName}");
+
         require_once __DIR__ . '/chat_global.php';
         runGlobalChatRoute($pdo, $ollama_host, $message, $reasoning_model, $synthesis_model, $prompt_key, $user_id, $role);
 
     } elseif ($project_id === null) {
         // ━━━━【全社横断ルート: グローバル・データベース・エージェント】━━━━
+        $routeName = 'global_no_project';
+        chatLogger("[SMART-ROUTER] 最終ルート決定: {$routeName}");
         require_once __DIR__ . '/chat_global.php';
         runGlobalChatRoute($pdo, $ollama_host, $message, $reasoning_model, $synthesis_model, $prompt_key, $user_id, $role);
 
     } elseif ($is_analysis_mode && !$advanced_reasoning) {
         // ━━━━【集計ルート: Text-to-SQL データ分析エージェント】━━━━
+        $routeName = 'data_analysis';
+        chatLogger("[SMART-ROUTER] 最終ルート決定: {$routeName}");
         require_once __DIR__ . '/chat_analysis.php';
         runAdvancedReasoningRoute($pdo, $ollama_host, $project_id, $message, $reasoning_model, $prompt_key, $project_context, $history_summary_text, $user_id, $role);
 
     } elseif ($advanced_reasoning) {
         // ━━━━【重厚ルート: フル思考ハイブリッド・エージェント (RAG & SQL)】━━━━
+        $routeName = 'advanced_hybrid';
+        chatLogger("[SMART-ROUTER] 最終ルート決定: {$routeName}");
         require_once __DIR__ . '/chat_advanced.php';
         runAdvancedReasoningRoute($pdo, $ollama_host, $project_id, $message, $search_query, $reasoning_id, $reasoning_model, $synthesis_model, $prompt_key, $project_context, $history_summary_text, $user_id, $role);
 
     } else {
         // ━━━━【通常ルート: 一問一答型 RAG ストリーミング】━━━━
+        $routeName = 'normal_rag';
+        chatLogger("[SMART-ROUTER] 最終ルート決定: {$routeName}");
         require_once __DIR__ . '/chat_normal.php';
-        
+
         $engine       = new EmbeddingEngine($ollama_host, "mxbai-embed-large");
         $vectorSearch = new VectorSearch($pdo);
         
         runNormalStreamingRoute($pdo, $ollama_host, $project_id, $message, $search_query, $reasoning_model, $prompt_key, $project_context, $history_summary_text, $vectorSearch, $engine, $user_id, $role);
     }
 
+    chatLogger("[SMART-ROUTER] ルート処理完了: {$routeName} | elapsed: " . number_format(microtime(true) - $routeStart, 2) . "秒");
+
+    if ($dedupeLocked && $dedupeLockFile !== null && is_file($dedupeLockFile)) {
+        @unlink($dedupeLockFile);
+    }
+
 } catch (Throwable $e) {
+    if (!empty($routeName) && !empty($routeStart)) {
+        chatLogger("[SMART-ROUTER] ルート処理中断: {$routeName} | elapsed: " . number_format(microtime(true) - $routeStart, 2) . "秒");
+    }
+
+    if (!empty($dedupeLocked) && !empty($dedupeLockFile) && is_file($dedupeLockFile)) {
+        @unlink($dedupeLockFile);
+    }
+
     chatLogger("CRITICAL TRACE: [File] " . $e->getFile() . " [Line] " . $e->getLine() . "行目 [Error] " . $e->getMessage());
 
     if (headers_sent() || (!empty($input) && !empty($message))) {

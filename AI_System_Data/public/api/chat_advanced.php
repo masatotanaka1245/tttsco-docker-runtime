@@ -134,26 +134,34 @@ class AdvancedReasoningRouteProcessor {
      * メイン実行パイプライン (Mixture of Agents ハイブリッド統合制御)
      */
     public function execute(): void {
+        $pipelineStart = microtime(true);
         $this->model = $this->reasoningModel; // ステートバインド同期維持
 
         chatLogger(">>> [MoAハイブリッド多重推論要塞] 統合ハブコントローラーを起動します");
         chatLogger("[DEBUG] 引数情報 - Host: {$this->ollama_host} | Model: {$this->model} | UserID: {$this->user_id} | Role: {$this->role}");
 
         // 0. BOLA脆弱性防止・アサイン権限チェック（最下部 of 実体を安全にキック）
+        $phaseStart = microtime(true);
         if (!$this->checkAuthority()) {
+            chatLogger("[ADV-TIMING] 権限チェックで処理終了 | elapsed: " . $this->elapsedSeconds($phaseStart));
             return;
         }
+        chatLogger("[ADV-TIMING] 権限チェック完了 | elapsed: " . $this->elapsedSeconds($phaseStart));
 
         // 1. データベース of 実在テーブル構造（SHOW TABLES等）を動的にロードしてインジェクションコンテキスト化
+        $phaseStart = microtime(true);
         if (!$this->loadCsvSchemas()) {
+            chatLogger("[ADV-TIMING] スキーマロード失敗 | elapsed: " . $this->elapsedSeconds($phaseStart));
             return;
         }
+        chatLogger("[ADV-TIMING] スキーマロード完了 | elapsed: " . $this->elapsedSeconds($phaseStart));
 
         chatLogger("[DEBUG] 生成されたデータ分析セッションID (reasoningId): {$this->reasoningId}");
 
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         // ✨【フェーズ4】記憶（キャッシュ） of 自動ロード＆自動リフレッシュ回路
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        $phaseStart = microtime(true);
         if ($this->projectId > 0) {
             $stmtMem = $this->pdo->prepare("SELECT meta_value FROM project_meta WHERE project_id = ? AND meta_key = 'ai_database_memory'");
             $stmtMem->execute([$this->projectId]);
@@ -174,32 +182,46 @@ class AdvancedReasoningRouteProcessor {
             require_once __DIR__ . '/../../src/PromptManager.php';
             $this->databaseMemoryPrompt = PromptManager::getDatabaseMemoryInstruction($jsonStr);
         }
+        chatLogger("[ADV-TIMING] DB記憶ロード完了 | promptChars: " . mb_strlen($this->databaseMemoryPrompt) . " | elapsed: " . $this->elapsedSeconds($phaseStart));
 
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         // 🛠️ 【シーケンス1：CSV集計先行射撃】
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        $phaseStart = microtime(true);
         sendSSE('status', ['step' => 1, 'message' => '🧠 【シーケンス1/3】データ集計要求 of 因数分解及び物理SQL監査を実行中...']);
         $this->decomposeQuestion();
         $this->processSubQueries();
+        chatLogger("[ADV-TIMING] シーケンス1 SQL分析完了 | subQueries: " . count($this->subQueries) . " | subAnswers: " . count($this->subAnswers) . " | elapsed: " . $this->elapsedSeconds($phaseStart));
 
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         // 🛠️ 【シーケンス2：資料RAG連続射撃】
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        $phaseStart = microtime(true);
         sendSSE('status', ['step' => 3, 'message' => '🧠 【シーケンス2/3】資料手順計画（Planner） of 策定及び動的マスキング巡回を開始...']);
         $plan = $this->generateExecutionPlan();
         $stepResults = $this->executePlanSteps($plan);
+        chatLogger("[ADV-TIMING] シーケンス2 資料RAG巡回完了 | planSteps: " . count($plan) . " | stepResults: " . count($stepResults) . " | elapsed: " . $this->elapsedSeconds($phaseStart));
 
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         // 🛠️ 【シーケンス3：最終品質審査・反省リライト】
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        $phaseStart = microtime(true);
         sendSSE('status', ['step' => 5, 'message' => '📈 【シーケンス3/3】ハイブリッド知能 of 重ね書きレポートを成長マージ中...']);
         $this->mergeAndRefineReport($stepResults);
+        chatLogger("[ADV-TIMING] シーケンス3 統合・品質審査完了 | responseChars: " . mb_strlen($this->finalResponse) . " | retryCount: {$this->retryCount} | elapsed: " . $this->elapsedSeconds($phaseStart));
 
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         // 🛠️ 【シーケンス4：一元トランザクション永続化 ＆ 出荷】
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        $phaseStart = microtime(true);
         $this->saveHistoryAndEvaluations();
         $this->sendFinalResult();
+        chatLogger("[ADV-TIMING] シーケンス4 保存・出荷完了 | elapsed: " . $this->elapsedSeconds($phaseStart));
+        chatLogger("[ADV-TIMING] フル思考ルート全体完了 | totalElapsed: " . $this->elapsedSeconds($pipelineStart));
+    }
+
+    private function elapsedSeconds(float $start): string {
+        return number_format(microtime(true) - $start, 2) . '秒';
     }
 
     /**
@@ -1208,7 +1230,7 @@ class AdvancedReasoningRouteProcessor {
             // 5. 品質評価スコア（LLM-as-a-Judge）の保存（JSONキー「answer_relevance」を物理カラム「relevance_score」へ完璧マッピングバインド）
             if (isset($this->evalResult) && $this->evalResult) {
                 $stmtEval = $this->pdo->prepare("
-                    INSERT INTO chat_evaluations 
+                    INSERT INTO chat_evaluations
                     (chat_id, proactivity_score, faithfulness_score, relevance_score, clarity_score, total_score, feedback, retry_count) 
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ");
@@ -1224,7 +1246,18 @@ class AdvancedReasoningRouteProcessor {
                 ]);
                 chatLogger("[DEBUG] chat_evaluations へ品質審査スコアを一元トランザクション内で同期登録しました。");
             }
-            
+
+            require_once __DIR__ . '/../../src/FaqAutoRegistrar.php';
+            $faqRegistrar = new FaqAutoRegistrar($this->pdo);
+            $faqRegistrar->registerIfQualified(
+                (int)$this->projectId,
+                (int)$historyId,
+                (int)$this->user_id,
+                $this->originalMessage,
+                $this->finalResponse,
+                $this->evalResult
+            );
+
             // すべてのインサート、アップデートが完全に成功したため一括コミットを執行
             $this->pdo->commit();
             chatLogger("[DEBUG] DBトランザクションコミット成功。すべての書き込みデータ整合性を完全保護しました。");

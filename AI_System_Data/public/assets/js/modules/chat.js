@@ -8,7 +8,7 @@
  */
 import { secureFetch, getConfig } from './api.js?v=4';
 import { scrollToBottom } from './ui.js?v=4';
-import { AiRenderer } from './aiRenderer.js?v=4';
+import { AiRenderer } from './aiRenderer.js?v=5';
 
 // 生成された Chart.js のインスタンスを保持し、メモリリークや二重描画を防ぐグローバル管理マップ
 window.chartInstances = window.chartInstances || {};
@@ -822,7 +822,7 @@ function appendMsg(role, text, sources = [], reasoningSteps = [], createdAt = nu
                     ${reasoningSteps.map(step => `
                         <div class="text-[10px] bg-white p-3 rounded-xl border border-indigo-50 shadow-xs">
                             <p class="font-bold text-indigo-700 mb-1.5">Q. ${escapeHTML(step.sub_query)}</p>
-                            <div class="text-slate-600 leading-relaxed markdown-body text-[10px]">
+                            <div class="text-slate-600 markdown-body chat-markdown chat-reasoning-body">
                                 ${parseMarkdownToHtml(step.sub_answer || '')}
                             </div>
                         </div>
@@ -852,12 +852,12 @@ function appendMsg(role, text, sources = [], reasoningSteps = [], createdAt = nu
 
     div.innerHTML = `
         ${avatarHtml}
-        <div class="flex flex-col ${isAsst ? 'items-start' : 'items-end'} max-w-[82%] gap-0.5">
+        <div class="chat-message-stack flex flex-col ${isAsst ? 'items-start' : 'items-end'} gap-0.5">
             <div class="flex items-center gap-1.5 px-1">
                 <span class="text-[9px] font-black text-slate-500 uppercase tracking-tight">${isAsst ? 'AI Assistant' : 'You'}</span>
                 <span class="text-[8px] text-slate-400 font-mono tracking-tighter">${formatChatDate(createdAt)}</span>
             </div>
-            <div class="${isAsst ? 'bg-white border text-slate-800 rounded-tl-none border-slate-200/80' : 'bg-[#4F5D95] text-white rounded-tr-none border-[#3d4975] shadow-md !text-white [&_*]:!text-white'} p-3.5 rounded-2xl text-xs shadow-sm markdown-body w-full leading-relaxed ai-text-body">
+            <div class="chat-message-bubble chat-message-body ${isAsst ? 'chat-assistant rounded-tl-none border-slate-200/80' : 'chat-user rounded-tr-none border-[#3d4975] shadow-md'} p-4 shadow-sm markdown-body chat-markdown ai-text-body">
                 ${reasoningHtml}
                 ${cleanHtml}
                 ${sourceHtml}

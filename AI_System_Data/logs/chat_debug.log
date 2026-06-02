@@ -1417,3 +1417,12 @@ SQL実行中にエラーが発生しました: SQLSTATE[42000]: Syntax error or 
 [2026-06-02 10:41:03] [CHAT_STREAM]   [ストリーム進行中] パケット受信数: 999回 | 累積文字数: 2023文字
 [2026-06-02 10:41:05] [CHAT_STREAM] [DEBUG] cURL通信完了。HTTPコード: 200 | cURLエラー: なし
 [2026-06-02 10:41:05] [CHAT_STREAM] [DEBUG] 生成された最終回答文字数: 2084文字
+[2026-06-02 10:42:35] [CHAT_STREAM] [DEBUG] ChatEvaluator 品質審査完了。
+[2026-06-02 10:42:35] [CHAT_STREAM] [EVAL-OK] 門番の審査をパスしました（試行回数: 0）。
+[2026-06-02 10:42:35] [CHAT_STREAM] [DEBUG] DBトランザクションを開始し、ステップ99・対話ログ・評価スコアを一元コミットします...
+[2026-06-02 10:42:35] [CHAT_STREAM] [DEBUG] chat_reasoning_steps の最終ステップ(99)を完了状態に更新しました。
+[2026-06-02 10:42:35] [CHAT_STREAM] [DEBUG] chat_history 登録成功. ID: 38
+[2026-06-02 10:42:35] [CHAT_STREAM] [DEBUG] chat_reasoning_steps のセッションを chat_history_id: 38 にバインド完了。
+[2026-06-02 10:42:35] [CHAT_STREAM] [DEBUG] chat_evaluations へ品質審査スコアを正常に登録・同期しました。
+[2026-06-02 10:42:35] [CHAT_STREAM] [DEBUG] DBトランザクションコミット成功。すべての書き込みデータ整合性を完全保護しました。
+[2026-06-02 10:42:35] [CHAT_STREAM] === Text-to-SQL 自律修復型分析パイプライン完了 ===

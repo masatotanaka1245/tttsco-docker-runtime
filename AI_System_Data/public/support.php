@@ -45,7 +45,7 @@ if (!function_exists('h')) {
     
     <link rel="stylesheet" href="<?= !empty($URL_LEAFLET_CSS) ? h($URL_LEAFLET_CSS) : 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css' ?>" />
     <script src="<?= !empty($URL_LEAFLET_JS) ? h($URL_LEAFLET_JS) : 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js' ?>"></script>
-    <link rel="stylesheet" href="assets/css/styles.css">
+    <link rel="stylesheet" href="assets/css/styles.css?v=10">
     <style>
         .tab-content { display: none; }
         .tab-content.active { display: block; }
@@ -442,15 +442,15 @@ if (!function_exists('h')) {
                         <?= $chat['role'] === 'assistant' ? '🤖' : '👤' ?>
                     </div>
 
-                    <div class="flex flex-col <?= $chat['role'] === 'assistant' ? 'items-start' : 'items-end' ?> max-w-[82%] gap-0.5 w-full">
+                    <div class="chat-message-stack flex flex-col <?= $chat['role'] === 'assistant' ? 'items-start' : 'items-end' ?> gap-0.5 w-full">
                         <div class="flex items-center gap-1.5 px-1">
                             <span class="text-[9px] font-black text-slate-400 uppercase tracking-tight">
                                 <?= $chat['role'] === 'assistant' ? 'AI Assistant' : 'You' ?>
                             </span>
                             <span class="text-[8px] text-slate-400 font-mono tracking-tighter"><?= $timeStr ?></span>
                         </div>
-                        <div class="p-3.5 rounded-2xl text-xs leading-relaxed markdown-body shadow-2xs border w-full font-medium
-                            <?= $chat['role'] === 'assistant' ? 'bg-white text-slate-800 rounded-tl-none border-slate-100' : 'bg-gradient-to-br from-[#4F5D95] to-[#3f4a7a] text-white rounded-tr-none border-[#3b4773] shadow-xs [&_*]:!text-white' ?>">
+                        <div class="chat-message-bubble chat-message-body p-4 markdown-body chat-markdown shadow-2xs border
+                            <?= $chat['role'] === 'assistant' ? 'chat-assistant rounded-tl-none border-slate-100' : 'chat-user rounded-tr-none border-[#3b4773] shadow-xs' ?>">
                             
                             <?php if ($chat['role'] === 'assistant'): ?>
                                 <?php
@@ -462,10 +462,10 @@ if (!function_exists('h')) {
                                 ?>
                                 <div class="chat-raw-message-source hidden"><?= h($chat['message']) ?></div>
                                 <script type="application/json" class="chat-reasoning-source"><?= $reasoningJson ?: '[]' ?></script>
-                                <div class="ai-text-body markdown-body w-full"></div>
+                                <div class="ai-text-body markdown-body chat-markdown w-full"></div>
                             <?php else: ?>
                                 <div class="chat-raw-message-source hidden"><?= h($chat['message']) ?></div>
-                                <div class="user-text-body w-full font-medium break-words"><?= h($chat['message']) ?></div>
+                                <div class="user-text-body w-full break-words"><?= h($chat['message']) ?></div>
                             <?php endif; ?>
                         </div>
                     </div>
@@ -533,7 +533,7 @@ if (!function_exists('h')) {
 
     // ★ 究極の安全設計: import * as 構文を使用し、1096エラー(SyntaxError)を原理的に100%防止
     // ✨ ここを ?v=4 から ?v=5 へ書き換えてキャッシュを強制粉砕！
-    import * as Support from './assets/js/support.js?v=9';
+    import * as Support from './assets/js/support.js?v=10';
 
     // ★要件4: 隔離コンテナ内のJSONデータを仲介して安全にマウント・パースするイベントハンドラの実装
     window.openProjectEditModal = (lat, lng) => {
@@ -599,7 +599,7 @@ if (!function_exists('h')) {
                 const bodyHtml = steps.map(step => `
                     <div class="text-[10px] bg-white p-3 rounded-xl border border-indigo-50 shadow-xs">
                         <p class="font-bold text-indigo-700 mb-1.5">Q. ${String(step.sub_query || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}</p>
-                        <div class="text-slate-600 leading-relaxed markdown-body text-[10px]">${parseMarkdown(step.sub_answer || '')}</div>
+                        <div class="text-slate-600 markdown-body chat-markdown chat-reasoning-body">${parseMarkdown(step.sub_answer || '')}</div>
                     </div>
                 `).join('');
 
