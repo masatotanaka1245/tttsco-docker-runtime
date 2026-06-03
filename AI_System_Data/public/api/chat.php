@@ -68,10 +68,10 @@ if (!function_exists('sendSSE')) {
     function sendSSE(string $type, array $data) {
         // ✨真犯人を粉砕：Windows Apacheの頑固な4KBバッファを強制的に満たしてブラウザへ即時押し出すダミーコメント
         echo ":" . str_repeat(" ", 4096) . "\n";
-        
+
         // 本物のデータを送信
         echo "data: " . json_encode(array_merge(["type" => $type], $data), JSON_UNESCAPED_UNICODE) . "\n\n";
-        
+
         @ob_flush();
         @flush();
     }
@@ -96,268 +96,6 @@ if (!function_exists('calculateCosineSimilarity')) {
     }
 }
 
-if (!function_exists('normalizeCsvRouteText')) {
-    function normalizeCsvRouteText(string $text): string {
-        $text = mb_strtolower($text, 'UTF-8');
-        $text = preg_replace('/\.(csv|tsv)$/iu', '', $text);
-        $text = preg_replace('/[\s　「」『』【】\\[\\]（）()、。,.，．:：;；!！?？#]+/u', '', $text);
-        return trim((string)$text);
-    }
-}
-
-if (!function_exists('buildCsvRouteTextVariants')) {
-    function buildCsvRouteTextVariants(string $text): array {
-        $variants = [];
-        $push = function (string $candidate) use (&$variants): void {
-            $normalized = normalizeCsvRouteText($candidate);
-            if ($normalized !== '') {
-                $variants[$normalized] = true;
-            }
-        };
-
-        $text = trim($text);
-        if ($text === '') {
-            return [];
-        }
-
-        $push($text);
-        $withoutExt = preg_replace('/\.(csv|tsv)$/iu', '', $text);
-        $push((string)$withoutExt);
-
-        $baseName = preg_replace('/[（(].*$/u', '', (string)$withoutExt);
-        $push(trim((string)$baseName));
-
-        if (preg_match('/^[「『"“](.+)[」』"”]$/u', $text, $matches)) {
-            $push($matches[1]);
-        }
-
-        return array_keys($variants);
-    }
-}
-
-if (!function_exists('parseCsvRouteHeaders')) {
-    function parseCsvRouteHeaders(string $rawHeaders): array {
-        $decoded = json_decode($rawHeaders, true);
-        $candidates = is_array($decoded) ? $decoded : [$rawHeaders];
-        $headers = [];
-
-        foreach ($candidates as $candidate) {
-            foreach (preg_split('/[,;]\s*/u', (string)$candidate) ?: [] as $header) {
-                $header = trim($header, " \t\n\r\0\x0B\"'");
-                if ($header !== '') {
-                    $headers[] = $header;
-                }
-            }
-        }
-
-        return array_values(array_unique($headers));
-    }
-}
-
-if (!function_exists('findMentionedCsvFileName')) {
-    function findMentionedCsvFileName(PDO $pdo, int $projectId, string $message): ?string {
-        $messageVariants = buildCsvRouteTextVariants($message);
-        if (empty($messageVariants)) {
-            return null;
-        }
-
-        $stmt = $pdo->prepare("SELECT file_name FROM project_csv_files WHERE project_id = ? ORDER BY id DESC");
-        $stmt->execute([$projectId]);
-        foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $fileName) {
-            $fileName = (string)$fileName;
-            $fileVariants = buildCsvRouteTextVariants($fileName);
-            foreach ($messageVariants as $messageVariant) {
-                foreach ($fileVariants as $fileVariant) {
-                    if ($fileVariant === '') {
-                        continue;
-                    }
-                    if (mb_strpos($messageVariant, $fileVariant) !== false || mb_strpos($fileVariant, $messageVariant) !== false) {
-                        return $fileName;
-                    }
-                }
-            }
-        }
-
-        return null;
-    }
-}
-
-if (!function_exists('findMentionedCsvColumnTarget')) {
-    function findMentionedCsvColumnTarget(PDO $pdo, int $projectId, string $message): ?array {
-        $stmt = $pdo->prepare("SELECT file_name, column_headers FROM project_csv_files WHERE project_id = ? ORDER BY id ASC");
-        $stmt->execute([$projectId]);
-
-        $matches = [];
-        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            $fileName = (string)($row['file_name'] ?? '');
-            $headers = parseCsvRouteHeaders((string)($row['column_headers'] ?? ''));
-            foreach ($headers as $header) {
-                if ($header === '') {
-                    continue;
-                }
-                if (mb_stripos($message, $header, 0, 'UTF-8') !== false) {
-                    $key = $fileName . '|' . $header;
-                    $matches[$key] = [
-                        'file_name' => $fileName,
-                        'column_name' => $header,
-                    ];
-                }
-            }
-        }
-
-        if (count($matches) === 1) {
-            return array_values($matches)[0];
-        }
-
-        return null;
-    }
-}
-
-if (!function_exists('findRecentCsvContextFromHistory')) {
-    function findRecentCsvContextFromHistory(PDO $pdo, int $projectId, array $recentHistory): ?array {
-        for ($i = count($recentHistory) - 1; $i >= 0; $i--) {
-            $historyMessage = trim((string)($recentHistory[$i]['message'] ?? ''));
-            if ($historyMessage === '') {
-                continue;
-            }
-
-            $mentionedCsv = findMentionedCsvFileName($pdo, $projectId, $historyMessage);
-            $mentionedColumnTarget = findMentionedCsvColumnTarget($pdo, $projectId, $historyMessage);
-            if ($mentionedCsv === null && !empty($mentionedColumnTarget['file_name'])) {
-                $mentionedCsv = (string)$mentionedColumnTarget['file_name'];
-            }
-
-            if ($mentionedCsv !== null || $mentionedColumnTarget !== null) {
-                return [
-                    'target_file_name' => $mentionedCsv,
-                    'target_column' => $mentionedColumnTarget['column_name'] ?? null,
-                    'source_role' => (string)($recentHistory[$i]['role'] ?? ''),
-                    'source_message' => $historyMessage,
-                ];
-            }
-        }
-
-        return null;
-    }
-}
-
-if (!function_exists('factorizeChatRequest')) {
-    function factorizeChatRequest(PDO $pdo, ?int $projectId, string $message, array $recentHistory = []): array {
-        $mentionedCsv = null;
-        $mentionedColumnTarget = null;
-        if ($projectId !== null) {
-            try {
-                $mentionedCsv = findMentionedCsvFileName($pdo, (int)$projectId, $message);
-                $mentionedColumnTarget = findMentionedCsvColumnTarget($pdo, (int)$projectId, $message);
-            } catch (Throwable $e) {
-                $mentionedCsv = null;
-                $mentionedColumnTarget = null;
-            }
-        }
-
-        $hasAggregateIntent = preg_match('/(集計|件数|合計|平均|表に|一覧|推移|時系列|別に|グループ|何種類|ユニーク|distinct|重複なし|分布|分類|カテゴリ)/iu', $message) === 1;
-        $hasSummaryIntent = preg_match('/(要約|まとめ|概要|内容を要約|内容をまとめ|どんな内容|内容を教えて)/u', $message) === 1;
-        $hasDateIntent = preg_match('/(日付|日時|年月日|月別|年別|日別|date|timestamp|時刻)/iu', $message) === 1;
-        $hasDocReference = preg_match('/(PDF|pdf|資料|図面|仕様書|文書|設計書|報告書)/u', $message) === 1;
-        $hasDocActionIntent = preg_match('/(留意点|注意点|確認すべき|確認事項|法規|基準|安全面|設計上|施工前|不明点|見落とし|箇条書きで抽出|箇条書きで|抽出してください)/u', $message) === 1;
-        $hasDistinctIntent = preg_match('/(何種類|ユニーク|distinct|重複なし|種類数)/iu', $message) === 1;
-        $hasColumnExplainIntent = preg_match('/(どういう|どのような|説明|意味|何を表|どんなイベント|イベント.*説明|イベント.*意味|それぞれ.*説明)/u', $message) === 1;
-        $targetsAllCsv = preg_match('/(全て|すべて|全部|全件)/u', $message) === 1
-            && preg_match('/(CSV|csv|ファイル|データ|レコード|行)/u', $message) === 1;
-        $targetColumn = $mentionedColumnTarget['column_name'] ?? null;
-        if ($mentionedCsv === null && !empty($mentionedColumnTarget['file_name'])) {
-            $mentionedCsv = (string)$mentionedColumnTarget['file_name'];
-        }
-        if ($projectId !== null && $mentionedCsv === null && $targetColumn === null && $hasColumnExplainIntent && !empty($recentHistory)) {
-            $recentContext = findRecentCsvContextFromHistory($pdo, (int)$projectId, $recentHistory);
-            if ($recentContext !== null) {
-                $mentionedCsv = $recentContext['target_file_name'] ?? null;
-                $targetColumn = $recentContext['target_column'] ?? null;
-                if ($mentionedCsv !== null || $targetColumn !== null) {
-                    chatLogger("[SMART-ROUTER] 直前の会話履歴からCSV文脈を補完しました。file=" . ($mentionedCsv ?? 'none') . " | column=" . ($targetColumn ?? 'none'));
-                }
-            }
-        }
-
-        $intent = 'unknown';
-        $target = 'unknown';
-        $scope = 'unknown';
-        $operation = 'unknown';
-        $timeAxis = 'none';
-        $outputFormat = preg_match('/(表に|表形式|テーブル|一覧で|一覧にして)/u', $message) === 1 ? 'table' : 'prose';
-        $route = null;
-
-        if ($hasAggregateIntent && $hasDateIntent && $mentionedCsv !== null) {
-            $intent = 'aggregate';
-            $target = 'single_csv';
-            $scope = 'records_with_date';
-            $operation = 'count';
-            $timeAxis = preg_match('/(月別|月ごと)/u', $message) === 1
-                ? 'month'
-                : (preg_match('/(年別|年ごと)/u', $message) === 1 ? 'year' : 'day');
-            $route = 'data_analysis.csv_agg';
-        } elseif ($hasAggregateIntent && $hasDateIntent && $targetsAllCsv) {
-            $intent = 'aggregate';
-            $target = 'all_csv';
-            $scope = 'records_with_date';
-            $operation = 'count';
-            $timeAxis = preg_match('/(月別|月ごと)/u', $message) === 1
-                ? 'month'
-                : (preg_match('/(年別|年ごと)/u', $message) === 1 ? 'year' : 'day');
-            $route = 'data_analysis.csv_agg';
-        } elseif ($mentionedCsv !== null && $hasAggregateIntent && $hasDistinctIntent) {
-            $intent = 'aggregate';
-            $target = 'single_csv';
-            $scope = 'file_content';
-            $operation = 'distinct_count';
-            $route = 'data_analysis.csv_agg';
-        } elseif ($mentionedCsv !== null && $targetColumn !== null && $hasColumnExplainIntent) {
-            $intent = 'aggregate';
-            $target = 'single_csv';
-            $scope = 'file_content';
-            $operation = 'column_semantics';
-            $route = 'data_analysis.csv_agg';
-        } elseif ($mentionedCsv !== null && $targetColumn !== null && $hasAggregateIntent) {
-            $intent = 'aggregate';
-            $target = 'single_csv';
-            $scope = 'file_content';
-            $operation = 'value_distribution';
-            $route = 'data_analysis.csv_agg';
-        } elseif ($hasSummaryIntent && $mentionedCsv !== null) {
-            $intent = 'summarize';
-            $target = 'single_csv';
-            $scope = 'file_content';
-            $operation = 'summarize';
-            $route = 'data_analysis.csv_summary';
-        } elseif ($hasSummaryIntent && $projectId !== null && preg_match('/(CSV|csv|ファイル|データ)/u', $message) === 1) {
-            $intent = 'summarize';
-            $target = 'all_csv';
-            $scope = 'project_wide';
-            $operation = 'summarize';
-            $route = 'data_analysis.csv_summary';
-        } elseif ($projectId !== null && !$targetsAllCsv && $mentionedCsv === null && ($hasDocReference || $hasDocActionIntent)) {
-            $intent = 'extract_evidence';
-            $target = 'pdf';
-            $scope = 'project_wide';
-            $operation = 'extract_evidence';
-            $outputFormat = preg_match('/(箇条書き|3点|3つ|列挙|リスト)/u', $message) === 1 ? 'bullets' : $outputFormat;
-            $route = 'advanced_hybrid.doc_extract';
-        }
-
-        return [
-            'intent' => $intent,
-            'target' => $target,
-            'target_file_name' => $mentionedCsv,
-            'target_column' => $targetColumn,
-            'scope' => $scope,
-            'operation' => $operation,
-            'time_axis' => $timeAxis,
-            'output_format' => $outputFormat,
-            'route' => $route,
-        ];
-    }
-}
-
 /**
  * Ollama Chat API を呼び出すヘルパー（VRAM保護最適化 ＆ 思考プロセス抽出対応版）
  */
@@ -375,7 +113,7 @@ if (!function_exists('callOllamaChat')) {
         $ch = curl_init("{$ollamaHost}/api/chat");
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_POST, true);
-        
+
         $payload = [
             "model" => $model,
             "messages" => [
@@ -385,28 +123,28 @@ if (!function_exists('callOllamaChat')) {
             "stream" => false,
             "options" => $final_options
         ];
-        
+
         if ($format === 'json') {
             $payload['format'] = 'json';
         }
-        
+
         curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
         curl_setopt($ch, CURLOPT_TIMEOUT, 180);
-        
+
         $res = curl_exec($ch);
         $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $err = curl_error($ch);
         curl_close($ch);
-        
+
         if ($res === false || $code !== 200) {
             throw new Exception("Ollama API 通信エラー (Code: {$code}) / 詳細: {$err}");
         }
-        
+
         $json = json_decode($res, true);
         $content = $json['message']['content'] ?? '';
-        
-        $thoughtProcess = ""; 
-        
+
+        $thoughtProcess = "";
+
         if (preg_match('/<\|channel>thought(.*?)<channel\|>/s', $content, $matches)) {
             $thoughtProcess .= trim($matches[1]) . "\n";
             $content = preg_replace('/<\|channel>thought.*?<channel\|>/s', '', $content);
@@ -415,7 +153,7 @@ if (!function_exists('callOllamaChat')) {
             $thoughtProcess .= trim($matches[1]) . "\n";
             $content = preg_replace('/<think>.*?<\/think>/s', '', $content);
         }
-        
+
         $thoughtProcess = trim($thoughtProcess);
         return trim($content);
     }
@@ -427,13 +165,13 @@ if (!function_exists('callOllamaChat')) {
 if (!function_exists('aggregateCsvChunksToMarkdown')) {
     function aggregateCsvChunksToMarkdown(array $csvChunks, string $fileName): string {
         if (empty($csvChunks)) return "";
-        
+
         $rows = [];
         $all_headers = ['行番号'];
         $current_text_length = 0;
-        $max_guard_length = 4000; 
+        $max_guard_length = 4000;
         $truncated_count = 0;
-        
+
         foreach ($csvChunks as $chunk) {
             $text = $chunk['content'] ?? $chunk['chunk_text'] ?? '';
             if (empty($text)) continue;
@@ -445,15 +183,15 @@ if (!function_exists('aggregateCsvChunksToMarkdown')) {
             }
 
             $cleaned = preg_replace('/^CSV「[^」]+」の第(\d+)行のデータ：/', '', $text);
-            $cleaned = preg_replace('/amp;です。$/', '', $cleaned); 
+            $cleaned = preg_replace('/amp;です。$/', '', $cleaned);
             $cleaned = preg_replace('/です。$/', '', $cleaned);
-            
+
             $row_index_match = [];
             preg_match('/第(\d+)行/', $text, $row_index_match);
             $row_idx = $row_index_match[1] ?? '?';
-            
+
             $row_data = ['行番号' => $row_idx];
-            
+
             $parts = explode('、', $cleaned);
             foreach ($parts as $part) {
                 if (preg_match('/^(.+?)は「(.*?)」$/', trim($part), $m)) {
@@ -468,13 +206,13 @@ if (!function_exists('aggregateCsvChunksToMarkdown')) {
             $rows[] = $row_data;
             $current_text_length += $temp_len;
         }
-        
+
         if (empty($rows)) return "";
-        
+
         $md = "以下の表は、類似検索に合致した「{$fileName}」のデータ行レコード一覧です。\n\n";
         $md .= "| " . implode(" | ", $all_headers) . " |\n";
         $md .= "| " . implode(" | ", array_map(function() { return ":---"; }, $all_headers)) . " |\n";
-        
+
         foreach ($rows as $row) {
             $cols = [];
             foreach ($all_headers as $h) {
@@ -492,7 +230,7 @@ if (!function_exists('aggregateCsvChunksToMarkdown')) {
             $md .= "\n";
             chatLogger("[CONTEXT-GUARD] CSVデータ結合を {$current_text_length} 文字で制限。{$truncated_count} 件を省略。");
         }
-        
+
         return $md;
     }
 }
@@ -508,6 +246,10 @@ require_once __DIR__ . '/../../src/EmbeddingEngine.php';
 require_once __DIR__ . '/../../src/VectorSearch.php';
 require_once __DIR__ . '/../../src/PromptManager.php';
 require_once __DIR__ . '/../../src/ChatRequestGuard.php';
+require_once __DIR__ . '/../../src/ChatHistoryContextResolver.php';
+require_once __DIR__ . '/../../src/ChatRouteFactorizer.php';
+require_once __DIR__ . '/../../src/ChatRouteSelector.php';
+require_once __DIR__ . '/../../src/ChatRouteDispatcher.php';
 
 // 認証チェック
 $auth = new Auth($pdo);
@@ -525,7 +267,7 @@ $role          = $_SESSION['role'] ?? 'member';
 $ollama_host   = rtrim($_SESSION['ollama_host'] ?? 'http://127.0.0.1:11434', '/');
 $default_model = $_SESSION['default_model'] ?? 'gemma4:e4b';
 $sub_model     = $_SESSION['sub_model'] ?? 'gpt-oss:20b';
-$session_csrf  = $_SESSION['csrf_token'] ?? ''; 
+$session_csrf  = $_SESSION['csrf_token'] ?? '';
 
 // 安全な照合
 $csrfToken = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
@@ -547,7 +289,7 @@ try {
     $input      = json_decode(file_get_contents('php://input'), true);
     $message    = trim($input['message'] ?? '');
     $project_id = (isset($input['project_id']) && $input['project_id'] !== '') ? filter_var($input['project_id'], FILTER_VALIDATE_INT) : null;
-    
+
     if (empty($message)) {
         throw new Exception('Bad Request: メッセージが空です。');
     }
@@ -598,13 +340,6 @@ try {
     $is_analysis_mode   = false;
     $is_history_summary_mode = false;
     $prefer_normal_rag = false;
-
-    $complex_pattern  = '/(比較|違い|相違|対比|網羅|分析|解析|詳細|詳しく|まとめ|総括|検討|留意点|評価|影響|検証|整合性|关系|どう違う|解説して)/u';
-    $analysis_pattern = '/(集計|何種類|割合|平均|カウント|件数|グラフ|チャート|分布|推移|合計)/u';
-    $csv_evidence_pattern = '/(CSV|csv|登録済み.*データ|データ.*(内容|概要|項目|列|カラム|入って)|列には|カラムには|項目には)/u';
-    $history_summary_pattern = '/((これまで|今まで|過去|直近).*(会話|やりとり|チャット|履歴).*(まとめ|要約|整理)|((会話|やりとり|チャット|履歴).*(まとめ|要約|整理)))/u';
-    $structured_analysis_pattern = '/(transaction_uid|login_seconds|row_data|APP_\d+|ユーザー.*(操作|時間)|操作.*(時間|秒|秒数)|ログイン秒|利用時間|滞在時間|実行時間)/iu';
-    $normal_rag_preferred_pattern = '/(良い案|よい案|方法|支援する方法|設計書案|仕様書案|要件定義|システム.*構築|提案|企画|たたき台|ドラフト)/u';
     $explicit_advanced = $input_advanced_reasoning;
 
     $dedupeLockFile = null;
@@ -644,88 +379,16 @@ try {
     ], JSON_UNESCAPED_UNICODE));
     $dedupeLocked = true;
 
-    $csvSummaryOrAggRoute = in_array(($factorizedQuery['route'] ?? null), ['data_analysis.csv_agg', 'data_analysis.csv_summary'], true);
-    $allowCsvRouteOverride = $project_id !== null
-        && !$report_mode
-        && $csvSummaryOrAggRoute;
-
-    if ($allowCsvRouteOverride && ($factorizedQuery['route'] ?? null) === 'data_analysis.csv_agg') {
-        $is_analysis_mode = true;
-        chatLogger("[SMART-ROUTER] CSV集計系の質問は軽量分析を優先します。explicit_advanced=" . ($explicit_advanced ? 'on' : 'off') . " | file=" . ($factorizedQuery['target_file_name'] ?? 'all'));
-
-    } elseif ($allowCsvRouteOverride && ($factorizedQuery['route'] ?? null) === 'data_analysis.csv_summary') {
-        $is_analysis_mode = true;
-        chatLogger("[SMART-ROUTER] CSV要約系の質問は軽量分析を優先します。explicit_advanced=" . ($explicit_advanced ? 'on' : 'off') . " | target=" . ($factorizedQuery['target'] ?? 'unknown'));
-
-    // 🔥【絶対防衛線】フロントから明示指定された場合は「ハイブリッド脳」を最優先する
-    } elseif ($explicit_advanced) {
-        $advanced_reasoning = true;
-        $is_analysis_mode   = false;
-        chatLogger("[SMART-ROUTER] フル思考モードの明示指定を検知。ハイブリッド多重推論統合ハブをキックします。");
-
-    } elseif (preg_match($history_summary_pattern, $message)) {
-        $is_history_summary_mode = true;
-        chatLogger("[SMART-ROUTER] 会話履歴要約要求を検知。軽量履歴サマリールートを優先します。");
-
-    } elseif ($project_id !== null && preg_match($structured_analysis_pattern, $message)) {
-        $is_analysis_mode = true;
-        chatLogger("[SMART-ROUTER] 構造化データ参照に適した質問を検知。データ分析ルートを優先します。");
-
-    } elseif ($project_id !== null && ($factorizedQuery['route'] ?? null) === 'data_analysis.csv_agg') {
-        $is_analysis_mode = true;
-        chatLogger("[SMART-ROUTER] 質問因数分解によりCSV集計ルートを優先します。target=" . ($factorizedQuery['target'] ?? 'unknown') . " | file=" . ($factorizedQuery['target_file_name'] ?? 'all'));
-
-    } elseif ($project_id !== null && ($factorizedQuery['route'] ?? null) === 'data_analysis.csv_summary') {
-        $is_analysis_mode = true;
-        chatLogger("[SMART-ROUTER] 質問因数分解によりCSV要約ルートを優先します。file=" . ($factorizedQuery['target_file_name'] ?? 'unknown'));
-
-    } elseif ($project_id !== null && ($factorizedQuery['route'] ?? null) === 'advanced_hybrid.doc_extract') {
-        $advanced_reasoning = true;
-        $is_analysis_mode   = false;
-        chatLogger("[SMART-ROUTER] 質問因数分解により資料PDF抽出ルートを優先します。target=" . ($factorizedQuery['target'] ?? 'unknown'));
-
-    } elseif ($project_id !== null && preg_match($csv_evidence_pattern, $message)) {
-        // PDF/報告書系の資料抽出が明示されている場合は、CSV証拠読解で上書きしない
-        $is_analysis_mode = true;
-        chatLogger("[SMART-ROUTER] CSV証拠読解に適した質問を検知。CSV全件証拠収集ルートを優先します。");
-
-    } elseif (preg_match($normal_rag_preferred_pattern, $message)) {
-        $prefer_normal_rag = true;
-        chatLogger("[SMART-ROUTER] 提案・設計書作成系の質問を検知。通常RAGルートを優先します。");
-
-    } elseif (!$prefer_normal_rag && (
-        preg_match($complex_pattern, $message) ||
-        mb_strlen($message) >= 50)) {
-
-        $advanced_reasoning = true;
-        $is_analysis_mode   = false;
-        chatLogger("[SMART-ROUTER] 高度なマルチタスク文脈を検知。最優先で「ハイブリッド多重推論統合ハブ(chat_advanced.php Colonial)」をキックします。");
-        
-    } elseif ($project_id !== null && preg_match($analysis_pattern, $message)) {
-        // 純粋な短い集計文（例：「CSVの総件数は？」など）のみ、単発集計ルートへ流す
-        $is_analysis_mode = true;
-        chatLogger("[SMART-ROUTER] 純粋なデータ集計要求を検知。単発の「データ分析エージェント(chat_analysis.php)」を起動します。");
-    }
-
-    if ($advanced_reasoning && empty($reasoning_id)) {
-        $reasoning_id = 'auto-' . uniqid('reason_') . '-' . mt_rand(1000, 9999);
-        chatLogger("[SMART-ROUTER] 自律生成推論セッションID: {$reasoning_id}");
-    }
-
     $reasoning_model = $selected_model;
     $synthesis_model = $sub_model;
-
-    if ($advanced_reasoning) {
-        $selected_model = "{$reasoning_model}(分析) + {$synthesis_model}(統合)"; 
-    }
 
     // 📁 案件コンテキストの構築
     $project_context = "";
     if ($project_id !== null) {
         if ($role !== 'admin') {
             $stmtCheck = $pdo->prepare("
-                SELECT COUNT(*) 
-                FROM projects p 
+                SELECT COUNT(*)
+                FROM projects p
                 LEFT JOIN project_members pm ON p.id = pm.project_id AND pm.user_id = ?
                 WHERE p.id = ? AND (p.created_by = ? OR pm.id IS NOT NULL)
             ");
@@ -748,6 +411,7 @@ try {
     $search_query = $message;
     $history_summary_text = "";
     $recentHistory = [];
+    $csvContextResolver = $project_id !== null ? new ChatHistoryContextResolver($pdo, (int)$project_id) : null;
 
     try {
         $historySql = $project_id === null
@@ -768,89 +432,55 @@ try {
         chatLogger("[WARN] 会話履歴コンテキスト取得に失敗: " . $historyEx->getMessage());
     }
 
-    $factorizedQuery = factorizeChatRequest($pdo, $project_id, $message, $recentHistory);
+    $routeFactorizer = new ChatRouteFactorizer($csvContextResolver, 'chatLogger');
+    $factorizedQuery = $routeFactorizer->factorize($message, $recentHistory);
     if (($factorizedQuery['route'] ?? null) !== null) {
         chatLogger("[SMART-ROUTER] 質問因数分解: " . json_encode($factorizedQuery, JSON_UNESCAPED_UNICODE));
     }
-    if ($report_mode && $project_id !== null) {
-        $explicit_advanced = true;
-        chatLogger("[SMART-ROUTER] 報告書モードを検知。PDF生成・検索登録のためフル思考ルートへ寄せます。");
+    $routeSelector = new ChatRouteSelector($csvContextResolver, 'chatLogger');
+    $routingState = $routeSelector->select([
+        'message' => $message,
+        'project_id' => $project_id,
+        'factorized_query' => $factorizedQuery,
+        'explicit_advanced' => $explicit_advanced,
+        'report_mode' => $report_mode,
+    ]);
+    $advanced_reasoning = (bool)($routingState['advanced_reasoning'] ?? false);
+    $is_analysis_mode = (bool)($routingState['is_analysis_mode'] ?? false);
+    $is_history_summary_mode = (bool)($routingState['is_history_summary_mode'] ?? false);
+    $prefer_normal_rag = (bool)($routingState['prefer_normal_rag'] ?? false);
+    $explicit_advanced = (bool)($routingState['explicit_advanced'] ?? $explicit_advanced);
+
+    if ($advanced_reasoning && empty($reasoning_id)) {
+        $reasoning_id = 'auto-' . uniqid('reason_') . '-' . mt_rand(1000, 9999);
+        chatLogger("[SMART-ROUTER] 自律生成推論セッションID: {$reasoning_id}");
+    }
+    if ($advanced_reasoning) {
+        $selected_model = "{$reasoning_model}(分析) + {$synthesis_model}(統合)";
     }
 
-    if (
-        $project_id !== null &&
-        !$advanced_reasoning &&
-        !$is_history_summary_mode &&
-        ($factorizedQuery['route'] ?? null) !== 'advanced_hybrid.doc_extract'
-    ) {
-        try {
-            $mentionedCsv = findMentionedCsvFileName($pdo, (int)$project_id, $message);
-            if ($mentionedCsv !== null) {
-                $is_analysis_mode = true;
-                $prefer_normal_rag = false;
-                chatLogger("[SMART-ROUTER] 登録済みCSVファイル名への言及を検知。CSV分析ルートへ切替: {$mentionedCsv}");
-            }
-        } catch (Throwable $csvRouteEx) {
-            chatLogger("[SMART-ROUTER] CSVファイル名ルーティング確認に失敗: " . $csvRouteEx->getMessage());
-        }
-    }
-
-    // =========================================================================
-    // 4. 回答分岐 ＆ 各コントローラーファイルへの処理移譲
-    // =========================================================================
-    
-    // 全社横断質問の誤判定を100%遮断する最上位ルーティング判定セーフティガード
-    $global_cross_pattern = '/(全社|横断|データベース全体|すべての(案件|プロジェクト)|全体を見渡して|全システム|システム全体)/u';
     $routeStart = microtime(true);
-    $routeName = 'normal_rag';
-
-    if ($is_history_summary_mode) {
-        // ━━━━【軽量ルート: 会話履歴サマリー】━━━━
-        $routeName = 'history_summary';
-        chatLogger("[SMART-ROUTER] 最終ルート決定: {$routeName}");
-        require_once __DIR__ . '/chat_history_summary.php';
-        runHistorySummaryRoute($pdo, $project_id, $message, $reasoning_model, $prompt_key, $user_id, $role);
-
-    } elseif (preg_match($global_cross_pattern, $message)) {
-        $routeName = 'global_cross';
-        chatLogger("[SMART-ROUTER] 明示的な全社横断キーワードを検出。強制的に「グローバル調査エージェント(ReAct)」をキックします。");
-        chatLogger("[SMART-ROUTER] 最終ルート決定: {$routeName}");
-
-        require_once __DIR__ . '/chat_global.php';
-        runGlobalChatRoute($pdo, $ollama_host, $message, $reasoning_model, $synthesis_model, $prompt_key, $user_id, $role);
-
-    } elseif ($project_id === null) {
-        // ━━━━【全社横断ルート: グローバル・データベース・エージェント】━━━━
-        $routeName = 'global_no_project';
-        chatLogger("[SMART-ROUTER] 最終ルート決定: {$routeName}");
-        require_once __DIR__ . '/chat_global.php';
-        runGlobalChatRoute($pdo, $ollama_host, $message, $reasoning_model, $synthesis_model, $prompt_key, $user_id, $role);
-
-    } elseif ($is_analysis_mode && !$advanced_reasoning) {
-        // ━━━━【集計ルート: Text-to-SQL データ分析エージェント】━━━━
-        $routeName = 'data_analysis';
-        chatLogger("[SMART-ROUTER] 最終ルート決定: {$routeName}");
-        require_once __DIR__ . '/chat_analysis.php';
-        runAdvancedReasoningRoute($pdo, $ollama_host, $project_id, $message, $reasoning_model, $prompt_key, $project_context, $history_summary_text, $user_id, $role, $report_mode, $diagram_mode);
-
-    } elseif ($advanced_reasoning) {
-        // ━━━━【重厚ルート: フル思考ハイブリッド・エージェント (RAG & SQL)】━━━━
-        $routeName = 'advanced_hybrid';
-        chatLogger("[SMART-ROUTER] 最終ルート決定: {$routeName}");
-        require_once __DIR__ . '/chat_advanced.php';
-        runAdvancedReasoningRoute($pdo, $ollama_host, $project_id, $message, $search_query, $reasoning_id, $reasoning_model, $synthesis_model, $prompt_key, $project_context, $history_summary_text, $user_id, $role, $report_mode, $diagram_mode);
-
-    } else {
-        // ━━━━【通常ルート: 一問一答型 RAG ストリーミング】━━━━
-        $routeName = 'normal_rag';
-        chatLogger("[SMART-ROUTER] 最終ルート決定: {$routeName}");
-        require_once __DIR__ . '/chat_normal.php';
-
-        $engine       = new EmbeddingEngine($ollama_host, "mxbai-embed-large");
-        $vectorSearch = new VectorSearch($pdo);
-        
-        runNormalStreamingRoute($pdo, $ollama_host, $project_id, $message, $search_query, $reasoning_model, $prompt_key, $project_context, $history_summary_text, $vectorSearch, $engine, $user_id, $role, $report_mode, $diagram_mode);
-    }
+    $dispatcher = new ChatRouteDispatcher('chatLogger');
+    $routeName = $dispatcher->dispatch([
+        'pdo' => $pdo,
+        'ollama_host' => $ollama_host,
+        'project_id' => $project_id,
+        'message' => $message,
+        'search_query' => $search_query,
+        'reasoning_id' => $reasoning_id,
+        'reasoning_model' => $reasoning_model,
+        'synthesis_model' => $synthesis_model,
+        'prompt_key' => $prompt_key,
+        'project_context' => $project_context,
+        'history_summary_text' => $history_summary_text,
+        'user_id' => $user_id,
+        'role' => $role,
+        'report_mode' => $report_mode,
+        'diagram_mode' => $diagram_mode,
+        'advanced_reasoning' => $advanced_reasoning,
+        'is_analysis_mode' => $is_analysis_mode,
+        'is_history_summary_mode' => $is_history_summary_mode,
+    ]);
 
     chatLogger("[SMART-ROUTER] ルート処理完了: {$routeName} | elapsed: " . number_format(microtime(true) - $routeStart, 2) . "秒");
 
