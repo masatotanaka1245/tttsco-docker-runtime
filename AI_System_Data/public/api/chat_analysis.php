@@ -381,6 +381,10 @@ class AdvancedReasoningRouteProcessor {
         $csvAggregationAnswerFormatter = $this->getCsvAggregationAnswerFormatter();
         chatLogger("[CSV-AGG] 集計プリフライト開始 - scope: {$plan['scope']} | aggregate: {$plan['aggregate_type']} | date_granularity: {$plan['date_granularity']} | target_file: " . ($plan['target_file_name'] ?? 'all'));
 
+        if (($plan['aggregation_mode'] ?? '') === 'distinct_count') {
+            return $this->executeCsvDistinctCountRoute($plan, $routeStart, $csvAggregationAnswerFormatter);
+        }
+
         sendSSE('status', [
             'step' => 2,
             'message' => '🧭 集計意図を判定し、CSVサンプルから日付列候補を探索しています...'
@@ -457,6 +461,51 @@ class AdvancedReasoningRouteProcessor {
         return true;
     }
 
+    private function executeCsvDistinctCountRoute(array $plan, float $routeStart, CsvAggregationAnswerFormatter $formatter): bool {
+        $target = $this->findCsvAggregationFileTarget((string)($plan['target_file_name'] ?? ''));
+        $targetColumn = (string)($plan['target_column'] ?? '');
+        if ($target === null || $targetColumn === '') {
+            chatLogger("[CSV-AGG] distinct_count の対象ファイルまたは列を解決できませんでした。CSV証拠読解ルートへフォールバックします。");
+            return false;
+        }
+
+        sendSSE('status', [
+            'step' => 2,
+            'message' => '🧭 集計対象のCSVと列を特定しています...'
+        ]);
+
+        $this->insertReasoningStep(
+            1,
+            'CSV distinct count プリフライト',
+            "【集計計画】\n" . json_encode($plan, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
+            . "\n\n【対象CSV】\n" . json_encode($target, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
+        );
+
+        sendSSE('status', [
+            'step' => 3,
+            'message' => '📊 対象列の重複除外件数を集計しています...'
+        ]);
+
+        $queryBuilder = $this->getCsvAggregationQueryBuilder();
+        $sql = $queryBuilder->buildDistinctCountSql((int)$target['csv_file_id'], $targetColumn);
+        chatLogger("[CSV-AGG-SQL] file={$target['file_name']} | column={$targetColumn} | sql={$sql}");
+
+        $stmt = $this->pdo->query($sql);
+        $row = $stmt ? $stmt->fetch(PDO::FETCH_ASSOC) : false;
+        $distinctCount = (int)($row['distinct_count'] ?? 0);
+
+        $this->finalResponse = $formatter->buildDistinctCountAnswer($plan, $target, $distinctCount);
+        $this->subAnswers[] = $this->finalResponse;
+        $this->insertReasoningStep(
+            90,
+            'CSV distinct count SQL の実行結果',
+            "### {$target['file_name']} / {$targetColumn}\n```sql\n{$sql}\n```\n- distinct_count: {$distinctCount}"
+        );
+        chatLogger("[CSV-AGG] distinct_count ルート完了 - count: {$distinctCount} | elapsed: " . $this->elapsedSeconds($routeStart));
+        $this->completeCsvRoute();
+        return true;
+    }
+
     private function detectCsvAggregationTargets(array $plan): array {
         $csvMetadataCatalog = $this->getCsvMetadataCatalog();
         $csvSampleRowRepository = $this->getCsvSampleRowRepository();
@@ -483,6 +532,28 @@ class AdvancedReasoningRouteProcessor {
         }
 
         return $targets;
+    }
+
+    private function findCsvAggregationFileTarget(string $targetFileName): ?array {
+        if ($targetFileName === '') {
+            return null;
+        }
+
+        $csvMetadataCatalog = $this->getCsvMetadataCatalog();
+        foreach ($csvMetadataCatalog->loadFiles() as $file) {
+            if ((string)$file['file_name'] !== $targetFileName) {
+                continue;
+            }
+
+            return [
+                'csv_file_id' => (int)$file['id'],
+                'file_name' => (string)$file['file_name'],
+                'row_count' => (int)$file['row_count'],
+                'columns' => $file['columns'],
+            ];
+        }
+
+        return null;
     }
 
     private function executeCsvDateAggregationQuery(array $target, string $dateColumn, array $plan): array {
@@ -723,7 +794,8 @@ class AdvancedReasoningRouteProcessor {
         $csvSearchService = $this->getCsvSearchService();
         $this->csvAggregationPlanner = new CsvAggregationPlanner(
             $this->createUtf8Normalizer(),
-            $this->createMentionedCsvFileNameResolver($csvSearchService)
+            $this->createMentionedCsvFileNameResolver($csvSearchService),
+            $this->createCsvMetadataLoader()
         );
 
         return $this->csvAggregationPlanner;
@@ -816,6 +888,12 @@ class AdvancedReasoningRouteProcessor {
     private function createMentionedCsvFileNameResolver(CsvSearchService $csvSearchService): callable {
         return function (string $question) use ($csvSearchService): ?string {
             return $csvSearchService->findMentionedCsvFileName($question);
+        };
+    }
+
+    private function createCsvMetadataLoader(): callable {
+        return function (): array {
+            return $this->getCsvMetadataCatalog()->loadFiles();
         };
     }
 

@@ -664,6 +664,19 @@ function initDebugLogViewer() {
     }
 }
 
+function syncChatModeToggles() {
+    const advancedReasoningMode = document.getElementById('advanced-reasoning-mode');
+    const reportModeEl = document.getElementById('report-mode');
+    if (!advancedReasoningMode || !reportModeEl || reportModeEl.dataset.boundSync === 'true') return;
+
+    reportModeEl.dataset.boundSync = 'true';
+    reportModeEl.addEventListener('change', () => {
+        if (reportModeEl.checked) {
+            advancedReasoningMode.checked = true;
+        }
+    });
+}
+
 // =========================================================================
 // 2. メインエクスポートモジュール関数群
 // =========================================================================
@@ -696,6 +709,9 @@ function handleChat(e) {
     const diagramModeEl = document.getElementById('diagram-mode');
     const reportMode = reportModeEl ? reportModeEl.checked : false;
     const diagramMode = diagramModeEl ? diagramModeEl.checked : false;
+    if (reportMode && advancedReasoningMode && !advancedReasoningMode.checked) {
+        advancedReasoningMode.checked = true;
+    }
     const advancedReasoning = reportMode || (advancedReasoningMode ? advancedReasoningMode.checked : false);
     const reasoningId = advancedReasoning ? generateUUID() : null;
     const initialStatusText = reportMode
@@ -1118,6 +1134,7 @@ function initExistingCharts() {
 // =========================================================================
 document.addEventListener('DOMContentLoaded', () => {
     setTimeout(initExistingCharts, 150);
+    syncChatModeToggles();
 
     document.getElementById('btn-close-chart-modal')?.addEventListener('click', () => {
         if (activeModalChart) {

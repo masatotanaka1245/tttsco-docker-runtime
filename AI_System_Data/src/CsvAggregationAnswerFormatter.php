@@ -2,6 +2,29 @@
 
 class CsvAggregationAnswerFormatter
 {
+    public function buildDistinctCountAnswer(array $plan, array $target, int $distinctCount): string
+    {
+        $fileName = (string)($target['file_name'] ?? ($plan['target_file_name'] ?? '対象CSV'));
+        $column = (string)($plan['target_column'] ?? '');
+        $rowCount = (int)($target['row_count'] ?? 0);
+        $columns = $target['columns'] ?? [];
+
+        $lines = [];
+        $lines[] = "{$fileName} の {$column} 列を対象に、重複を除いた件数を集計しました。";
+        $lines[] = "";
+        $lines[] = "- 対象CSV: {$fileName}";
+        $lines[] = "- 集計列: {$column}";
+        $lines[] = "- ユニーク件数: {$distinctCount}件";
+        if ($rowCount > 0) {
+            $lines[] = "- 元レコード数: {$rowCount}件";
+        }
+        if (!empty($columns)) {
+            $lines[] = "- 主な項目: " . implode(' / ', array_slice($columns, 0, 8));
+        }
+
+        return implode("\n", $lines);
+    }
+
     public function buildStructuredAggregationAnswer(array $plan, array $aggregatedRows, array $targets, bool $diagramMode = false): string
     {
         $targetFileCount = count(array_unique(array_map(fn($row) => $row['file_name'], $aggregatedRows)));

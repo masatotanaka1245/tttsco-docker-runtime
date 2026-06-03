@@ -174,11 +174,12 @@ if (!function_exists('factorizeChatRequest')) {
             }
         }
 
-        $hasAggregateIntent = preg_match('/(集計|件数|合計|平均|表に|一覧|推移|時系列|別に|グループ)/u', $message) === 1;
+        $hasAggregateIntent = preg_match('/(集計|件数|合計|平均|表に|一覧|推移|時系列|別に|グループ|何種類|ユニーク|distinct|重複なし)/iu', $message) === 1;
         $hasSummaryIntent = preg_match('/(要約|まとめ|概要|内容を要約|内容をまとめ|どんな内容|内容を教えて)/u', $message) === 1;
         $hasDateIntent = preg_match('/(日付|日時|年月日|月別|年別|日別|date|timestamp|時刻)/iu', $message) === 1;
         $hasDocReference = preg_match('/(PDF|pdf|資料|図面|仕様書|文書|設計書|報告書)/u', $message) === 1;
         $hasDocActionIntent = preg_match('/(留意点|注意点|確認すべき|確認事項|法規|基準|安全面|設計上|施工前|不明点|見落とし|箇条書きで抽出|箇条書きで|抽出してください)/u', $message) === 1;
+        $hasDistinctIntent = preg_match('/(何種類|ユニーク|distinct|重複なし|種類数)/iu', $message) === 1;
         $targetsAllCsv = preg_match('/(全て|すべて|全部|全件)/u', $message) === 1
             && preg_match('/(CSV|csv|ファイル|データ|レコード|行)/u', $message) === 1;
 
@@ -207,6 +208,12 @@ if (!function_exists('factorizeChatRequest')) {
             $timeAxis = preg_match('/(月別|月ごと)/u', $message) === 1
                 ? 'month'
                 : (preg_match('/(年別|年ごと)/u', $message) === 1 ? 'year' : 'day');
+            $route = 'data_analysis.csv_agg';
+        } elseif ($mentionedCsv !== null && $hasAggregateIntent && $hasDistinctIntent) {
+            $intent = 'aggregate';
+            $target = 'single_csv';
+            $scope = 'file_content';
+            $operation = 'distinct_count';
             $route = 'data_analysis.csv_agg';
         } elseif ($hasSummaryIntent && $mentionedCsv !== null) {
             $intent = 'summarize';
@@ -441,10 +448,17 @@ try {
     $reasoning_id   = $input['reasoning_id'] ?? ($input['advanced_reasoning_id'] ?? null);
     $report_mode    = (isset($input['report_mode']) && $input['report_mode'] === true);
     $diagram_mode   = (isset($input['diagram_mode']) && $input['diagram_mode'] === true);
+    $input_advanced_reasoning = (isset($input['advanced_reasoning']) && $input['advanced_reasoning'] === true);
 
     chatLogger("=== 新着チャット受信 | Host: {$ollama_host} | Model: {$selected_model} ===");
     chatLogger("ユーザー: {$username} (ID: {$user_id}) | 案件ID: " . ($project_id ?? 'NULL (汎用)'));
     chatLogger("質問内容: " . mb_substr($message, 0, 50) . (mb_strlen($message) > 50 ? '...' : ''));
+    chatLogger(
+        "[INPUT-MODE] prompt_mode={$prompt_key} | advanced_reasoning=" . ($input_advanced_reasoning ? 'on' : 'off') .
+        " | reasoning_id=" . ($reasoning_id ?: 'none') .
+        " | report_mode=" . ($report_mode ? 'on' : 'off') .
+        " | diagram_mode=" . ($diagram_mode ? 'on' : 'off')
+    );
     if ($report_mode || $diagram_mode) {
         chatLogger("[OUTPUT-MODE] report_mode=" . ($report_mode ? 'on' : 'off') . " | diagram_mode=" . ($diagram_mode ? 'on' : 'off'));
     }
@@ -482,7 +496,7 @@ try {
     $history_summary_pattern = '/((これまで|今まで|過去|直近).*(会話|やりとり|チャット|履歴).*(まとめ|要約|整理)|((会話|やりとり|チャット|履歴).*(まとめ|要約|整理)))/u';
     $structured_analysis_pattern = '/(transaction_uid|login_seconds|row_data|APP_\d+|ユーザー.*(操作|時間)|操作.*(時間|秒|秒数)|ログイン秒|利用時間|滞在時間|実行時間)/iu';
     $normal_rag_preferred_pattern = '/(良い案|よい案|方法|支援する方法|設計書案|仕様書案|要件定義|システム.*構築|提案|企画|たたき台|ドラフト)/u';
-    $explicit_advanced = (isset($input['advanced_reasoning']) && $input['advanced_reasoning'] === true);
+    $explicit_advanced = $input_advanced_reasoning;
     $factorizedQuery = factorizeChatRequest($pdo, $project_id, $message);
     if (($factorizedQuery['route'] ?? null) !== null) {
         chatLogger("[SMART-ROUTER] 質問因数分解: " . json_encode($factorizedQuery, JSON_UNESCAPED_UNICODE));
