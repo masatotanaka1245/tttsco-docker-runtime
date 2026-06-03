@@ -73,6 +73,12 @@
   - `[CSV-AGG-SQL]`
   - `[EVAL-POLICY]`
   - `[SQL-REPAIR-POLICY]`
+- 実動作確認をしやすくするため、可能なら最終回答本文もログへ残す
+  - 推奨キー:
+    - `[FINAL-ANSWER]`
+    - `[FINAL-ANSWER-QUESTION]`
+    - `[FINAL-ANSWER-BODY]`
+  - ただし長文はそのまま無制限に出さず、文字数と切り詰め有無も併記する
 - 既存ログの意味を変える場合は、名称変更ではなく追加ログを優先する
 
 ### 3.3 検証方針
@@ -80,6 +86,16 @@
 - 可能なら、構文チェックだけでなく関連ログの流れも確認する
 - ただし、ログインセッションやブラウザ状態が必要な確認は、無理に自動化しない
 - ブラウザ実動作確認が必要な場合は、確認観点をユーザーへ明示する
+
+### 3.4 質問因数分解の扱い
+
+- チャット受信時の質問解釈は、自由文のまま分岐させず、できるだけ構造化して扱う
+- ルーティング前の粗い因数分解と、各ルート内の詳細計画は分ける
+- 因数分解の目的は以下とする
+  - どのルートへ送るべきかを安定化する
+  - 単一CSV / 全CSV / PDF / 案件全体の取り違えを減らす
+  - 集計 / 要約 / 検索 / 比較の意図混線を減らす
+  - 改善フェーズでの判定修正を、場当たりの正規表現追加だけにしない
 
 ## 4. 主要ファイルの責務
 
@@ -156,6 +172,101 @@
 4. 改善フェーズ
    - 分離後に、必要な挙動改善を入れる
 
+### 質問因数分解スキーマ
+
+- 改善フェーズでは、質問を最低限以下のキーへ因数分解して扱う
+  - `intent`
+    - `summarize`
+    - `aggregate`
+    - `search`
+    - `compare`
+    - `explain`
+    - `report`
+  - `target`
+    - `single_csv`
+    - `all_csv`
+    - `pdf`
+    - `project`
+    - `history`
+  - `target_file_name`
+    - 単一CSVや単一資料が推定できる場合に設定する
+  - `scope`
+    - `file_content`
+    - `records_with_date`
+    - `matching_records`
+    - `project_wide`
+  - `operation`
+    - `count`
+    - `sum`
+    - `average`
+    - `list`
+    - `summarize`
+    - `extract_evidence`
+  - `time_axis`
+    - `none`
+    - `day`
+    - `month`
+    - `year`
+  - `output_format`
+    - `table`
+    - `bullets`
+    - `prose`
+    - `report`
+  - `route`
+    - `normal_rag`
+    - `data_analysis.csv_agg`
+    - `data_analysis.csv_evidence`
+    - `data_analysis.csv_summary`
+    - `advanced_hybrid`
+
+### 因数分解の実装方針
+
+- 第1段: 入口の粗い因数分解
+  - 実装場所は基本的に `AI_System_Data/public/api/chat.php`
+  - 役割:
+    - 何をしたい質問か
+    - 主対象は何か
+    - どのルートへ送るべきか
+- 第2段: ルート内の詳細計画
+  - CSV系は `AI_System_Data/public/api/chat_analysis.php`
+  - 高度分析系は `AI_System_Data/public/api/chat_advanced.php`
+  - 役割:
+    - どの列を使うか
+    - SQL集計に向くか
+    - evidence読解に向くか
+    - 表 / 箇条書き / 文章のどれで返すか
+
+### 因数分解の具体例
+
+- `「出荷一覧表」を日付別に集計してください。`
+  - `intent=aggregate`
+  - `target=single_csv`
+  - `target_file_name=出荷一覧表`
+  - `scope=records_with_date`
+  - `operation=count`
+  - `time_axis=day`
+  - `output_format=table`
+  - `route=data_analysis.csv_agg`
+
+- `全てのcsvファイルから、日付のあるレコードを特定して、日付別にどのような情報があるか、表にしてください。`
+  - `intent=aggregate`
+  - `target=all_csv`
+  - `scope=records_with_date`
+  - `operation=count`
+  - `time_axis=day`
+  - `output_format=table`
+  - `route=data_analysis.csv_agg`
+
+- `出荷一覧表の内容を要約してください。`
+  - `intent=summarize`
+  - `target=single_csv`
+  - `target_file_name=出荷一覧表`
+  - `scope=file_content`
+  - `operation=summarize`
+  - `time_axis=none`
+  - `output_format=prose`
+  - `route=data_analysis.csv_summary`
+
 ### 棚卸し対象
 
 - `AI_System_Data/public/api/chat.php`
@@ -214,20 +325,87 @@
 
 ### 次の優先候補
 
-- `chat_advanced.php` の無害整理をもう少しだけ継続する
-  - まだ自然に名前付き helper へ寄せられる小さな重複があるか確認
-  - 薄すぎる整理しか残っていないなら、この段は完了と判断する
-- `chat_analysis.php` と `chat_advanced.php` の共通化候補を棚卸しする
-  - logger callback
-  - 完了処理
-  - 出力モード判定
-  - 正規化 helper
-  - route / plan / evidence 系の共通責務
-- 次段として、改善フェーズへ進むかを判断する
-  - 集計質問の優先制御
-  - 0件時の再探索
-  - 評価結果の `next_action` / `sql_hint` 活用
-  - AI因数分解JSONの導入検討
+- 改善フェーズへ入る
+  - まず質問因数分解スキーマを基準として扱う
+  - 場当たりの正規表現追加ではなく、`intent / target / route` の整合で判断する
+- `chat.php` に粗い因数分解を導入する
+  - 単一CSV集計
+  - 全CSV集計
+  - 単一CSV要約
+  - CSV名言及ありの通常RAG誤流入
+- `chat_analysis.php` にCSV専用の詳細因数分解を導入する
+  - 構造化集計へ送る条件
+  - evidence読解へ送る条件
+  - metadata / summary へ送る条件
+- 集計改善を入れる
+  - 単一CSV集計が `CSV-EVIDENCE` へ落ちないようにする
+  - 日付列誤判定を減らす
+  - 0件時の再探索方針を定義する
+- `chat_advanced.php` の改善を入れる
+  - 資料中心質問では、不要なSQL生成シーケンスを先に踏まない
+  - `semantic_extract + doc_chunks/documents` は資料RAG優先へ寄せる
+  - `doc_chunks` 抽出は PDF優先・件数制限つきの定番SQLでノイズを減らす
+  - `doc-only semantic_extract` では、重い統合・品質審査ループを短い最終整形へ寄せる
+  - `doc-only semantic_extract` では、Planner も省略して定番プランへ寄せる
+  - 軽量最終整形は、重い通常ドラフト生成より前に適用する
+  - `doc-only semantic_extract` では、`doc_chunks` の中間考察LLMを挟まず、生の根拠断片を優先して最終整形へ渡す
+  - 資料系の確認質問は、明示的に `PDF` と書かれていなくても、案件文脈では `advanced_hybrid` の資料抽出候補として因数分解する
+  - `doc_chunks` の根拠断片は、そのまま先頭順で使わず、質問との近さと注意喚起っぽさで並べ替える
+
+### 判断メモ
+
+- `chat_analysis.php` の無害な整理フェーズは、CSV周辺については到達点にかなり近い
+- 今後は無害整理の継続より、質問因数分解を基準にした改善フェーズの価値が高い
+- とくに以下は優先度が高い
+  - 単一CSV集計要求を構造化集計へ安定して送ること
+  - CSV名つき要約要求を通常RAGではなくCSV要約へ安定して送ること
+  - OTPや識別子のような列を日付列と誤判定しないこと
+- 改善フェーズ着手:
+  - `chat.php` に粗い質問因数分解を導入し、単一CSV集計 / 全CSV集計 / 単一CSV要約を先に判定する
+  - `CsvSearchTermExtractor` のCSV名解決を、完全名だけでなくベース名でも一致しやすいよう改善する
+  - `CsvQuestionRouter` の要約判定を改善し、CSV名言及つき要約が `CSV-EVIDENCE` へ流れにくいようにする
+  - `CsvDateColumnDetector` の日付列判定を改善し、OTPや識別子を日付列と誤判定しにくいようにする
+  - `chat_advanced.php` で、`semantic_extract + doc_chunks/documents` の資料中心質問はシーケンス1のSQL分析をスキップし、資料RAGへ直接移行する
+  - `chat_advanced.php` で、資料PDF抽出時は `documents + doc_chunks` の定番SQLを使い、`AI報告書` などのノイズ源を減らす
+  - `chat_advanced.php` で、資料PDFの留意点抽出は軽量最終回答ルートを使い、重い評価ループをできるだけ避ける
+  - `chat_advanced.php` で、資料PDFの留意点抽出は Planner を省略し、定番プランで資料巡回へ直行する
+  - `chat_advanced.php` で、軽量最終回答ルートを通常の重いドラフト生成より先に実行し、二重生成を避ける
+  - `chat_advanced.php` で、資料PDFの留意点抽出は `doc_chunks` の生本文・ページ・資料名をそのまま根拠として渡し、抽象的な中間考察で根拠を薄めない
+  - `chat.php` の粗い因数分解で、`施工前に確認すべき事項` のような資料系確認質問を `advanced_hybrid.doc_extract` へ寄せる
+  - `chat_advanced.php` の軽量最終回答ルートは、固定の「留意点」説明ではなく、元の質問文の依頼形式に従う
+  - `chat_advanced.php` で、資料紹介的な断片や図面リストより、質問に近い注意喚起・確認事項の断片を優先して最終整形へ渡す
+
+### 現時点の検証スナップショット
+
+- CSV系
+  - 単一CSV日付集計は `CSV-AGG` に安定して入る
+  - 全CSV日付集計も `CSV-AGG` に入り、OTP列の誤判定は解消済み
+  - 単一CSV要約は `CSV-SUMMARY` に入り、通常RAGへの誤流入は抑えられている
+- 資料PDF系 (`advanced_hybrid`)
+  - 資料抽出質問は `advanced_hybrid.doc_extract` として粗く因数分解できる
+  - シーケンス1 SQL分析スキップ、Plannerスキップ、定番SQL、軽量最終回答ルートは有効
+  - 全体時間はおおむね 60〜100 秒台まで短縮できている
+  - ただし精度はまだ改善余地がある
+    - 資料紹介・概要説明へ寄りやすい
+    - 質問ごとの差がまだ弱い
+    - 具体的な確認事項・留意点より、一般化した説明が前に出やすい
+- 運用判断
+  - 現時点では「経路最適化と観測性改善は一段成功」とみなしてよい
+  - 次にこの領域へ戻る場合は、速度改善よりも `advanced_hybrid` の回答精度改善を優先する
+  - いったん別作業へ移ってよい段階に入っている
+
+### 次の別作業候補
+
+- 報告書生成モードの改善
+  - `report_mode` では、最終回答をそのままPDF化するだけでなく、報告書専用の最終整形を一度通す
+  - 結論 / 分析対象 / 根拠 / 留意点 / 推奨アクション / 出典 の型を安定させる
+  - 一般的な資料紹介より、案件で確認できた事実と要確認事項を優先する
+  - `ReportGenerator` 側でも、参照データ概要を報告書の根拠メモとして見やすく残す
+- チャットの図・グラフモード改善
+  - まずはCSV集計結果の可視化から着手し、棒グラフ・折れ線などを安定出力する
+  - PDF系の質問では、図よりも表や要点整理の方が有効なケースを優先する
+  - 第1段では、`CSV-AGG` の構造化集計結果から deterministic に `json:chart` を組み立て、LLMに依存せずChart.js描画できる状態を優先する
+  - 第2段では、長すぎる系列ラベルを圧縮し、複数CSV・複数日付列が混在する場合は棒グラフへ寄せて比較しやすさを優先する
 
 ### 第1スプリントの扱い
 

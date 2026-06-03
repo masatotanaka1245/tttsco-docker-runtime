@@ -454,12 +454,12 @@ class ReportGenerator
     private function buildEvidenceHtml(array $evidence): string
     {
         $html = '';
-        foreach (['documents_text' => '登録資料', 'csv_text' => 'CSVデータ', 'reasoning_text' => '推論ステップ'] as $key => $label) {
+        foreach (['documents_text' => '登録資料', 'csv_text' => 'CSVデータ', 'reasoning_text' => '根拠メモ'] as $key => $label) {
             $value = trim((string)($evidence[$key] ?? ''));
             if ($value === '') {
                 continue;
             }
-            $html .= '<h3 class="small">' . $this->e($label) . '</h3><pre>' . $this->e($value) . '</pre>';
+            $html .= '<div class="box"><h3 class="small">' . $this->e($label) . '</h3><pre>' . $this->e($value) . '</pre></div>';
         }
         return $html !== '' ? $html : '<div class="box small">参照データはありません。</div>';
     }
@@ -681,7 +681,7 @@ class ReportGenerator
             $stmtSteps = $this->pdo->prepare('SELECT step_number, sub_query, sub_answer FROM chat_reasoning_steps WHERE session_id = ? ORDER BY step_number ASC LIMIT 20');
             $stmtSteps->execute([$reasoningSessionId]);
             foreach ($stmtSteps->fetchAll(PDO::FETCH_ASSOC) as $row) {
-                $steps[] = 'Step ' . $row['step_number'] . ': ' . $row['sub_query'] . "\n" . mb_substr((string)$row['sub_answer'], 0, 500);
+                $steps[] = 'Step ' . $row['step_number'] . ': ' . $row['sub_query'] . "\n" . $this->compactReasoningExcerpt((string)$row['sub_answer']);
             }
         }
 
@@ -690,6 +690,19 @@ class ReportGenerator
             'csv_text' => implode("\n", $csv),
             'reasoning_text' => implode("\n\n", $steps),
         ];
+    }
+
+    private function compactReasoningExcerpt(string $text): string
+    {
+        $text = $this->normalizeUtf8($text);
+        $text = preg_replace('/\[TEXT-ONLY-REWRITE\].*$/su', '', $text) ?? $text;
+        $text = preg_replace('/\s+/u', ' ', $text) ?? $text;
+        $text = trim($text);
+        if ($text === '') {
+            return '';
+        }
+
+        return mb_substr($text, 0, 700) . (mb_strlen($text) > 700 ? '...' : '');
     }
 
     private function splitTextIntoChunks(string $text, int $maxLength): array

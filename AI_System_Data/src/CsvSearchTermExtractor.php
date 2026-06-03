@@ -12,19 +12,23 @@ class CsvSearchTermExtractor
 
     public function findMentionedCsvFileName(string $question, array $csvMetadata): ?string
     {
-        $normalizedQuestion = $this->normalizeCsvRouteText($question);
-        if ($normalizedQuestion === '') {
+        $questionVariants = $this->buildCsvRouteTextVariants($question);
+        if (empty($questionVariants)) {
             return null;
         }
 
         foreach ($csvMetadata as $file) {
             $fileName = (string)($file['file_name'] ?? '');
-            $normalizedFile = $this->normalizeCsvRouteText($fileName);
-            if ($normalizedFile === '') {
-                continue;
-            }
-            if (mb_strpos($normalizedQuestion, $normalizedFile) !== false || mb_strpos($normalizedFile, $normalizedQuestion) !== false) {
-                return $fileName;
+            $fileVariants = $this->buildCsvRouteTextVariants($fileName);
+            foreach ($questionVariants as $questionVariant) {
+                foreach ($fileVariants as $fileVariant) {
+                    if ($fileVariant === '') {
+                        continue;
+                    }
+                    if (mb_strpos($questionVariant, $fileVariant) !== false || mb_strpos($fileVariant, $questionVariant) !== false) {
+                        return $fileName;
+                    }
+                }
             }
         }
 
@@ -125,6 +129,35 @@ class CsvSearchTermExtractor
             return true;
         }
         return false;
+    }
+
+    private function buildCsvRouteTextVariants(string $text): array
+    {
+        $variants = [];
+        $push = function (string $candidate) use (&$variants): void {
+            $normalized = $this->normalizeCsvRouteText($candidate);
+            if ($normalized !== '') {
+                $variants[$normalized] = true;
+            }
+        };
+
+        $text = trim($text);
+        if ($text === '') {
+            return [];
+        }
+
+        $push($text);
+        $withoutExt = preg_replace('/\.(csv|tsv)$/iu', '', $text);
+        $push((string)$withoutExt);
+
+        $baseName = preg_replace('/[（(].*$/u', '', (string)$withoutExt);
+        $push(trim((string)$baseName));
+
+        if (preg_match('/^[「『"“](.+)[」』"”]$/u', $text, $matches)) {
+            $push($matches[1]);
+        }
+
+        return array_keys($variants);
     }
 
     private function normalizeUtf8(string $text): string

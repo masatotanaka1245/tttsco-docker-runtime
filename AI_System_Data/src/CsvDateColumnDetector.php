@@ -29,9 +29,7 @@ class CsvDateColumnDetector
                 if (!isset($scores[$column])) {
                     $scores[$column] = 0;
                 }
-                if ($this->isDateLikeValue((string)$value)) {
-                    $scores[$column] += 2;
-                }
+                $scores[$column] += $this->scoreDateLikeValue($column, (string)$value);
             }
         }
 
@@ -47,7 +45,11 @@ class CsvDateColumnDetector
 
     public function isDateLikeColumnName(string $column): bool
     {
-        return preg_match('/(日付|日時|年月日|date|time|timestamp|created|updated|発注日|入荷日|受注日|診断日)/iu', $column) === 1;
+        if (preg_match('/(password|otp|one-time|recovery code|identifier|code)/iu', $column)) {
+            return false;
+        }
+
+        return preg_match('/(日付|日時|年月日|生年月日|date|timestamp|created|updated|発注日|入荷日|受注日|診断日|確認日)/iu', $column) === 1;
     }
 
     public function isDateLikeValue(string $value): bool
@@ -62,7 +64,7 @@ class CsvDateColumnDetector
         if (preg_match('/^\d{4}年\d{1,2}月\d{1,2}日/u', $value)) {
             return true;
         }
-        if (preg_match('/^\d{8}$/', $value)) {
+        if ($this->isCompactDateValue($value)) {
             return true;
         }
         return false;
@@ -119,6 +121,41 @@ class CsvDateColumnDetector
     {
         $key = str_replace('\\', '\\\\', $key);
         return str_replace("'", "\\'", $key);
+    }
+
+    private function scoreDateLikeValue(string $column, string $value): int
+    {
+        $normalized = trim($this->normalizeUtf8($value));
+        if ($normalized === '') {
+            return 0;
+        }
+
+        if (preg_match('/^\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}(?:\s+\d{1,2}:\d{1,2}(?::\d{1,2})?)?$/u', $normalized)) {
+            return 2;
+        }
+
+        if (preg_match('/^\d{4}年\d{1,2}月\d{1,2}日/u', $normalized)) {
+            return 2;
+        }
+
+        if ($this->isDateLikeColumnName($column) && $this->isCompactDateValue($normalized)) {
+            return 2;
+        }
+
+        return 0;
+    }
+
+    private function isCompactDateValue(string $value): bool
+    {
+        if (!preg_match('/^\d{8}$/', $value)) {
+            return false;
+        }
+
+        $year = (int)substr($value, 0, 4);
+        $month = (int)substr($value, 4, 2);
+        $day = (int)substr($value, 6, 2);
+
+        return $year >= 1900 && $year <= 2100 && checkdate($month, $day, $year);
     }
 
     private function normalizeUtf8(string $text): string

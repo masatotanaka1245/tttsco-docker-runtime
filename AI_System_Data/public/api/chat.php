@@ -105,10 +105,40 @@ if (!function_exists('normalizeCsvRouteText')) {
     }
 }
 
+if (!function_exists('buildCsvRouteTextVariants')) {
+    function buildCsvRouteTextVariants(string $text): array {
+        $variants = [];
+        $push = function (string $candidate) use (&$variants): void {
+            $normalized = normalizeCsvRouteText($candidate);
+            if ($normalized !== '') {
+                $variants[$normalized] = true;
+            }
+        };
+
+        $text = trim($text);
+        if ($text === '') {
+            return [];
+        }
+
+        $push($text);
+        $withoutExt = preg_replace('/\.(csv|tsv)$/iu', '', $text);
+        $push((string)$withoutExt);
+
+        $baseName = preg_replace('/[（(].*$/u', '', (string)$withoutExt);
+        $push(trim((string)$baseName));
+
+        if (preg_match('/^[「『"“](.+)[」』"”]$/u', $text, $matches)) {
+            $push($matches[1]);
+        }
+
+        return array_keys($variants);
+    }
+}
+
 if (!function_exists('findMentionedCsvFileName')) {
     function findMentionedCsvFileName(PDO $pdo, int $projectId, string $message): ?string {
-        $normalizedMessage = normalizeCsvRouteText($message);
-        if ($normalizedMessage === '') {
+        $messageVariants = buildCsvRouteTextVariants($message);
+        if (empty($messageVariants)) {
             return null;
         }
 
@@ -116,16 +146,93 @@ if (!function_exists('findMentionedCsvFileName')) {
         $stmt->execute([$projectId]);
         foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $fileName) {
             $fileName = (string)$fileName;
-            $normalizedFile = normalizeCsvRouteText($fileName);
-            if ($normalizedFile === '') {
-                continue;
-            }
-            if (mb_strpos($normalizedMessage, $normalizedFile) !== false || mb_strpos($normalizedFile, $normalizedMessage) !== false) {
-                return $fileName;
+            $fileVariants = buildCsvRouteTextVariants($fileName);
+            foreach ($messageVariants as $messageVariant) {
+                foreach ($fileVariants as $fileVariant) {
+                    if ($fileVariant === '') {
+                        continue;
+                    }
+                    if (mb_strpos($messageVariant, $fileVariant) !== false || mb_strpos($fileVariant, $messageVariant) !== false) {
+                        return $fileName;
+                    }
+                }
             }
         }
 
         return null;
+    }
+}
+
+if (!function_exists('factorizeChatRequest')) {
+    function factorizeChatRequest(PDO $pdo, ?int $projectId, string $message): array {
+        $mentionedCsv = null;
+        if ($projectId !== null) {
+            try {
+                $mentionedCsv = findMentionedCsvFileName($pdo, (int)$projectId, $message);
+            } catch (Throwable $e) {
+                $mentionedCsv = null;
+            }
+        }
+
+        $hasAggregateIntent = preg_match('/(集計|件数|合計|平均|表に|一覧|推移|時系列|別に|グループ)/u', $message) === 1;
+        $hasSummaryIntent = preg_match('/(要約|まとめ|概要|内容を要約|内容をまとめ|どんな内容|内容を教えて)/u', $message) === 1;
+        $hasDateIntent = preg_match('/(日付|日時|年月日|月別|年別|日別|date|timestamp|時刻)/iu', $message) === 1;
+        $hasDocReference = preg_match('/(PDF|pdf|資料|図面|仕様書|文書|設計書|報告書)/u', $message) === 1;
+        $hasDocActionIntent = preg_match('/(留意点|注意点|確認すべき|確認事項|法規|基準|安全面|設計上|施工前|不明点|見落とし|箇条書きで抽出|箇条書きで|抽出してください)/u', $message) === 1;
+        $targetsAllCsv = preg_match('/(全て|すべて|全部|全件)/u', $message) === 1
+            && preg_match('/(CSV|csv|ファイル|データ|レコード|行)/u', $message) === 1;
+
+        $intent = 'unknown';
+        $target = 'unknown';
+        $scope = 'unknown';
+        $operation = 'unknown';
+        $timeAxis = 'none';
+        $outputFormat = preg_match('/(表に|表形式|テーブル|一覧で|一覧にして)/u', $message) === 1 ? 'table' : 'prose';
+        $route = null;
+
+        if ($hasAggregateIntent && $hasDateIntent && $mentionedCsv !== null) {
+            $intent = 'aggregate';
+            $target = 'single_csv';
+            $scope = 'records_with_date';
+            $operation = 'count';
+            $timeAxis = preg_match('/(月別|月ごと)/u', $message) === 1
+                ? 'month'
+                : (preg_match('/(年別|年ごと)/u', $message) === 1 ? 'year' : 'day');
+            $route = 'data_analysis.csv_agg';
+        } elseif ($hasAggregateIntent && $hasDateIntent && $targetsAllCsv) {
+            $intent = 'aggregate';
+            $target = 'all_csv';
+            $scope = 'records_with_date';
+            $operation = 'count';
+            $timeAxis = preg_match('/(月別|月ごと)/u', $message) === 1
+                ? 'month'
+                : (preg_match('/(年別|年ごと)/u', $message) === 1 ? 'year' : 'day');
+            $route = 'data_analysis.csv_agg';
+        } elseif ($hasSummaryIntent && $mentionedCsv !== null) {
+            $intent = 'summarize';
+            $target = 'single_csv';
+            $scope = 'file_content';
+            $operation = 'summarize';
+            $route = 'data_analysis.csv_summary';
+        } elseif ($projectId !== null && !$targetsAllCsv && $mentionedCsv === null && ($hasDocReference || $hasDocActionIntent)) {
+            $intent = 'extract_evidence';
+            $target = 'pdf';
+            $scope = 'project_wide';
+            $operation = 'extract_evidence';
+            $outputFormat = preg_match('/(箇条書き|3点|3つ|列挙|リスト)/u', $message) === 1 ? 'bullets' : $outputFormat;
+            $route = 'advanced_hybrid.doc_extract';
+        }
+
+        return [
+            'intent' => $intent,
+            'target' => $target,
+            'target_file_name' => $mentionedCsv,
+            'scope' => $scope,
+            'operation' => $operation,
+            'time_axis' => $timeAxis,
+            'output_format' => $outputFormat,
+            'route' => $route,
+        ];
     }
 }
 
@@ -370,6 +477,10 @@ try {
     $structured_analysis_pattern = '/(transaction_uid|login_seconds|row_data|APP_\d+|ユーザー.*(操作|時間)|操作.*(時間|秒|秒数)|ログイン秒|利用時間|滞在時間|実行時間)/iu';
     $normal_rag_preferred_pattern = '/(良い案|よい案|方法|支援する方法|設計書案|仕様書案|要件定義|システム.*構築|提案|企画|たたき台|ドラフト)/u';
     $explicit_advanced = (isset($input['advanced_reasoning']) && $input['advanced_reasoning'] === true);
+    $factorizedQuery = factorizeChatRequest($pdo, $project_id, $message);
+    if (($factorizedQuery['route'] ?? null) !== null) {
+        chatLogger("[SMART-ROUTER] 質問因数分解: " . json_encode($factorizedQuery, JSON_UNESCAPED_UNICODE));
+    }
     if ($report_mode && $project_id !== null) {
         $explicit_advanced = true;
         chatLogger("[SMART-ROUTER] 報告書モードを検知。PDF生成・検索登録のためフル思考ルートへ寄せます。");
@@ -426,10 +537,23 @@ try {
         $is_analysis_mode = true;
         chatLogger("[SMART-ROUTER] 構造化データ参照に適した質問を検知。データ分析ルートを優先します。");
 
+    } elseif ($project_id !== null && ($factorizedQuery['route'] ?? null) === 'data_analysis.csv_agg') {
+        $is_analysis_mode = true;
+        chatLogger("[SMART-ROUTER] 質問因数分解によりCSV集計ルートを優先します。target=" . ($factorizedQuery['target'] ?? 'unknown') . " | file=" . ($factorizedQuery['target_file_name'] ?? 'all'));
+
+    } elseif ($project_id !== null && ($factorizedQuery['route'] ?? null) === 'data_analysis.csv_summary') {
+        $is_analysis_mode = true;
+        chatLogger("[SMART-ROUTER] 質問因数分解によりCSV要約ルートを優先します。file=" . ($factorizedQuery['target_file_name'] ?? 'unknown'));
+
     } elseif ($project_id !== null && preg_match($csv_evidence_pattern, $message)) {
         // CSVの内容・概要・項目確認は、SQL自由生成より先に「証拠全件読解」分析ルートへ流す
         $is_analysis_mode = true;
         chatLogger("[SMART-ROUTER] CSV証拠読解に適した質問を検知。CSV全件証拠収集ルートを優先します。");
+
+    } elseif ($project_id !== null && ($factorizedQuery['route'] ?? null) === 'advanced_hybrid.doc_extract') {
+        $advanced_reasoning = true;
+        $is_analysis_mode   = false;
+        chatLogger("[SMART-ROUTER] 質問因数分解により資料PDF抽出ルートを優先します。target=" . ($factorizedQuery['target'] ?? 'unknown'));
 
     } elseif (preg_match($normal_rag_preferred_pattern, $message)) {
         $prefer_normal_rag = true;

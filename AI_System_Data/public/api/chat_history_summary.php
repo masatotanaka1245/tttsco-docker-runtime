@@ -251,6 +251,7 @@ class HistorySummaryRouteProcessor {
     }
 
     private function sendFinalResult(): void {
+        $this->logFinalResponseSnapshot('history_summary', $this->finalResponse);
         sendSSE('result', [
             'status' => 'success',
             'response' => $this->finalResponse,
@@ -262,6 +263,20 @@ class HistorySummaryRouteProcessor {
             'applied_model' => 'DB summary (no Ollama)',
             'created_at' => date('Y/m/d H:i')
         ]);
+    }
+
+    private function logFinalResponseSnapshot(string $routeName, string $response): void {
+        $normalized = trim((string)$response);
+        $normalized = preg_replace('/\s+/u', ' ', $normalized) ?? $normalized;
+        $limit = 4000;
+        $isTruncated = mb_strlen($normalized) > $limit;
+        $preview = $isTruncated ? mb_substr($normalized, 0, $limit) . '...' : $normalized;
+        $question = trim((string)$this->originalMessage);
+        $question = preg_replace('/\s+/u', ' ', $question) ?? $question;
+
+        chatLogger("[FINAL-ANSWER] route={$routeName} | questionChars=" . mb_strlen($question) . " | responseChars=" . mb_strlen($response) . " | truncated=" . ($isTruncated ? 'yes' : 'no'));
+        chatLogger("[FINAL-ANSWER-QUESTION] {$question}");
+        chatLogger("[FINAL-ANSWER-BODY] " . $preview);
     }
 
     private function compactText(string $text, int $limit): string {

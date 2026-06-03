@@ -390,7 +390,7 @@
 
       <h2 class="text-xl font-semibold sub-section text-slate-800">4.5 AIチャット・分析モード</h2>
       <p class="text-sm md:text-base text-slate-700">
-        <code>chat.php</code> はSSE形式のチャットエントリーポイントで、質問内容に応じて通常RAG、フル思考、CSV証拠読解、Text-to-SQL分析、admin専用全社横断調査の各ルートへ分岐する。ルーティング前に <code>ChatRequestGuard.php</code> が空入力、挨拶、誤送信に近い短文、報告書モードに不十分な指示を判定し、重い推論へ入る前に確認応答へ切り替える。通常RAGは <code>chat_normal.php</code>、多段階推論は <code>chat_advanced.php</code>、CSV証拠読解とText-to-SQL集計は <code>chat_analysis.php</code>、admin専用の全社横断調査は <code>chat_global.php</code> が担当する。回答と質問は <code>chat_history</code> に保存され、推論過程は <code>chat_reasoning_steps</code>、品質評価は <code>chat_evaluations</code> に保存される。高評価の回答は要点化され、FAQ候補として <code>project_faqs</code> に自動登録される。<code>SupportController.php</code> は保存済み推論ステップを再取得し、ブラウザ更新後もプロセス表示を復元する。
+        <code>chat.php</code> はSSE形式のチャットエントリーポイントで、まず質問を粗く因数分解し、通常RAG、<code>advanced_hybrid.doc_extract</code>、CSV証拠読解、CSV構造化集計（<code>CSV-AGG</code>）、CSV要約、admin専用全社横断調査の各ルートへ分岐する。ルーティング前に <code>ChatRequestGuard.php</code> が空入力、挨拶、誤送信に近い短文、報告書モードに不十分な指示を判定し、重い推論へ入る前に確認応答へ切り替える。通常RAGは <code>chat_normal.php</code>、多段階推論は <code>chat_advanced.php</code>、CSV証拠読解・CSV要約・構造化集計は <code>chat_analysis.php</code>、admin専用の全社横断調査は <code>chat_global.php</code> が担当する。回答と質問は <code>chat_history</code> に保存され、推論過程は <code>chat_reasoning_steps</code>、品質評価は <code>chat_evaluations</code> に保存される。高評価の回答は要点化され、FAQ候補として <code>project_faqs</code> に自動登録される。<code>SupportController.php</code> は保存済み推論ステップを再取得し、ブラウザ更新後もプロセス表示を復元する。
       </p>
 
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm mt-4">
@@ -410,14 +410,15 @@
             <li>100行以下のCSV概要質問はOllamaを呼ばず、DBレコードから即時サマリー生成</li>
             <li>詳細読解が必要な場合は、先にDB検索で対象行を絞り込み、ヒット行だけをバッチ読解</li>
             <li>検索語が弱い大規模CSV質問は、全件AI読解ではなくメタデータと代表サンプルの概況回答へ切替</li>
+            <li>日付集計質問は <code>CSV-AGG</code> に分岐し、日付列判定後の定番SQLで deterministic に件数集計する</li>
             <li>各段階の件数、検索語、ヒット件数、文字数、Ollama呼び出し時間を <code>chat_debug.log</code> に記録</li>
           </ul>
         </div>
         <div class="bg-amber-50 border border-amber-100 rounded-xl p-5">
           <h3 class="font-bold text-amber-800 mb-2">図解・報告書モード</h3>
           <ul class="list-disc list-inside text-slate-600 space-y-1">
-            <li>図解モードは、回答理解に有効な場合のみChart.jsグラフまたはMermaid図を回答へ追加する。</li>
-            <li>報告書モードは、チャット回答をHTML/CSSで整形し、サーバー側でmPDFを優先してPDFファイルとして出力する。</li>
+            <li>図解モードは、回答理解に有効な場合のみChart.jsグラフまたはMermaid図を回答へ追加する。CSV日付集計では <code>json:chart</code> を deterministic に生成し、単一CSVは折れ線、複数CSVは棒グラフを基本とする。</li>
+            <li>報告書モードは、チャット回答をそのままPDF化せず、結論 / 分析対象 / 根拠 / 留意点 / 推奨アクション / 出典の型へ最終整形してから、サーバー側でmPDFを優先してPDFファイルとして出力する。</li>
             <li>生成PDFは通常アップロードPDFと同じ保存領域に配置し、documentsへ親レコードとして登録する。</li>
             <li>報告書本文は生成時のテキストを直接チャンク化し、doc_chunksへ登録するため、再OCRせず高速に検索対象化できる。</li>
             <li>報告書モードでも入力が不明瞭な場合はPDF生成を行わず、確認応答で終了する。</li>
@@ -427,7 +428,7 @@
 
       <h2 class="text-xl font-semibold sub-section text-slate-800">4.6 ログ・運用設定</h2>
       <p class="text-sm md:text-base text-slate-700">
-        ログは <code>logs/</code> 配下に出力する。<code>upload_debug.log</code> はアップロードやCSV/PG取込の進捗、<code>chat_debug.log</code> はチャットのルート判定、入力ガード、DB収集、SQL生成・監査、Ollama送受信、評価、履歴保存までの詳細ログ、<code>app_error.log</code> はAPI内部エラーを記録する。support.phpにはadmin向けのリアルタイムログビューアがあり、<code>chat_debug_tail.php</code> で追記分をtail表示できる。<code>[INPUT-GUARD]</code>、<code>[SQL-REPAIR-POLICY]</code>、<code>[EVAL-POLICY]</code> により、誤送信抑止、SQL修復上限、品質評価上限を確認できる。本番では詳細例外を画面に出さず、ログ肥大化に注意して運用する。
+        ログは <code>logs/</code> 配下に出力する。<code>upload_debug.log</code> はアップロードやCSV/PG取込の進捗、<code>chat_debug.log</code> はチャットのルート判定、粗い質問因数分解、入力ガード、DB収集、SQL生成・監査、Ollama送受信、評価、履歴保存、最終回答本文までの詳細ログ、<code>app_error.log</code> はAPI内部エラーを記録する。support.phpにはadmin向けのリアルタイムログビューアがあり、<code>chat_debug_tail.php</code> で追記分をtail表示できる。<code>[INPUT-GUARD]</code>、<code>[SMART-ROUTER]</code>、<code>[CSV-AGG]</code>、<code>[SQL-REPAIR-POLICY]</code>、<code>[EVAL-POLICY]</code>、<code>[FINAL-ANSWER]</code> により、誤送信抑止、因数分解結果、構造化集計、SQL修復上限、品質評価上限、最終回答本文を確認できる。本番では詳細例外を画面に出さず、ログ肥大化に注意して運用する。
       </p>
     </section>
 
@@ -1040,7 +1041,7 @@ sequenceDiagram
 
     rect rgb(240, 253, 250)
     Note right of API: 【1. ルート判定】
-    API->>API: 意図解析によりCSV即答 / CSV証拠読解 / Text-to-SQLへ分岐
+    API->>API: 粗い質問因数分解によりCSV即答 / CSV証拠読解 / CSV-AGG / Text-to-SQLへ分岐
     alt 小規模CSVの概要・要約質問
       API->>DB: project_csv_files / project_csv_rows を取得
       API->>API: PHP側で列、件数、値サンプル、内容概要を即時生成
@@ -1052,28 +1053,27 @@ sequenceDiagram
       else ヒットなし、または検索語が弱い大規模CSV
         API->>API: メタデータと代表サンプルの概況回答へ切替
       end
-    else 集計・グラフ化質問
-    API->>DB: 対象のCSVヘッダー(スキーマ情報)を取得
-    API->>AI: スキーマ情報を渡し、集計SQLの作成を要求
-    AI-->>API: 実行可能な SELECT クエリを返却
+    else 日付集計・グラフ化質問
+      API->>DB: 対象CSVのヘッダーとサンプル行を取得
+      API->>API: 日付列候補を判定し、定番集計SQLを構築
     end
     end
 
     rect rgb(255, 247, 237)
-    Note right of API: 【2. 安全なSQL実行】
-    API->>API: SqlExecutionEngineでSQL監査、案件ID/CSV IDの所有権検証
-    alt 架空テーブル・不正構文・ダミーSQL
-      API->>API: 実在スキーマ、失敗SQL、エラー文、修復ガイダンスを生成
-      API->>AI: 修復プロンプトを再投入
-    end
+    Note right of API: 【2. 構造化集計の実行】
+    API->>API: 案件ID / CSV ID の所有権と日付列候補を検証
     API->>DB: SQLクエリを実行
     DB-->>API: 正確な集計結果(数値データ)を返却
     end
-    
+
     rect rgb(238, 242, 255)
     Note right of API: 【3. レポート・グラフ生成】
-    API->>AI: 集計結果を渡し、解説とChart.js用JSONまたはMermaid図の作成を要求
-    AI-->>API: Markdown + json:chart または mermaid ブロックを含む回答を返却
+    API->>API: 集計表をMarkdown化し、図解モード時は deterministic に json:chart を組み立てる
+    alt 通常の集計回答
+      API-->>UI: Markdownの表と解説を返却
+    else 図解モード
+      API-->>UI: Markdown + json:chart ブロックを返却
+    end
     end
 
     API-->>UI: SSEで回答、推論ステップ、評価結果をレスポンス
@@ -1294,10 +1294,10 @@ sequenceDiagram
       <h2 class="text-xl font-semibold sub-section text-slate-800 border-l-4 border-violet-500 pl-3 mb-4">11.3 高評価回答のFAQ自動登録</h2>
       <div class="bg-violet-50 border border-violet-100 rounded-xl p-5 text-sm text-slate-700 leading-relaxed">
         <p class="mb-3">
-          <code>FaqAutoRegistrar.php</code> は、回答評価が十分に高く、差し戻し対象ではなく、タイムアウトやエラー応答でもない場合に、<code>project_faqs</code> へ自動登録します。登録時はチャット全文をそのまま保存せず、質問は短い要約に、回答はコードブロックや図表定義を除いた要点に整形します。
+          <code>FaqAutoRegistrar.php</code> は、回答評価が十分に高く、差し戻し対象ではなく、タイムアウトやエラー応答でもない場合に、<code>project_faqs</code> へ自動登録します。登録時はチャット全文をそのまま保存せず、質問は短い要約に、回答はコードブロックや図表定義を除いた要点に整形します。保存条件を満たさなかった場合も、<code>[FAQ-AUTO]</code> ログで理由を追跡できます。
         </p>
         <ul class="list-disc list-inside text-xs md:text-sm text-slate-600 space-y-1.5">
-          <li>重複登録を避けるため、元の <code>chat_history_id</code> と質問要約を確認する。</li>
+          <li>重複登録を避けるため、元の <code>chat_history_id</code> に加え、正規化した質問要約と回答要約を確認する。</li>
           <li>評価プロセスのフェイルセーフや初期ドラフト採用時は自動登録しない。</li>
           <li>通常チャット、分析チャット、フル思考チャットの履歴保存トランザクション内で実行する。</li>
         </ul>

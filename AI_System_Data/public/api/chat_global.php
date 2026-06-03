@@ -432,10 +432,11 @@ class GlobalChatRouteProcessor {
      * SSEを用いた最終確定結果のプッシュ送信
      */
     private function sendFinalResult(): void {
+        $this->logFinalResponseSnapshot('global_react', $this->finalResponse);
         sendSSE('result', [
-            'status'          => 'success', 
-            'response'        => $this->finalResponse, 
-            'sources'         => [], 
+            'status'          => 'success',
+            'response'        => $this->finalResponse,
+            'sources'         => [],
             'reasoning_steps' => $this->reasoningSteps,
             'mode_used'       => 'global_database_search_react',
             'detected_page'   => null,
@@ -444,6 +445,20 @@ class GlobalChatRouteProcessor {
             'created_at'      => date('Y/m/d H:i')
         ]);
         chatLogger("=== グローバルルート (ReActループ) 処理完了 ===");
+    }
+
+    private function logFinalResponseSnapshot(string $routeName, string $response): void {
+        $normalized = trim((string)$response);
+        $normalized = preg_replace('/\s+/u', ' ', $normalized) ?? $normalized;
+        $limit = 4000;
+        $isTruncated = mb_strlen($normalized) > $limit;
+        $preview = $isTruncated ? mb_substr($normalized, 0, $limit) . '...' : $normalized;
+        $question = trim((string)$this->originalMessage);
+        $question = preg_replace('/\s+/u', ' ', $question) ?? $question;
+
+        chatLogger("[FINAL-ANSWER] route={$routeName} | questionChars=" . mb_strlen($question) . " | responseChars=" . mb_strlen($response) . " | truncated=" . ($isTruncated ? 'yes' : 'no'));
+        chatLogger("[FINAL-ANSWER-QUESTION] {$question}");
+        chatLogger("[FINAL-ANSWER-BODY] " . $preview);
     }
 
     /**

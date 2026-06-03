@@ -11,9 +11,13 @@ class FaqAutoRegistrar {
     /** @var int */
     private $threshold;
 
-    public function __construct(PDO $pdo, int $threshold = 95) {
+    /** @var int */
+    private $duplicateScanLimit;
+
+    public function __construct(PDO $pdo, int $threshold = 95, int $duplicateScanLimit = 200) {
         $this->pdo = $pdo;
         $this->threshold = $threshold;
+        $this->duplicateScanLimit = $duplicateScanLimit;
     }
 
     public function registerIfQualified(
@@ -25,7 +29,15 @@ class FaqAutoRegistrar {
         ?array $evalResult
     ): bool {
         try {
-            if (!$this->isQualified($projectId, $chatHistoryId, $question, $answer, $evalResult)) {
+            $qualification = $this->buildQualificationResult($projectId, $chatHistoryId, $question, $answer, $evalResult);
+            if (!$qualification['qualified']) {
+                $this->logSkip($qualification['reason'], [
+                    'chat_history_id' => $chatHistoryId,
+                    'project_id' => (int)$projectId,
+                    'score' => (int)($evalResult['total_score'] ?? 0),
+                    'relevance' => (int)(($evalResult['scores']['answer_relevance'] ?? 0)),
+                    'faithfulness' => (int)(($evalResult['scores']['faithfulness'] ?? 0)),
+                ]);
                 return false;
             }
 
@@ -37,8 +49,9 @@ class FaqAutoRegistrar {
                 return false;
             }
 
-            if ($this->isDuplicate((int)$projectId, $chatHistoryId, $questionSummary)) {
-                $this->log("[FAQ-AUTO] 重複FAQを検知したため登録をスキップしました。question: {$questionSummary}");
+            $duplicateFaqId = $this->findDuplicateFaqId((int)$projectId, $chatHistoryId, $questionSummary, $answerSummary);
+            if ($duplicateFaqId !== null) {
+                $this->log("[FAQ-AUTO] 重複FAQを検知したため登録をスキップしました。faq_id: {$duplicateFaqId} | question: {$questionSummary}");
                 return false;
             }
 
@@ -66,18 +79,18 @@ class FaqAutoRegistrar {
         }
     }
 
-    private function isQualified(?int $projectId, int $chatHistoryId, string $question, string $answer, ?array $evalResult): bool {
+    private function buildQualificationResult(?int $projectId, int $chatHistoryId, string $question, string $answer, ?array $evalResult): array {
         if ($projectId === null || $projectId <= 0 || $chatHistoryId <= 0 || !$evalResult) {
-            return false;
+            return ['qualified' => false, 'reason' => 'missing_project_or_eval'];
         }
 
         if (($evalResult['needs_revision'] ?? true) === true) {
-            return false;
+            return ['qualified' => false, 'reason' => 'needs_revision'];
         }
 
         $feedback = (string)($evalResult['feedback'] ?? '');
         if (preg_match('/評価プロセス|タイムアウト|フェイルセーフ|初期ドラフトを採用/u', $feedback)) {
-            return false;
+            return ['qualified' => false, 'reason' => 'fallback_or_timeout_feedback'];
         }
 
         $totalScore = (int)($evalResult['total_score'] ?? 0);
@@ -86,23 +99,23 @@ class FaqAutoRegistrar {
         $faithfulness = (int)($scores['faithfulness'] ?? 0);
 
         if ($totalScore < $this->threshold || $relevance < 100 || $faithfulness < 90) {
-            return false;
+            return ['qualified' => false, 'reason' => 'score_below_threshold'];
         }
 
         $questionText = $this->normalizeText($question);
         $answerText = $this->normalizeText($answer);
         if (mb_strlen($questionText) < 8 || mb_strlen($answerText) < 120) {
-            return false;
+            return ['qualified' => false, 'reason' => 'question_or_answer_too_short'];
         }
 
         if (preg_match('/(通信エラー|内部サーバーエラー|AIサーバー通信エラー|回答の生成に失敗|Token Limit|セッションが切れました)/u', $answerText)) {
-            return false;
+            return ['qualified' => false, 'reason' => 'error_text_detected'];
         }
 
-        return true;
+        return ['qualified' => true, 'reason' => 'qualified'];
     }
 
-    private function isDuplicate(int $projectId, int $chatHistoryId, string $questionSummary): bool {
+    private function findDuplicateFaqId(int $projectId, int $chatHistoryId, string $questionSummary, string $answerSummary): ?int {
         $stmt = $this->pdo->prepare("
             SELECT id
             FROM project_faqs
@@ -111,7 +124,40 @@ class FaqAutoRegistrar {
             LIMIT 1
         ");
         $stmt->execute([$projectId, $chatHistoryId, $questionSummary]);
-        return (bool)$stmt->fetchColumn();
+        $directHit = $stmt->fetchColumn();
+        if ($directHit !== false) {
+            return (int)$directHit;
+        }
+
+        $stmtRecent = $this->pdo->prepare("
+            SELECT id, question_summary, answer_summary
+            FROM project_faqs
+            WHERE project_id = ?
+            ORDER BY id DESC
+            LIMIT {$this->duplicateScanLimit}
+        ");
+        $stmtRecent->execute([$projectId]);
+
+        $normalizedQuestion = $this->normalizeFaqKey($questionSummary);
+        $normalizedAnswer = $this->normalizeFaqKey($answerSummary);
+
+        while ($row = $stmtRecent->fetch(PDO::FETCH_ASSOC)) {
+            $existingQuestion = $this->normalizeFaqKey((string)($row['question_summary'] ?? ''));
+            $existingAnswer = $this->normalizeFaqKey((string)($row['answer_summary'] ?? ''));
+            if ($existingQuestion === '' && $existingAnswer === '') {
+                continue;
+            }
+
+            if ($normalizedQuestion !== '' && $normalizedQuestion === $existingQuestion) {
+                return (int)$row['id'];
+            }
+
+            if ($normalizedAnswer !== '' && $normalizedAnswer === $existingAnswer) {
+                return (int)$row['id'];
+            }
+        }
+
+        return null;
     }
 
     private function buildQuestionSummary(string $question): string {
@@ -192,6 +238,21 @@ class FaqAutoRegistrar {
         $text = $this->stripMarkdown($text);
         $text = preg_replace('/\s+/u', ' ', $text) ?? $text;
         return trim($text);
+    }
+
+    private function normalizeFaqKey(string $text): string {
+        $text = mb_strtolower($this->normalizeText($text), 'UTF-8');
+        $text = preg_replace('/[\p{Z}\p{C}\p{P}]+/u', '', $text) ?? $text;
+        return trim($text);
+    }
+
+    private function logSkip(string $reason, array $meta = []): void {
+        $pairs = [];
+        foreach ($meta as $key => $value) {
+            $pairs[] = $key . ': ' . $value;
+        }
+        $suffix = $pairs ? ' | ' . implode(' | ', $pairs) : '';
+        $this->log("[FAQ-AUTO] 登録条件未達のためFAQ自動登録をスキップしました。reason: {$reason}{$suffix}");
     }
 
     private function log(string $message): void {

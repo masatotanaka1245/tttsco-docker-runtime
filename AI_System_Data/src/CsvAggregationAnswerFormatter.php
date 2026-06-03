@@ -2,7 +2,7 @@
 
 class CsvAggregationAnswerFormatter
 {
-    public function buildStructuredAggregationAnswer(array $plan, array $aggregatedRows, array $targets): string
+    public function buildStructuredAggregationAnswer(array $plan, array $aggregatedRows, array $targets, bool $diagramMode = false): string
     {
         $targetFileCount = count(array_unique(array_map(fn($row) => $row['file_name'], $aggregatedRows)));
         $dateColumnCount = count(array_unique(array_map(fn($row) => $row['file_name'] . '|' . $row['date_column'], $aggregatedRows)));
@@ -35,7 +35,133 @@ class CsvAggregationAnswerFormatter
         $lines[] = "今回はAI読解ではなく、日付候補列を検出してから件数集計SQLを実行しています。";
         $lines[] = "そのため、`全ての` のような広い表現でも、まず日付列の有無を確認してから集計へ進む挙動になります。";
 
+        if ($diagramMode) {
+            $chartBlock = $this->buildAggregationChartBlock($plan, $aggregatedRows);
+            if ($chartBlock !== '') {
+                $lines[] = "";
+                $lines[] = "### グラフ";
+                $lines[] = $chartBlock;
+            }
+        }
+
         return implode("\n", $lines);
+    }
+
+    private function buildAggregationChartBlock(array $plan, array $aggregatedRows): string
+    {
+        if (empty($aggregatedRows)) {
+            return '';
+        }
+
+        $labels = array_values(array_unique(array_map(fn($row) => (string)$row['date'], $aggregatedRows)));
+        sort($labels);
+        if (empty($labels)) {
+            return '';
+        }
+
+        $seriesMap = [];
+        $isSingleFile = $this->isSingleFileScope($plan);
+        foreach ($aggregatedRows as $row) {
+            $datasetKey = $row['file_name'] . ' / ' . $row['date_column'];
+            if (!isset($seriesMap[$datasetKey])) {
+                $seriesMap[$datasetKey] = [
+                    'label' => $this->buildDatasetLabel((string)$row['file_name'], (string)$row['date_column'], $isSingleFile),
+                    'values' => [],
+                ];
+            }
+            $seriesMap[$datasetKey]['values'][(string)$row['date']] = (int)$row['record_count'];
+        }
+
+        $datasets = [];
+        foreach ($seriesMap as $series) {
+            $data = [];
+            foreach ($labels as $label) {
+                $data[] = (int)($series['values'][$label] ?? 0);
+            }
+            $datasets[] = [
+                'label' => $series['label'],
+                'data' => $data,
+            ];
+        }
+
+        if (empty($datasets)) {
+            return '';
+        }
+
+        $chartType = $this->selectChartType($plan, $datasets);
+        $chart = [
+            'type' => $chartType,
+            'title' => $this->buildChartTitle($plan, count($datasets)),
+            'labels' => $labels,
+            'datasets' => $datasets,
+        ];
+
+        $fence = str_repeat("\x60", 3);
+        return $this->buildChartLeadText($chartType)
+            . "\n" . $fence . "json:chart\n"
+            . json_encode($chart, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
+            . "\n" . $fence;
+    }
+
+    private function buildChartTitle(array $plan, int $datasetCount): string
+    {
+        $granularity = $this->granularityLabel((string)($plan['date_granularity'] ?? 'day'));
+        $scope = $this->isSingleFileScope($plan)
+            ? '単一CSV'
+            : '複数CSV';
+        $seriesLabel = $datasetCount > 1 ? '系列比較' : '件数推移';
+
+        return "{$scope}の{$granularity}{$seriesLabel}";
+    }
+
+    private function buildChartLeadText(string $chartType): string
+    {
+        if ($chartType === 'bar') {
+            return "日付列の種類が複数あるため、系列ごとの差を見比べやすいよう棒グラフで可視化しました。";
+        }
+
+        return "集計結果を時系列で確認できるよう、CSVごとに件数推移を可視化しました。";
+    }
+
+    private function selectChartType(array $plan, array $datasets): string
+    {
+        if ($this->isSingleFileScope($plan) && count($datasets) <= 3) {
+            return 'line';
+        }
+
+        return 'bar';
+    }
+
+    private function buildDatasetLabel(string $fileName, string $dateColumn, bool $isSingleFile): string
+    {
+        if ($isSingleFile) {
+            return $dateColumn;
+        }
+
+        return $this->compactFileLabel($fileName) . ' / ' . $dateColumn;
+    }
+
+    private function compactFileLabel(string $fileName): string
+    {
+        $label = preg_replace('/\.csv$/i', '', $fileName) ?? $fileName;
+        $parenPos = strpos($label, '(');
+        if ($parenPos !== false) {
+            $head = trim(substr($label, 0, $parenPos));
+            if ($head !== '') {
+                $label = $head;
+            }
+        }
+
+        if (strlen($label) > 36) {
+            return substr($label, 0, 33) . '...';
+        }
+
+        return $label;
+    }
+
+    private function isSingleFileScope(array $plan): bool
+    {
+        return (($plan['scope'] ?? '') === 'single_file' || !empty($plan['target_file_name']));
     }
 
     private function granularityLabel(string $granularity): string

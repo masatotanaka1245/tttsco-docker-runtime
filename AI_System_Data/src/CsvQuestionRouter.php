@@ -37,6 +37,13 @@ class CsvQuestionRouter
             return false;
         }
 
+        $mentionsCsvFile = $this->findMentionedCsvFileName($question) !== null;
+        $hasSummaryIntent = preg_match('/(内容|概要|まとめ|要約|どんな内容|内容を教えて|説明して)/u', $question) === 1;
+
+        if ($mentionsCsvFile && $hasSummaryIntent) {
+            return true;
+        }
+
         return preg_match('/(CSV|csv|データ).*(内容|概要|まとめ|要約|どんな|入って)|((内容|概要|まとめ|要約).*(CSV|csv|データ))/u', $question) === 1;
     }
 
