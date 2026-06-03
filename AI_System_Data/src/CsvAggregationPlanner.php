@@ -22,6 +22,7 @@ class CsvAggregationPlanner
     {
         $hasDateIntent = preg_match('/(日付|日時|年月日|date|timestamp|時刻)/iu', $question) === 1;
         $hasAggregateIntent = preg_match('/(集計|件数|合計|平均|表に|一覧|推移|時系列|別に|グループ|何種類|ユニーク|distinct|重複なし|分布|分類|カテゴリ)/iu', $question) === 1;
+        $hasExplainIntent = preg_match('/(どういう|どのような|説明|意味|何を表|どんなイベント|イベント.*説明|イベント.*意味|それぞれ.*説明)/u', $question) === 1;
         $hasCsvContext = preg_match('/(CSV|csv|ファイル|データ|レコード|行)/u', $question) === 1
             || $this->findMentionedCsvFileName($question) !== null;
 
@@ -30,8 +31,8 @@ class CsvAggregationPlanner
         }
 
         $targetFileName = $this->findMentionedCsvFileName($question);
-        if ($targetFileName === null || !$hasAggregateIntent) {
-            return $hasAggregateIntent && $this->findMentionedColumnTarget($question) !== null;
+        if ($targetFileName === null || (!$hasAggregateIntent && !$hasExplainIntent)) {
+            return ($hasAggregateIntent || $hasExplainIntent) && $this->findMentionedColumnTarget($question) !== null;
         }
 
         return $this->findMentionedColumnName($question, $targetFileName) !== null;
@@ -63,11 +64,16 @@ class CsvAggregationPlanner
         $aggregateType = 'count';
         $hasDistinctIntent = preg_match('/(何種類|ユニーク|distinct|重複なし|種類数)/iu', $question) === 1;
         $hasSemanticCategoryIntent = preg_match('/(カテゴリ|カテゴリー|分類|傾向|どのような情報|どんな情報|分析してください|分析して|テーマ)/u', $question) === 1;
+        $hasColumnExplainIntent = preg_match('/(どういう|どのような|説明|意味|何を表|どんなイベント|イベント.*説明|イベント.*意味|それぞれ.*説明)/u', $question) === 1;
 
         if ($targetColumn !== null && $hasDistinctIntent) {
             $aggregationMode = 'distinct_count';
             $dateGranularity = 'none';
             $aggregateType = 'distinct_count';
+        } elseif ($targetColumn !== null && $hasColumnExplainIntent) {
+            $aggregationMode = 'column_semantics';
+            $dateGranularity = 'none';
+            $aggregateType = 'column_semantics';
         } elseif ($targetColumn !== null && $sourceColumn !== null && $categoryFilterLabel !== null) {
             $aggregationMode = 'category_filtered_distribution';
             $dateGranularity = 'none';

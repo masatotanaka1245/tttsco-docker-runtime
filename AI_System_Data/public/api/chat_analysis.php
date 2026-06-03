@@ -384,6 +384,9 @@ class AdvancedReasoningRouteProcessor {
         if (($plan['aggregation_mode'] ?? '') === 'distinct_count') {
             return $this->executeCsvDistinctCountRoute($plan, $routeStart, $csvAggregationAnswerFormatter);
         }
+        if (($plan['aggregation_mode'] ?? '') === 'column_semantics') {
+            return $this->executeCsvColumnSemanticsRoute($plan, $routeStart, $csvAggregationAnswerFormatter);
+        }
         if (($plan['aggregation_mode'] ?? '') === 'category_filtered_distribution') {
             return $this->executeCsvCategoryFilteredDistributionRoute($plan, $routeStart, $csvAggregationAnswerFormatter);
         }
@@ -563,6 +566,62 @@ class AdvancedReasoningRouteProcessor {
         return true;
     }
 
+    private function executeCsvColumnSemanticsRoute(array $plan, float $routeStart, CsvAggregationAnswerFormatter $formatter): bool {
+        $target = $this->findCsvAggregationFileTarget((string)($plan['target_file_name'] ?? ''));
+        $targetColumn = (string)($plan['target_column'] ?? '');
+        if ($target === null || $targetColumn === '') {
+            chatLogger("[CSV-AGG] column_semantics の対象ファイルまたは列を解決できませんでした。CSV証拠読解ルートへフォールバックします。");
+            return false;
+        }
+
+        sendSSE('status', [
+            'step' => 2,
+            'message' => '🧭 説明対象のCSVと列を特定しています...'
+        ]);
+
+        $this->insertReasoningStep(
+            1,
+            'CSV column semantics プリフライト',
+            "【集計計画】\n" . json_encode($plan, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
+            . "\n\n【対象CSV】\n" . json_encode($target, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
+        );
+
+        sendSSE('status', [
+            'step' => 3,
+            'message' => '📊 対象列の主要な値を集計し、意味を整理しています...'
+        ]);
+
+        $queryBuilder = $this->getCsvAggregationQueryBuilder();
+        $sql = $queryBuilder->buildValueDistributionSql((int)$target['csv_file_id'], $targetColumn);
+        chatLogger("[CSV-AGG-SQL] file={$target['file_name']} | column={$targetColumn} | sql={$sql}");
+
+        $stmt = $this->pdo->query($sql);
+        $rows = $stmt ? $stmt->fetchAll(PDO::FETCH_ASSOC) : [];
+        if (empty($rows)) {
+            chatLogger("[CSV-AGG] column_semantics の集計結果が0件でした。CSV証拠読解ルートへフォールバックします。");
+            return false;
+        }
+
+        $analysis = $this->analyzeCsvColumnSemantics($target, $targetColumn, $rows);
+        if (empty($analysis['items'])) {
+            chatLogger("[CSV-AGG] column_semantics の意味推定に失敗したため、値分布回答へフォールバックします。");
+            $this->finalResponse = $formatter->buildValueDistributionAnswer($plan, $target, $rows);
+        } else {
+            $this->finalResponse = $formatter->buildColumnSemanticsAnswer($plan, $target, $rows, $analysis, $this->diagramMode);
+        }
+
+        $this->subAnswers[] = $this->finalResponse;
+        $this->insertReasoningStep(
+            90,
+            'CSV column semantics の実行結果',
+            "### {$target['file_name']} / {$targetColumn}\n```sql\n{$sql}\n```\n- groups: " . count($rows)
+                . "\n- semantics: " . json_encode($analysis, JSON_UNESCAPED_UNICODE)
+        );
+        chatLogger("[CSV-AGG] column_semantics ルート完了 - groups: " . count($rows) . " | elapsed: " . $this->elapsedSeconds($routeStart));
+        $this->completeCsvRoute();
+        return true;
+    }
+
     private function executeCsvSemanticCategoryRoute(array $plan, float $routeStart, CsvAggregationAnswerFormatter $formatter): bool {
         $target = $this->findCsvAggregationFileTarget((string)($plan['target_file_name'] ?? ''));
         $targetColumn = (string)($plan['target_column'] ?? '');
@@ -727,6 +786,58 @@ class AdvancedReasoningRouteProcessor {
             return is_array($decoded) ? $decoded : [];
         } catch (Throwable $e) {
             chatLogger("[CSV-AGG] semantic_category_summary のAIカテゴリ分析に失敗: " . $e->getMessage());
+            return [];
+        }
+    }
+
+    private function analyzeCsvColumnSemantics(array $target, string $targetColumn, array $rows): array {
+        $items = [];
+        foreach (array_slice($rows, 0, 20) as $row) {
+            $item = trim((string)($row['item'] ?? ''));
+            if ($item === '') {
+                continue;
+            }
+            $items[] = [
+                'item' => $item,
+                'count' => (int)($row['record_count'] ?? 0),
+            ];
+        }
+
+        if (empty($items)) {
+            return [];
+        }
+
+        $systemPrompt = "あなたはCSV列の値説明を行う補助AIです。"
+            . "与えられた列名・値名・件数だけを根拠に、各値が何を表していそうかを簡潔に説明してください。"
+            . "外部仕様を断定せず、名前から読み取れる範囲に留め、曖昧なら推定であることを明示してください。"
+            . "出力はJSONのみ。";
+
+        $userPrompt = "対象CSV: " . (string)($target['file_name'] ?? '対象CSV') . "\n"
+            . "対象列: {$targetColumn}\n"
+            . "値一覧(JSON):\n"
+            . json_encode($items, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
+            . "\n\n以下のJSON形式で返してください。\n"
+            . "{\n"
+            . '  "overall_summary": "列全体の短い説明",'
+            . "\n"
+            . '  "items": [{"name":"値","count":0,"group":"近い分類","inferred_meaning":"値名から読み取れる意味"}],'
+            . "\n"
+            . '  "observations": ["補足1","補足2"]'
+            . "\n}";
+
+        try {
+            $res = callOllamaChat(
+                $this->ollama_host,
+                $this->model,
+                $systemPrompt,
+                $userPrompt,
+                'json',
+                ['temperature' => 0.1]
+            );
+            $decoded = json_decode($res, true);
+            return is_array($decoded) ? $decoded : [];
+        } catch (Throwable $e) {
+            chatLogger("[CSV-AGG] column_semantics のAI説明生成に失敗: " . $e->getMessage());
             return [];
         }
     }

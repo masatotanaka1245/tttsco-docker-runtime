@@ -213,8 +213,36 @@ if (!function_exists('findMentionedCsvColumnTarget')) {
     }
 }
 
+if (!function_exists('findRecentCsvContextFromHistory')) {
+    function findRecentCsvContextFromHistory(PDO $pdo, int $projectId, array $recentHistory): ?array {
+        for ($i = count($recentHistory) - 1; $i >= 0; $i--) {
+            $historyMessage = trim((string)($recentHistory[$i]['message'] ?? ''));
+            if ($historyMessage === '') {
+                continue;
+            }
+
+            $mentionedCsv = findMentionedCsvFileName($pdo, $projectId, $historyMessage);
+            $mentionedColumnTarget = findMentionedCsvColumnTarget($pdo, $projectId, $historyMessage);
+            if ($mentionedCsv === null && !empty($mentionedColumnTarget['file_name'])) {
+                $mentionedCsv = (string)$mentionedColumnTarget['file_name'];
+            }
+
+            if ($mentionedCsv !== null || $mentionedColumnTarget !== null) {
+                return [
+                    'target_file_name' => $mentionedCsv,
+                    'target_column' => $mentionedColumnTarget['column_name'] ?? null,
+                    'source_role' => (string)($recentHistory[$i]['role'] ?? ''),
+                    'source_message' => $historyMessage,
+                ];
+            }
+        }
+
+        return null;
+    }
+}
+
 if (!function_exists('factorizeChatRequest')) {
-    function factorizeChatRequest(PDO $pdo, ?int $projectId, string $message): array {
+    function factorizeChatRequest(PDO $pdo, ?int $projectId, string $message, array $recentHistory = []): array {
         $mentionedCsv = null;
         $mentionedColumnTarget = null;
         if ($projectId !== null) {
@@ -233,11 +261,22 @@ if (!function_exists('factorizeChatRequest')) {
         $hasDocReference = preg_match('/(PDF|pdf|資料|図面|仕様書|文書|設計書|報告書)/u', $message) === 1;
         $hasDocActionIntent = preg_match('/(留意点|注意点|確認すべき|確認事項|法規|基準|安全面|設計上|施工前|不明点|見落とし|箇条書きで抽出|箇条書きで|抽出してください)/u', $message) === 1;
         $hasDistinctIntent = preg_match('/(何種類|ユニーク|distinct|重複なし|種類数)/iu', $message) === 1;
+        $hasColumnExplainIntent = preg_match('/(どういう|どのような|説明|意味|何を表|どんなイベント|イベント.*説明|イベント.*意味|それぞれ.*説明)/u', $message) === 1;
         $targetsAllCsv = preg_match('/(全て|すべて|全部|全件)/u', $message) === 1
             && preg_match('/(CSV|csv|ファイル|データ|レコード|行)/u', $message) === 1;
         $targetColumn = $mentionedColumnTarget['column_name'] ?? null;
         if ($mentionedCsv === null && !empty($mentionedColumnTarget['file_name'])) {
             $mentionedCsv = (string)$mentionedColumnTarget['file_name'];
+        }
+        if ($projectId !== null && $mentionedCsv === null && $targetColumn === null && $hasColumnExplainIntent && !empty($recentHistory)) {
+            $recentContext = findRecentCsvContextFromHistory($pdo, (int)$projectId, $recentHistory);
+            if ($recentContext !== null) {
+                $mentionedCsv = $recentContext['target_file_name'] ?? null;
+                $targetColumn = $recentContext['target_column'] ?? null;
+                if ($mentionedCsv !== null || $targetColumn !== null) {
+                    chatLogger("[SMART-ROUTER] 直前の会話履歴からCSV文脈を補完しました。file=" . ($mentionedCsv ?? 'none') . " | column=" . ($targetColumn ?? 'none'));
+                }
+            }
         }
 
         $intent = 'unknown';
@@ -271,6 +310,12 @@ if (!function_exists('factorizeChatRequest')) {
             $target = 'single_csv';
             $scope = 'file_content';
             $operation = 'distinct_count';
+            $route = 'data_analysis.csv_agg';
+        } elseif ($mentionedCsv !== null && $targetColumn !== null && $hasColumnExplainIntent) {
+            $intent = 'aggregate';
+            $target = 'single_csv';
+            $scope = 'file_content';
+            $operation = 'column_semantics';
             $route = 'data_analysis.csv_agg';
         } elseif ($mentionedCsv !== null && $targetColumn !== null && $hasAggregateIntent) {
             $intent = 'aggregate';
@@ -561,14 +606,6 @@ try {
     $structured_analysis_pattern = '/(transaction_uid|login_seconds|row_data|APP_\d+|ユーザー.*(操作|時間)|操作.*(時間|秒|秒数)|ログイン秒|利用時間|滞在時間|実行時間)/iu';
     $normal_rag_preferred_pattern = '/(良い案|よい案|方法|支援する方法|設計書案|仕様書案|要件定義|システム.*構築|提案|企画|たたき台|ドラフト)/u';
     $explicit_advanced = $input_advanced_reasoning;
-    $factorizedQuery = factorizeChatRequest($pdo, $project_id, $message);
-    if (($factorizedQuery['route'] ?? null) !== null) {
-        chatLogger("[SMART-ROUTER] 質問因数分解: " . json_encode($factorizedQuery, JSON_UNESCAPED_UNICODE));
-    }
-    if ($report_mode && $project_id !== null) {
-        $explicit_advanced = true;
-        chatLogger("[SMART-ROUTER] 報告書モードを検知。PDF生成・検索登録のためフル思考ルートへ寄せます。");
-    }
 
     $dedupeLockFile = null;
     $dedupeLocked = false;
@@ -710,6 +747,7 @@ try {
 
     $search_query = $message;
     $history_summary_text = "";
+    $recentHistory = [];
 
     try {
         $historySql = $project_id === null
@@ -728,6 +766,15 @@ try {
         }
     } catch (Throwable $historyEx) {
         chatLogger("[WARN] 会話履歴コンテキスト取得に失敗: " . $historyEx->getMessage());
+    }
+
+    $factorizedQuery = factorizeChatRequest($pdo, $project_id, $message, $recentHistory);
+    if (($factorizedQuery['route'] ?? null) !== null) {
+        chatLogger("[SMART-ROUTER] 質問因数分解: " . json_encode($factorizedQuery, JSON_UNESCAPED_UNICODE));
+    }
+    if ($report_mode && $project_id !== null) {
+        $explicit_advanced = true;
+        chatLogger("[SMART-ROUTER] 報告書モードを検知。PDF生成・検索登録のためフル思考ルートへ寄せます。");
     }
 
     if (

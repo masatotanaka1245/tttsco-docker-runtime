@@ -2,6 +2,89 @@
 
 class CsvAggregationAnswerFormatter
 {
+    public function buildColumnSemanticsAnswer(array $plan, array $target, array $rows, array $analysis, bool $diagramMode = false): string
+    {
+        $fileName = (string)($target['file_name'] ?? ($plan['target_file_name'] ?? '対象CSV'));
+        $column = (string)($plan['target_column'] ?? '');
+        $rowCount = (int)($target['row_count'] ?? 0);
+        $summary = trim((string)($analysis['overall_summary'] ?? ''));
+        $items = is_array($analysis['items'] ?? null) ? $analysis['items'] : [];
+        $observations = is_array($analysis['observations'] ?? null) ? $analysis['observations'] : [];
+        $topRows = array_slice($rows, 0, 12);
+
+        $lines = [];
+        $lines[] = "{$fileName} の {$column} 列について、値の名前と件数分布からイベントの意味を整理しました。";
+        $lines[] = "";
+        $lines[] = "- 対象CSV: {$fileName}";
+        $lines[] = "- 説明対象列: {$column}";
+        if ($rowCount > 0) {
+            $lines[] = "- 元レコード数: {$rowCount}件";
+        }
+        $lines[] = "- ユニーク値数: " . count($rows) . "件";
+        $lines[] = "";
+
+        if ($summary !== '') {
+            $lines[] = "### 全体の見立て";
+            $lines[] = $summary;
+            $lines[] = "";
+        }
+
+        if (!empty($items)) {
+            $lines[] = "### 主なイベントの説明";
+            foreach ($items as $item) {
+                $name = trim((string)($item['name'] ?? ''));
+                if ($name === '') {
+                    continue;
+                }
+                $count = (int)($item['count'] ?? 0);
+                $group = trim((string)($item['group'] ?? ''));
+                $meaning = trim((string)($item['inferred_meaning'] ?? ''));
+                $lines[] = "- **{$name}**" . ($count > 0 ? " ({$count}件)" : '') . ($group !== '' ? " / {$group}" : '');
+                if ($meaning !== '') {
+                    $lines[] = "  - {$meaning}";
+                }
+            }
+            $lines[] = "";
+        }
+
+        $lines[] = "### 件数の上位";
+        $lines[] = "| 値 | 件数 |";
+        $lines[] = "| --- | ---: |";
+        foreach ($topRows as $row) {
+            $item = str_replace("\n", ' ', (string)($row['item'] ?? ''));
+            $lines[] = "| {$item} | " . (int)($row['record_count'] ?? 0) . " |";
+        }
+
+        if (!empty($observations)) {
+            $lines[] = "";
+            $lines[] = "### 補足";
+            foreach (array_slice($observations, 0, 3) as $observation) {
+                $observation = trim((string)$observation);
+                if ($observation !== '') {
+                    $lines[] = "- {$observation}";
+                }
+            }
+        }
+
+        if ($diagramMode && !empty($topRows)) {
+            $chart = [
+                'type' => count($topRows) <= 6 ? 'pie' : 'bar',
+                'title' => "{$column} 列の主要イベント件数",
+                'labels' => array_map(fn($row) => (string)($row['item'] ?? ''), $topRows),
+                'datasets' => [[
+                    'label' => '件数',
+                    'data' => array_map(fn($row) => (int)($row['record_count'] ?? 0), $topRows),
+                ]],
+            ];
+            $fence = str_repeat("\x60", 3);
+            $lines[] = "";
+            $lines[] = "### グラフ";
+            $lines[] = $fence . "json:chart\n" . json_encode($chart, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . "\n" . $fence;
+        }
+
+        return trim(implode("\n", $lines));
+    }
+
     public function buildSemanticCategoryAnswer(array $plan, array $target, array $rows, array $analysis, bool $diagramMode = false): string
     {
         $fileName = (string)($target['file_name'] ?? ($plan['target_file_name'] ?? '対象CSV'));
