@@ -1768,7 +1768,10 @@ class AdvancedReasoningRouteProcessor {
                                     . "既存のドラフトに記載されている重要な事実や検証結果、グラフ構造を決して破壊したり忘却して消去したりせず、新着の資料エビデンスを論理的にマージ（歴史を重ね書き）して、ドラフトを完璧に精錬・アップデートせよ。";
 
                 // 指示の骨格をベースラインとマージし、Chart指示をインジェクト
-                $refineSystemPrompt = $baseSystemPrompt . "\n" . $refineSystemPrompt . $chartInstruction . "\n\n必ず最後はChart.js仕様のJSONブロックを出力に含めよ。";
+                $refineSystemPrompt = $baseSystemPrompt . "\n" . $refineSystemPrompt . $chartInstruction;
+                if ($this->diagramMode) {
+                    $refineSystemPrompt .= "\n\n図解モードが有効です。必要な場合のみ、最後にChart.js仕様のJSONブロックを1つ含めてください。不要なら文章のみで構いません。";
+                }
 
                 $refineUserPrompt = "【最初の要求質問】\n{$this->originalMessage}\n\n"
                                   . "これまでの真実の歴史に新着エビデンスをマージし、指示を105%クリアした最新の回答レポート（マークダウン形式）を出力してください。";

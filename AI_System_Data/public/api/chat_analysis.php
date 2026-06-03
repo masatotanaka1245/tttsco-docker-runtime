@@ -1241,7 +1241,7 @@ class AdvancedReasoningRouteProcessor {
         $csvEvidenceReader = $this->getCsvEvidenceReader();
         $files = $csvMetadataCatalog->loadFiles();
         $sampleRows = $csvEvidenceReader->loadSampleRows(80);
-        $this->finalResponse = $csvEvidenceReader->buildLargeOverviewAnswer($files, $sampleRows, $totalRows);
+        $this->finalResponse = $csvEvidenceReader->buildLargeOverviewAnswer($files, $sampleRows, $totalRows, $this->diagramMode);
         $this->insertReasoningStep(1, 'CSV広域探索', $csvEvidenceReader->buildCollectionSummary($sampleRows, [
             'terms' => [],
             'hit_count' => $totalRows,

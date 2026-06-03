@@ -161,7 +161,7 @@ class CsvEvidenceReader
         return implode("\n", $lines);
     }
 
-    public function buildLargeOverviewAnswer(array $files, array $sampleRows, int $totalRows): string
+    public function buildLargeOverviewAnswer(array $files, array $sampleRows, int $totalRows, bool $diagramMode = false): string
     {
         $sampleSummary = $this->summaryFormatter->summarizeRows($sampleRows);
         $allColumns = [];
@@ -212,7 +212,61 @@ class CsvEvidenceReader
         $lines[] = "大規模CSVでは、質問文から検索語を抽出して該当レコードを先に絞り込み、その範囲をAI読解に回す方式にしています。";
         $lines[] = "今回のように検索語が弱い広い質問では、全件AI読解ではなく概況を先に返すことで、処理時間の肥大化を避けます。";
 
+        if ($diagramMode) {
+            $chartBlock = $this->buildLargeOverviewChartBlock($files, $totalRows);
+            if ($chartBlock !== '') {
+                $lines[] = "";
+                $lines[] = "### グラフ";
+                $lines[] = $chartBlock;
+            }
+        }
+
         return implode("\n", $lines);
+    }
+
+    private function buildLargeOverviewChartBlock(array $files, int $totalRows): string
+    {
+        if (empty($files) || $totalRows <= 0) {
+            return '';
+        }
+
+        usort($files, fn($a, $b) => ((int)($b['row_count'] ?? 0)) <=> ((int)($a['row_count'] ?? 0)));
+        $topFiles = array_slice($files, 0, 6);
+        if (empty($topFiles)) {
+            return '';
+        }
+
+        $labels = [];
+        $data = [];
+        foreach ($topFiles as $file) {
+            $fileName = (string)($file['file_name'] ?? 'CSV');
+            $rowCount = (int)($file['row_count'] ?? 0);
+            if ($rowCount <= 0) {
+                continue;
+            }
+            $labels[] = $fileName;
+            $data[] = $rowCount;
+        }
+
+        if (empty($labels)) {
+            return '';
+        }
+
+        $chart = [
+            'type' => count($labels) <= 5 ? 'pie' : 'bar',
+            'title' => '登録済みCSVのレコード件数構成',
+            'labels' => $labels,
+            'datasets' => [[
+                'label' => 'レコード数',
+                'data' => $data,
+            ]],
+        ];
+
+        $fence = str_repeat("\x60", 3);
+        return "登録済みCSVごとのレコード件数を比較しやすいよう、上位ファイルを図表化しました。"
+            . "\n" . $fence . "json:chart\n"
+            . json_encode($chart, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
+            . "\n" . $fence;
     }
 
     public function buildCollectionSummary(array $rows, array $searchResult = []): string

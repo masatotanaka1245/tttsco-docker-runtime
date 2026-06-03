@@ -1091,7 +1091,7 @@ function initExistingCharts() {
     const chatBox = document.getElementById('chat-box');
     if (!chatBox) return;
 
-    chatBox.querySelectorAll('pre code.language-json\\:chart, pre code.language-json\\:chart_data, pre code.language-json').forEach(codeBlock => {
+    chatBox.querySelectorAll('pre code.language-json\\:chart, pre code.language-json\\:chart_data').forEach(codeBlock => {
         const content = codeBlock.textContent.trim();
         if (content.includes('"type"') && content.includes('"datasets"')) {
             const pre = codeBlock.parentElement;
