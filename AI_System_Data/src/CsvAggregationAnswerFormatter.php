@@ -2,6 +2,194 @@
 
 class CsvAggregationAnswerFormatter
 {
+    public function buildSemanticCategoryAnswer(array $plan, array $target, array $rows, array $analysis, bool $diagramMode = false): string
+    {
+        $fileName = (string)($target['file_name'] ?? ($plan['target_file_name'] ?? '対象CSV'));
+        $column = (string)($plan['target_column'] ?? '');
+        $rowCount = (int)($target['row_count'] ?? 0);
+        $uniqueCount = count($rows);
+        $categories = is_array($analysis['categories'] ?? null) ? $analysis['categories'] : [];
+        $summary = trim((string)($analysis['overall_summary'] ?? ''));
+        $observations = is_array($analysis['observations'] ?? null) ? $analysis['observations'] : [];
+
+        $lines = [];
+        $lines[] = "{$fileName} の {$column} 列について、値の分布をもとにカテゴリ別の傾向を整理しました。";
+        $lines[] = "";
+        $lines[] = "- 対象CSV: {$fileName}";
+        $lines[] = "- 分析列: {$column}";
+        if ($rowCount > 0) {
+            $lines[] = "- 元レコード数: {$rowCount}件";
+        }
+        $lines[] = "- ユニーク値数: {$uniqueCount}件";
+        $lines[] = "";
+
+        if ($summary !== '') {
+            $lines[] = "### 分析サマリー";
+            $lines[] = $summary;
+            $lines[] = "";
+        }
+
+        if (!empty($categories)) {
+            $lines[] = "### カテゴリ別の整理";
+            foreach ($categories as $index => $category) {
+                $name = trim((string)($category['name'] ?? 'カテゴリ' . ($index + 1)));
+                $count = (int)($category['count'] ?? 0);
+                $examples = array_values(array_filter(array_map('strval', (array)($category['examples'] ?? []))));
+                $insight = trim((string)($category['insight'] ?? ''));
+
+                $lines[] = "#### " . ($index + 1) . ". {$name}" . ($count > 0 ? " ({$count}件)" : '');
+                if (!empty($examples)) {
+                    $lines[] = "- 代表例: " . implode(' / ', array_slice($examples, 0, 4));
+                }
+                if ($insight !== '') {
+                    $lines[] = "- 見立て: {$insight}";
+                }
+            }
+            $lines[] = "";
+        }
+
+        if (!empty($observations)) {
+            $lines[] = "### 補足";
+            foreach (array_slice($observations, 0, 3) as $observation) {
+                $observation = trim((string)$observation);
+                if ($observation !== '') {
+                    $lines[] = "- {$observation}";
+                }
+            }
+            $lines[] = "";
+        }
+
+        if ($diagramMode && !empty($categories)) {
+            $labels = [];
+            $data = [];
+            foreach ($categories as $category) {
+                $name = trim((string)($category['name'] ?? 'カテゴリ'));
+                $count = (int)($category['count'] ?? 0);
+                if ($name === '' || $count <= 0) {
+                    continue;
+                }
+                $labels[] = $name;
+                $data[] = $count;
+            }
+            if (!empty($labels)) {
+                $chart = [
+                    'type' => count($labels) <= 5 ? 'pie' : 'bar',
+                    'title' => "{$column} 列のカテゴリ別分布",
+                    'labels' => $labels,
+                    'datasets' => [[
+                        'label' => '件数',
+                        'data' => $data,
+                    ]],
+                ];
+                $fence = str_repeat("\x60", 3);
+                $lines[] = "### グラフ";
+                $lines[] = $fence . "json:chart\n" . json_encode($chart, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . "\n" . $fence;
+            }
+        }
+
+        return trim(implode("\n", $lines));
+    }
+
+    public function buildCategoryFilteredDistributionAnswer(array $plan, array $target, array $rows, array $matchedValues, bool $diagramMode = false): string
+    {
+        $fileName = (string)($target['file_name'] ?? ($plan['target_file_name'] ?? '対象CSV'));
+        $targetColumn = (string)($plan['target_column'] ?? '');
+        $sourceColumn = (string)($plan['source_column'] ?? '');
+        $categoryLabel = (string)($plan['category_filter_label'] ?? '');
+        $total = array_sum(array_map(fn($row) => (int)($row['record_count'] ?? 0), $rows));
+
+        $lines = [];
+        $lines[] = "{$fileName} の {$sourceColumn} 列をもとに「{$categoryLabel}」へ該当するレコードを抽出し、{$targetColumn} 別に件数を集計しました。";
+        $lines[] = "";
+        $lines[] = "- 対象CSV: {$fileName}";
+        $lines[] = "- 判定カテゴリ: {$categoryLabel}";
+        $lines[] = "- 判定に使った列: {$sourceColumn}";
+        $lines[] = "- 集計列: {$targetColumn}";
+        $lines[] = "- 該当タイトル数: " . count($matchedValues) . "件";
+        $lines[] = "- 該当レコード数: {$total}件";
+        $lines[] = "";
+
+        if (!empty($matchedValues)) {
+            $lines[] = "### 該当タイトルの例";
+            foreach (array_slice($matchedValues, 0, 6) as $value) {
+                $lines[] = "- {$value}";
+            }
+            $lines[] = "";
+        }
+
+        $lines[] = "### {$targetColumn} 別の件数";
+        $lines[] = "| {$targetColumn} | 件数 |";
+        $lines[] = "| --- | ---: |";
+        foreach ($rows as $row) {
+            $item = str_replace("\n", ' ', (string)($row['item'] ?? ''));
+            $lines[] = "| {$item} | " . (int)($row['record_count'] ?? 0) . " |";
+        }
+
+        if ($diagramMode && !empty($rows)) {
+            $chart = [
+                'type' => count($rows) <= 6 ? 'pie' : 'bar',
+                'title' => "{$categoryLabel} に該当する {$targetColumn} 別件数",
+                'labels' => array_map(fn($row) => (string)($row['item'] ?? ''), $rows),
+                'datasets' => [[
+                    'label' => '件数',
+                    'data' => array_map(fn($row) => (int)($row['record_count'] ?? 0), $rows),
+                ]],
+            ];
+            $fence = str_repeat("\x60", 3);
+            $lines[] = "";
+            $lines[] = "### グラフ";
+            $lines[] = $fence . "json:chart\n" . json_encode($chart, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . "\n" . $fence;
+        }
+
+        return implode("\n", $lines);
+    }
+
+    public function buildValueDistributionAnswer(array $plan, array $target, array $rows): string
+    {
+        $fileName = (string)($target['file_name'] ?? ($plan['target_file_name'] ?? '対象CSV'));
+        $column = (string)($plan['target_column'] ?? '');
+        $rowCount = (int)($target['row_count'] ?? 0);
+        $uniqueCount = count($rows);
+        $topCount = !empty($rows) ? (int)$rows[0]['record_count'] : 0;
+        $allSingle = $uniqueCount > 0 && $topCount <= 1;
+        $previewRows = array_slice($rows, 0, 15);
+
+        $lines = [];
+        $lines[] = "{$fileName} の {$column} 列について、値ごとの件数分布を集計しました。";
+        $lines[] = "";
+        $lines[] = "- 対象CSV: {$fileName}";
+        $lines[] = "- 集計列: {$column}";
+        if ($rowCount > 0) {
+            $lines[] = "- 元レコード数: {$rowCount}件";
+        }
+        $lines[] = "- ユニーク値数: {$uniqueCount}件";
+        if ($uniqueCount > 0) {
+            $lines[] = "- 最大出現回数: {$topCount}件";
+        }
+        $lines[] = "";
+
+        if ($allSingle) {
+            $lines[] = "### 見立て";
+            $lines[] = "{$column} 列は重複がほとんどなく、個別テーマや個別課題が幅広く登録されている状態です。";
+            $lines[] = "";
+        }
+
+        $lines[] = "### 上位の値分布";
+        $lines[] = "| 値 | 件数 |";
+        $lines[] = "| --- | ---: |";
+        foreach ($previewRows as $row) {
+            $item = str_replace("\n", ' ', (string)($row['item'] ?? ''));
+            $lines[] = "| {$item} | " . (int)($row['record_count'] ?? 0) . " |";
+        }
+
+        if ($uniqueCount > count($previewRows)) {
+            $lines[] = "";
+            $lines[] = "※ 件数が多いため、上位 " . count($previewRows) . " 件を表示しています。";
+        }
+
+        return implode("\n", $lines);
+    }
+
     public function buildDistinctCountAnswer(array $plan, array $target, int $distinctCount): string
     {
         $fileName = (string)($target['file_name'] ?? ($plan['target_file_name'] ?? '対象CSV'));

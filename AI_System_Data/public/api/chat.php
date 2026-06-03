@@ -135,6 +135,25 @@ if (!function_exists('buildCsvRouteTextVariants')) {
     }
 }
 
+if (!function_exists('parseCsvRouteHeaders')) {
+    function parseCsvRouteHeaders(string $rawHeaders): array {
+        $decoded = json_decode($rawHeaders, true);
+        $candidates = is_array($decoded) ? $decoded : [$rawHeaders];
+        $headers = [];
+
+        foreach ($candidates as $candidate) {
+            foreach (preg_split('/[,;]\s*/u', (string)$candidate) ?: [] as $header) {
+                $header = trim($header, " \t\n\r\0\x0B\"'");
+                if ($header !== '') {
+                    $headers[] = $header;
+                }
+            }
+        }
+
+        return array_values(array_unique($headers));
+    }
+}
+
 if (!function_exists('findMentionedCsvFileName')) {
     function findMentionedCsvFileName(PDO $pdo, int $projectId, string $message): ?string {
         $messageVariants = buildCsvRouteTextVariants($message);
@@ -163,18 +182,52 @@ if (!function_exists('findMentionedCsvFileName')) {
     }
 }
 
-if (!function_exists('factorizeChatRequest')) {
-    function factorizeChatRequest(PDO $pdo, ?int $projectId, string $message): array {
-        $mentionedCsv = null;
-        if ($projectId !== null) {
-            try {
-                $mentionedCsv = findMentionedCsvFileName($pdo, (int)$projectId, $message);
-            } catch (Throwable $e) {
-                $mentionedCsv = null;
+if (!function_exists('findMentionedCsvColumnTarget')) {
+    function findMentionedCsvColumnTarget(PDO $pdo, int $projectId, string $message): ?array {
+        $stmt = $pdo->prepare("SELECT file_name, column_headers FROM project_csv_files WHERE project_id = ? ORDER BY id ASC");
+        $stmt->execute([$projectId]);
+
+        $matches = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $fileName = (string)($row['file_name'] ?? '');
+            $headers = parseCsvRouteHeaders((string)($row['column_headers'] ?? ''));
+            foreach ($headers as $header) {
+                if ($header === '') {
+                    continue;
+                }
+                if (mb_stripos($message, $header, 0, 'UTF-8') !== false) {
+                    $key = $fileName . '|' . $header;
+                    $matches[$key] = [
+                        'file_name' => $fileName,
+                        'column_name' => $header,
+                    ];
+                }
             }
         }
 
-        $hasAggregateIntent = preg_match('/(集計|件数|合計|平均|表に|一覧|推移|時系列|別に|グループ|何種類|ユニーク|distinct|重複なし)/iu', $message) === 1;
+        if (count($matches) === 1) {
+            return array_values($matches)[0];
+        }
+
+        return null;
+    }
+}
+
+if (!function_exists('factorizeChatRequest')) {
+    function factorizeChatRequest(PDO $pdo, ?int $projectId, string $message): array {
+        $mentionedCsv = null;
+        $mentionedColumnTarget = null;
+        if ($projectId !== null) {
+            try {
+                $mentionedCsv = findMentionedCsvFileName($pdo, (int)$projectId, $message);
+                $mentionedColumnTarget = findMentionedCsvColumnTarget($pdo, (int)$projectId, $message);
+            } catch (Throwable $e) {
+                $mentionedCsv = null;
+                $mentionedColumnTarget = null;
+            }
+        }
+
+        $hasAggregateIntent = preg_match('/(集計|件数|合計|平均|表に|一覧|推移|時系列|別に|グループ|何種類|ユニーク|distinct|重複なし|分布|分類|カテゴリ)/iu', $message) === 1;
         $hasSummaryIntent = preg_match('/(要約|まとめ|概要|内容を要約|内容をまとめ|どんな内容|内容を教えて)/u', $message) === 1;
         $hasDateIntent = preg_match('/(日付|日時|年月日|月別|年別|日別|date|timestamp|時刻)/iu', $message) === 1;
         $hasDocReference = preg_match('/(PDF|pdf|資料|図面|仕様書|文書|設計書|報告書)/u', $message) === 1;
@@ -182,6 +235,10 @@ if (!function_exists('factorizeChatRequest')) {
         $hasDistinctIntent = preg_match('/(何種類|ユニーク|distinct|重複なし|種類数)/iu', $message) === 1;
         $targetsAllCsv = preg_match('/(全て|すべて|全部|全件)/u', $message) === 1
             && preg_match('/(CSV|csv|ファイル|データ|レコード|行)/u', $message) === 1;
+        $targetColumn = $mentionedColumnTarget['column_name'] ?? null;
+        if ($mentionedCsv === null && !empty($mentionedColumnTarget['file_name'])) {
+            $mentionedCsv = (string)$mentionedColumnTarget['file_name'];
+        }
 
         $intent = 'unknown';
         $target = 'unknown';
@@ -215,6 +272,12 @@ if (!function_exists('factorizeChatRequest')) {
             $scope = 'file_content';
             $operation = 'distinct_count';
             $route = 'data_analysis.csv_agg';
+        } elseif ($mentionedCsv !== null && $targetColumn !== null && $hasAggregateIntent) {
+            $intent = 'aggregate';
+            $target = 'single_csv';
+            $scope = 'file_content';
+            $operation = 'value_distribution';
+            $route = 'data_analysis.csv_agg';
         } elseif ($hasSummaryIntent && $mentionedCsv !== null) {
             $intent = 'summarize';
             $target = 'single_csv';
@@ -240,6 +303,7 @@ if (!function_exists('factorizeChatRequest')) {
             'intent' => $intent,
             'target' => $target,
             'target_file_name' => $mentionedCsv,
+            'target_column' => $targetColumn,
             'scope' => $scope,
             'operation' => $operation,
             'time_axis' => $timeAxis,

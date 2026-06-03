@@ -384,6 +384,15 @@ class AdvancedReasoningRouteProcessor {
         if (($plan['aggregation_mode'] ?? '') === 'distinct_count') {
             return $this->executeCsvDistinctCountRoute($plan, $routeStart, $csvAggregationAnswerFormatter);
         }
+        if (($plan['aggregation_mode'] ?? '') === 'category_filtered_distribution') {
+            return $this->executeCsvCategoryFilteredDistributionRoute($plan, $routeStart, $csvAggregationAnswerFormatter);
+        }
+        if (($plan['aggregation_mode'] ?? '') === 'semantic_category_summary') {
+            return $this->executeCsvSemanticCategoryRoute($plan, $routeStart, $csvAggregationAnswerFormatter);
+        }
+        if (($plan['aggregation_mode'] ?? '') === 'value_distribution') {
+            return $this->executeCsvValueDistributionRoute($plan, $routeStart, $csvAggregationAnswerFormatter);
+        }
 
         sendSSE('status', [
             'step' => 2,
@@ -504,6 +513,276 @@ class AdvancedReasoningRouteProcessor {
         chatLogger("[CSV-AGG] distinct_count ルート完了 - count: {$distinctCount} | elapsed: " . $this->elapsedSeconds($routeStart));
         $this->completeCsvRoute();
         return true;
+    }
+
+    private function executeCsvValueDistributionRoute(array $plan, float $routeStart, CsvAggregationAnswerFormatter $formatter): bool {
+        $target = $this->findCsvAggregationFileTarget((string)($plan['target_file_name'] ?? ''));
+        $targetColumn = (string)($plan['target_column'] ?? '');
+        if ($target === null || $targetColumn === '') {
+            chatLogger("[CSV-AGG] value_distribution の対象ファイルまたは列を解決できませんでした。CSV証拠読解ルートへフォールバックします。");
+            return false;
+        }
+
+        sendSSE('status', [
+            'step' => 2,
+            'message' => '🧭 集計対象のCSVと列を特定しています...'
+        ]);
+
+        $this->insertReasoningStep(
+            1,
+            'CSV value distribution プリフライト',
+            "【集計計画】\n" . json_encode($plan, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
+            . "\n\n【対象CSV】\n" . json_encode($target, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
+        );
+
+        sendSSE('status', [
+            'step' => 3,
+            'message' => '📊 対象列の値分布を集計しています...'
+        ]);
+
+        $queryBuilder = $this->getCsvAggregationQueryBuilder();
+        $sql = $queryBuilder->buildValueDistributionSql((int)$target['csv_file_id'], $targetColumn);
+        chatLogger("[CSV-AGG-SQL] file={$target['file_name']} | column={$targetColumn} | sql={$sql}");
+
+        $stmt = $this->pdo->query($sql);
+        $rows = $stmt ? $stmt->fetchAll(PDO::FETCH_ASSOC) : [];
+        if (empty($rows)) {
+            chatLogger("[CSV-AGG] value_distribution の集計結果が0件でした。CSV証拠読解ルートへフォールバックします。");
+            return false;
+        }
+
+        $this->finalResponse = $formatter->buildValueDistributionAnswer($plan, $target, $rows);
+        $this->subAnswers[] = $this->finalResponse;
+        $this->insertReasoningStep(
+            90,
+            'CSV value distribution SQL の実行結果',
+            "### {$target['file_name']} / {$targetColumn}\n```sql\n{$sql}\n```\n- groups: " . count($rows)
+        );
+        chatLogger("[CSV-AGG] value_distribution ルート完了 - groups: " . count($rows) . " | elapsed: " . $this->elapsedSeconds($routeStart));
+        $this->completeCsvRoute();
+        return true;
+    }
+
+    private function executeCsvSemanticCategoryRoute(array $plan, float $routeStart, CsvAggregationAnswerFormatter $formatter): bool {
+        $target = $this->findCsvAggregationFileTarget((string)($plan['target_file_name'] ?? ''));
+        $targetColumn = (string)($plan['target_column'] ?? '');
+        if ($target === null || $targetColumn === '') {
+            chatLogger("[CSV-AGG] semantic_category_summary の対象ファイルまたは列を解決できませんでした。CSV証拠読解ルートへフォールバックします。");
+            return false;
+        }
+
+        sendSSE('status', [
+            'step' => 2,
+            'message' => '🧭 集計対象のCSVと列を特定しています...'
+        ]);
+
+        $this->insertReasoningStep(
+            1,
+            'CSV semantic category プリフライト',
+            "【集計計画】\n" . json_encode($plan, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
+            . "\n\n【対象CSV】\n" . json_encode($target, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
+        );
+
+        sendSSE('status', [
+            'step' => 3,
+            'message' => '📊 対象列の値分布をカテゴリ別に整理しています...'
+        ]);
+
+        $queryBuilder = $this->getCsvAggregationQueryBuilder();
+        $sql = $queryBuilder->buildValueDistributionSql((int)$target['csv_file_id'], $targetColumn);
+        chatLogger("[CSV-AGG-SQL] file={$target['file_name']} | column={$targetColumn} | sql={$sql}");
+
+        $stmt = $this->pdo->query($sql);
+        $rows = $stmt ? $stmt->fetchAll(PDO::FETCH_ASSOC) : [];
+        if (empty($rows)) {
+            chatLogger("[CSV-AGG] semantic_category_summary の集計結果が0件でした。CSV証拠読解ルートへフォールバックします。");
+            return false;
+        }
+
+        $analysis = $this->analyzeCsvValueCategories($target, $targetColumn, $rows);
+        if (empty($analysis['categories'])) {
+            chatLogger("[CSV-AGG] semantic_category_summary のカテゴリ化に失敗したため、値分布回答へフォールバックします。");
+            $this->finalResponse = $formatter->buildValueDistributionAnswer($plan, $target, $rows);
+        } else {
+            $this->finalResponse = $formatter->buildSemanticCategoryAnswer($plan, $target, $rows, $analysis, $this->diagramMode);
+        }
+
+        $this->subAnswers[] = $this->finalResponse;
+        $this->insertReasoningStep(
+            90,
+            'CSV semantic category の実行結果',
+            "### {$target['file_name']} / {$targetColumn}\n```sql\n{$sql}\n```\n- groups: " . count($rows)
+                . "\n- category_summary: " . json_encode($analysis, JSON_UNESCAPED_UNICODE)
+        );
+        chatLogger("[CSV-AGG] semantic_category_summary ルート完了 - groups: " . count($rows) . " | elapsed: " . $this->elapsedSeconds($routeStart));
+        $this->completeCsvRoute();
+        return true;
+    }
+
+    private function executeCsvCategoryFilteredDistributionRoute(array $plan, float $routeStart, CsvAggregationAnswerFormatter $formatter): bool {
+        $target = $this->findCsvAggregationFileTarget((string)($plan['target_file_name'] ?? ''));
+        $targetColumn = (string)($plan['target_column'] ?? '');
+        $sourceColumn = (string)($plan['source_column'] ?? '');
+        $categoryLabel = (string)($plan['category_filter_label'] ?? '');
+        if ($target === null || $targetColumn === '' || $sourceColumn === '' || $categoryLabel === '') {
+            chatLogger("[CSV-AGG] category_filtered_distribution の対象解決に失敗したため、CSV証拠読解ルートへフォールバックします。");
+            return false;
+        }
+
+        sendSSE('status', [
+            'step' => 2,
+            'message' => '🧭 カテゴリ対象のCSV・列・条件を特定しています...'
+        ]);
+
+        $queryBuilder = $this->getCsvAggregationQueryBuilder();
+        $valueSql = $queryBuilder->buildValueDistributionSql((int)$target['csv_file_id'], $sourceColumn);
+        chatLogger("[CSV-AGG-SQL] file={$target['file_name']} | column={$sourceColumn} | sql={$valueSql}");
+
+        $stmt = $this->pdo->query($valueSql);
+        $sourceRows = $stmt ? $stmt->fetchAll(PDO::FETCH_ASSOC) : [];
+        if (empty($sourceRows)) {
+            chatLogger("[CSV-AGG] category_filtered_distribution の前段値分布が0件でした。CSV証拠読解ルートへフォールバックします。");
+            return false;
+        }
+
+        $matchedValues = $this->resolveCategoryMatchedValues($target, $sourceColumn, $categoryLabel, $sourceRows);
+        if (empty($matchedValues)) {
+            chatLogger("[CSV-AGG] category_filtered_distribution のカテゴリ判定結果が空でした。CSV証拠読解ルートへフォールバックします。");
+            return false;
+        }
+
+        sendSSE('status', [
+            'step' => 3,
+            'message' => '📊 該当カテゴリのレコードを抽出し、件数を集計しています...'
+        ]);
+
+        $sql = $queryBuilder->buildFilteredDistributionSql((int)$target['csv_file_id'], $sourceColumn, $targetColumn, $matchedValues);
+        chatLogger("[CSV-AGG-SQL] file={$target['file_name']} | source={$sourceColumn} | filter={$categoryLabel} | column={$targetColumn} | sql={$sql}");
+
+        $stmt = $this->pdo->query($sql);
+        $rows = $stmt ? $stmt->fetchAll(PDO::FETCH_ASSOC) : [];
+        if (empty($rows)) {
+            chatLogger("[CSV-AGG] category_filtered_distribution の集計結果が0件でした。CSV証拠読解ルートへフォールバックします。");
+            return false;
+        }
+
+        $this->finalResponse = $formatter->buildCategoryFilteredDistributionAnswer($plan, $target, $rows, $matchedValues, $this->diagramMode);
+        $this->subAnswers[] = $this->finalResponse;
+        $this->insertReasoningStep(
+            90,
+            'CSV category filtered distribution の実行結果',
+            "### {$target['file_name']} / {$targetColumn}\n```sql\n{$sql}\n```\n- category: {$categoryLabel}\n- matched_values: " . json_encode($matchedValues, JSON_UNESCAPED_UNICODE)
+        );
+        chatLogger("[CSV-AGG] category_filtered_distribution ルート完了 - groups: " . count($rows) . " | matched_values: " . count($matchedValues) . " | elapsed: " . $this->elapsedSeconds($routeStart));
+        $this->completeCsvRoute();
+        return true;
+    }
+
+    private function analyzeCsvValueCategories(array $target, string $targetColumn, array $rows): array {
+        $items = [];
+        foreach (array_slice($rows, 0, 80) as $row) {
+            $item = trim((string)($row['item'] ?? ''));
+            if ($item === '') {
+                continue;
+            }
+            $items[] = [
+                'item' => $item,
+                'count' => (int)($row['record_count'] ?? 0),
+            ];
+        }
+
+        if (empty($items)) {
+            return [];
+        }
+
+        $systemPrompt = "あなたはCSV列分析の補助AIです。"
+            . "与えられた列値と件数だけを根拠に、テーマ別カテゴリへ整理してください。"
+            . "外部知識の補完や、データにない抽象論は禁止です。"
+            . "出力はJSONのみ。カテゴリ名、件数、代表例、短い見立てを返してください。"
+            . "件数は与えられた値リストの count を合算して求め、examples には必ず実在する item を入れてください。";
+
+        $userPrompt = "対象CSV: " . (string)($target['file_name'] ?? '対象CSV') . "\n"
+            . "対象列: {$targetColumn}\n"
+            . "値一覧(JSON):\n"
+            . json_encode($items, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
+            . "\n\n以下のJSON形式で返してください。\n"
+            . "{\n"
+            . '  "overall_summary": "全体の傾向",'
+            . "\n"
+            . '  "categories": [{"name":"カテゴリ名","count":0,"examples":["代表例1","代表例2"],"insight":"短い見立て"}],'
+            . "\n"
+            . '  "observations": ["補足1","補足2"]'
+            . "\n}";
+
+        try {
+            $res = callOllamaChat(
+                $this->ollama_host,
+                $this->model,
+                $systemPrompt,
+                $userPrompt,
+                'json',
+                ["temperature" => 0.0, "top_p" => 0.1, "num_ctx" => 4096]
+            );
+            $decoded = json_decode((string)$res, true);
+            return is_array($decoded) ? $decoded : [];
+        } catch (Throwable $e) {
+            chatLogger("[CSV-AGG] semantic_category_summary のAIカテゴリ分析に失敗: " . $e->getMessage());
+            return [];
+        }
+    }
+
+    private function resolveCategoryMatchedValues(array $target, string $sourceColumn, string $categoryLabel, array $rows): array {
+        $items = [];
+        foreach (array_slice($rows, 0, 100) as $row) {
+            $item = trim((string)($row['item'] ?? ''));
+            if ($item === '') {
+                continue;
+            }
+            $items[] = [
+                'item' => $item,
+                'count' => (int)($row['record_count'] ?? 0),
+            ];
+        }
+
+        if (empty($items)) {
+            return [];
+        }
+
+        $systemPrompt = "あなたはCSV列分類の補助AIです。"
+            . "与えられたカテゴリ名に該当する項目だけを、実在する item から選別してください。"
+            . "推測で新しい項目を作らず、values には与えられた item だけを入れてください。"
+            . "出力はJSONのみです。";
+
+        $userPrompt = "対象CSV: " . (string)($target['file_name'] ?? '対象CSV') . "\n"
+            . "判定列: {$sourceColumn}\n"
+            . "カテゴリ名: {$categoryLabel}\n"
+            . "候補値(JSON):\n"
+            . json_encode($items, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
+            . "\n\n以下のJSON形式で返してください。\n"
+            . "{\n"
+            . '  "values": ["該当するitem1", "該当するitem2"],'
+            . "\n"
+            . '  "reason": "短い説明"'
+            . "\n}";
+
+        try {
+            $res = callOllamaChat(
+                $this->ollama_host,
+                $this->model,
+                $systemPrompt,
+                $userPrompt,
+                'json',
+                ["temperature" => 0.0, "top_p" => 0.1, "num_ctx" => 4096]
+            );
+            $decoded = json_decode((string)$res, true);
+            $values = array_values(array_filter(array_map('strval', (array)($decoded['values'] ?? []))));
+            $validItems = array_flip(array_map(fn($item) => (string)$item['item'], $items));
+            $values = array_values(array_filter($values, fn($value) => isset($validItems[$value])));
+            return array_values(array_unique($values));
+        } catch (Throwable $e) {
+            chatLogger("[CSV-AGG] category_filtered_distribution のカテゴリ判定に失敗: " . $e->getMessage());
+            return [];
+        }
     }
 
     private function detectCsvAggregationTargets(array $plan): array {
