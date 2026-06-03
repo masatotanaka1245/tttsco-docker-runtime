@@ -121,12 +121,22 @@ class AdvancedReasoningRouteProcessor {
         return $instructions;
     }
 
+    private function hasExtendedOutputMode(): bool {
+        return $this->reportMode || $this->diagramMode;
+    }
+
     private function maxSqlRepairRetries(): int {
-        return ($this->reportMode || $this->diagramMode) ? 2 : 1;
+        return $this->hasExtendedOutputMode() ? 2 : 1;
     }
 
     private function maxEvalRetries(): int {
-        return ($this->reportMode || $this->diagramMode) ? 2 : 1;
+        return $this->hasExtendedOutputMode() ? 2 : 1;
+    }
+
+    private function createChatLoggerCallback(): callable {
+        return function (string $message): void {
+            chatLogger($message);
+        };
     }
 
     private function normalizeUtf8(string $text): string {
@@ -256,14 +266,18 @@ class AdvancedReasoningRouteProcessor {
         // 🛠️ 【シーケンス4：一元トランザクション永続化 ＆ 出荷】
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         $phaseStart = microtime(true);
-        $this->saveHistoryAndEvaluations();
-        $this->sendFinalResult();
+        $this->completeAdvancedRoute();
         chatLogger("[ADV-TIMING] シーケンス4 保存・出荷完了 | elapsed: " . $this->elapsedSeconds($phaseStart));
         chatLogger("[ADV-TIMING] フル思考ルート全体完了 | totalElapsed: " . $this->elapsedSeconds($pipelineStart));
     }
 
     private function elapsedSeconds(float $start): string {
         return number_format(microtime(true) - $start, 2) . '秒';
+    }
+
+    private function completeAdvancedRoute(): void {
+        $this->saveHistoryAndEvaluations();
+        $this->sendFinalResult();
     }
 
     /**
@@ -327,9 +341,7 @@ class AdvancedReasoningRouteProcessor {
                 "answer_goal" => "ユーザーの質問に直接答えるための中間回答を作る"
             ]];
         } else {
-            $this->subQueries = array_map(function ($item) {
-                return $this->normalizeSubQueryItem(is_array($item) ? $item : ['query' => (string)$item]);
-            }, $this->subQueries);
+            $this->subQueries = array_map([$this, 'normalizeRawSubQueryItem'], $this->subQueries);
             chatLogger("[DEBUG] サブクエリのパースに成功。サブ質問数: " . count($this->subQueries));
         }
     }
@@ -487,7 +499,7 @@ class AdvancedReasoningRouteProcessor {
             // 動的ホワイトリスト監査
             if (preg_match('/FROM\s+`?([a-zA-Z0-9_-]+)`?/i', $generated_sql, $tableMatch)) {
                 $extractedTable = $tableMatch[1];
-                if (in_array($extractedTable, $this->dynamicTableWhitelist, true)) {
+                if ($this->isAllowedTargetTable($extractedTable)) {
                     chatLogger("[SECURITY APPROVED] 動的ホワイトリスト監査パスを安全承認します。");
                 }
             }
@@ -935,32 +947,49 @@ class AdvancedReasoningRouteProcessor {
         return $stepResults;
     }
 
+    private function normalizeRawSubQueryItem($item): array {
+        return $this->normalizeSubQueryItem(is_array($item) ? $item : ['query' => (string)$item]);
+    }
+
+    private function buildSubQueryContextText(string $text): string {
+        return trim($text . ' ' . $this->searchQuery);
+    }
+
+    private function isAllowedTargetTable(string $table): bool {
+        return in_array($table, $this->dynamicTableWhitelist, true) || isset(self::$tablesSchema[$table]);
+    }
+
+    private function normalizeTargetTables($targetTables, string $contextText): array {
+        if (is_string($targetTables)) {
+            $targetTables = [$targetTables];
+        }
+        if (!is_array($targetTables) || empty($targetTables)) {
+            $targetTables = $this->inferTargetTables($contextText);
+        }
+
+        $targetTables = array_values(array_filter(array_map('strval', $targetTables), [$this, 'isAllowedTargetTable']));
+        if (empty($targetTables)) {
+            $targetTables = $this->inferTargetTables($contextText);
+        }
+
+        return $targetTables;
+    }
+
     private function normalizeSubQueryItem(array $item): array {
         $query = trim((string)($item['query'] ?? $item['purpose'] ?? $this->searchQuery));
         if ($query === '') {
             $query = 'ユーザーの質問に関連する実データを取得して中間回答を作成する';
         }
+        $contextText = $this->buildSubQueryContextText($query);
 
         $operationType = (string)($item['operation_type'] ?? '');
         $allowedTypes = ['metadata_lookup', 'simple_aggregate', 'record_search', 'semantic_extract'];
         if (!in_array($operationType, $allowedTypes, true)) {
-            $operationType = $this->inferOperationType($query . ' ' . $this->searchQuery);
+            $operationType = $this->inferOperationType($contextText);
         }
 
         $targetTables = $item['target_tables'] ?? [];
-        if (is_string($targetTables)) {
-            $targetTables = [$targetTables];
-        }
-        if (!is_array($targetTables) || empty($targetTables)) {
-            $targetTables = $this->inferTargetTables($query . ' ' . $this->searchQuery);
-        }
-
-        $targetTables = array_values(array_filter(array_map('strval', $targetTables), function ($table) {
-            return in_array($table, $this->dynamicTableWhitelist, true) || isset(self::$tablesSchema[$table]);
-        }));
-        if (empty($targetTables)) {
-            $targetTables = $this->inferTargetTables($query . ' ' . $this->searchQuery);
-        }
+        $targetTables = $this->normalizeTargetTables($targetTables, $contextText);
 
         return [
             'query' => $query,
@@ -1002,16 +1031,21 @@ class AdvancedReasoningRouteProcessor {
         return ['doc_chunks'];
     }
 
+    private function shouldRunCsvMapReduceForItem($item): bool {
+        $normalizedItem = $this->normalizeRawSubQueryItem($item);
+        return in_array('project_csv_rows', $normalizedItem['target_tables'], true)
+            && in_array($normalizedItem['operation_type'], ['semantic_extract', 'record_search'], true);
+    }
+
     private function shouldRunCsvFullMapReduce(): bool {
-        $text = $this->originalMessage . ' ' . $this->searchQuery;
+        $text = $this->buildSubQueryContextText($this->originalMessage);
         $hasCsvIntent = preg_match('/(CSV|csv|登録済み.*データ|データ.*(内容|概要|全件|すべて|全部)|全件.*(読解|分析|分類)|1件も漏らさず)/u', $text);
         if (!$hasCsvIntent) {
             return false;
         }
 
         foreach ($this->subQueries as $item) {
-            $item = $this->normalizeSubQueryItem(is_array($item) ? $item : ['query' => (string)$item]);
-            if (in_array('project_csv_rows', $item['target_tables'], true) && in_array($item['operation_type'], ['semantic_extract', 'record_search'], true)) {
+            if ($this->shouldRunCsvMapReduceForItem($item)) {
                 return true;
             }
         }
@@ -1553,7 +1587,7 @@ class AdvancedReasoningRouteProcessor {
                 $this->pdo,
                 realpath(__DIR__ . '/../../') ?: (__DIR__ . '/../..'),
                 $this->ollama_host,
-                function ($msg) { chatLogger($msg); }
+                $this->createChatLoggerCallback()
             );
             $this->reportDocument = $generator->createFromChat(
                 (int)$this->projectId,

@@ -1779,3 +1779,162 @@ FROM project_products AS T1
 [2026-06-03 10:02:40] [CHAT_STREAM] [ADV-TIMING] シーケンス4 保存・出荷完了 | elapsed: 7.77秒
 [2026-06-03 10:02:40] [CHAT_STREAM] [ADV-TIMING] フル思考ルート全体完了 | totalElapsed: 555.25秒
 [2026-06-03 10:02:40] [CHAT_STREAM] [SMART-ROUTER] ルート処理完了: advanced_hybrid | elapsed: 555.26秒
+[2026-06-03 10:42:21] [CHAT_STREAM] === 新着チャット受信 | Host: http://host.docker.internal:11434 | Model: gemma4:e4b ===
+[2026-06-03 10:42:21] [CHAT_STREAM] ユーザー: admin (ID: 1) | 案件ID: 4
+[2026-06-03 10:42:21] [CHAT_STREAM] 質問内容: 「
+[2026-06-03 10:42:21] [CHAT_STREAM] [INPUT-GUARD] action=clarification | reason=ambiguous_short_input | report_mode=off | diagram_mode=off
+[2026-06-03 10:42:21] [CHAT_STREAM] [SMART-ROUTER] ルート処理完了: input_guard_ambiguous_short_input | elapsed: 0.00秒
+[2026-06-03 10:42:31] [CHAT_STREAM] === 新着チャット受信 | Host: http://host.docker.internal:11434 | Model: gemma4:e4b ===
+[2026-06-03 10:42:31] [CHAT_STREAM] ユーザー: admin (ID: 1) | 案件ID: 4
+[2026-06-03 10:42:31] [CHAT_STREAM] 質問内容: 「
+[2026-06-03 10:42:31] [CHAT_STREAM] [INPUT-GUARD] action=clarification | reason=ambiguous_short_input | report_mode=off | diagram_mode=off
+[2026-06-03 10:42:31] [CHAT_STREAM] [SMART-ROUTER] ルート処理完了: input_guard_ambiguous_short_input | elapsed: 0.00秒
+[2026-06-03 10:42:38] [CHAT_STREAM] === 新着チャット受信 | Host: http://host.docker.internal:11434 | Model: gemma4:e4b ===
+[2026-06-03 10:42:38] [CHAT_STREAM] ユーザー: admin (ID: 1) | 案件ID: 4
+[2026-06-03 10:42:38] [CHAT_STREAM] 質問内容: 「出荷一覧表
+[2026-06-03 10:42:38] [CHAT_STREAM] [SMART-ROUTER] 登録済みCSVファイル名への言及を検知。CSV分析ルートへ切替: 出荷一覧表(#if [本数] ＞= 250000 then 赤;Grayband;TypeT;Sum=合計;Counts=商品名;Numbering;承認印=責任者;承認日印=上長;認印=担当者名).csv
+[2026-06-03 10:42:38] [CHAT_STREAM] [SMART-ROUTER] 最終ルート決定: data_analysis
+[2026-06-03 10:42:38] [CHAT_STREAM] >>> [データ分析ルート] 動的スキーマ監査型 多段階集計エージェントを起動します
+[2026-06-03 10:42:38] [CHAT_STREAM] [DEBUG] 引数情報 - Host: http://host.docker.internal:11434 | Model: gemma4:e4b | UserID: 1 | Role: admin
+[2026-06-03 10:42:38] [CHAT_STREAM] [DEBUG] 生成されたデータ分析セッションID (reasoningId): sql-reason_6a1f868e0916c-7464
+[2026-06-03 10:42:38] [CHAT_STREAM] [DEBUG] データベースの実在スキーマ構造を動的に解析・スキャンします...
+[2026-06-03 10:42:38] [CHAT_STREAM] 網羅調査完了 - CSV行数: 53件, コメント: 0件, FAQ: 1件
+[2026-06-03 10:42:38] [CHAT_STREAM] [DEBUG] 動的スキーマ情報およびデータ総数マトリクスの構築完了。文字数: 7149文字
+[2026-06-03 10:42:38] [CHAT_STREAM] [CSV-SEARCH] CSV探索フェーズ開始 - totalRows: 53 | terms: 出荷一覧表, 「出荷一覧表
+[2026-06-03 10:42:38] [CHAT_STREAM] [CSV-SEARCH] キーワード検索完了 - hits: 24 | loaded: 24 | limited: no | elapsed: 0.00秒
+[2026-06-03 10:42:38] [CHAT_STREAM] [CSV-EVIDENCE] DBレコード収集完了 - rows: 24 | totalRows: 53 | elapsed: 0.00秒
+[2026-06-03 10:42:38] [CHAT_STREAM] [CSV-EVIDENCE] CSV証拠読解ルートを起動します。対象行数: 24 | searchHits: 24
+[2026-06-03 10:42:38] [CHAT_STREAM] [CSV-EVIDENCE] バッチ分割完了 - batches: 1 | maxRows: 50 | maxChars: 9000
+[2026-06-03 10:42:38] [CHAT_STREAM] [CSV-EVIDENCE] バッチAI読解開始 - batch: 1/1 | rows: 24 | chars: 6375
+[2026-06-03 10:42:38] [CHAT_STREAM] [CSV-EVIDENCE] Ollamaバッチ読解API送信 - batch: 1/1 | systemChars: 141 | userChars: 6606
+[2026-06-03 10:45:38] [CHAT_STREAM] [CSV-EVIDENCE] バッチ読解に失敗。簡易要約へフォールバック: Ollama API 通信エラー (Code: 0) / 詳細: Operation timed out after 180004 milliseconds with 0 bytes received
+[2026-06-03 10:45:38] [CHAT_STREAM] [CSV-EVIDENCE] バッチAI読解完了 - batch: 1/1 | responseChars: 4011 | elapsed: 180.05秒
+[2026-06-03 10:45:38] [CHAT_STREAM] [CSV-EVIDENCE] 統合AI回答生成開始 - findingCount: 1
+[2026-06-03 10:45:38] [CHAT_STREAM] [CSV-EVIDENCE] Ollama統合回答API送信 - systemChars: 321 | userChars: 4142
+[2026-06-03 10:46:44] [CHAT_STREAM] [CSV-EVIDENCE] Ollama統合回答API受信 - responseChars: 1422 | elapsed: 66.69秒
+[2026-06-03 10:46:44] [CHAT_STREAM] [CSV-EVIDENCE] 統合AI回答生成完了 - responseChars: 1422 | elapsed: 66.69秒
+[2026-06-03 10:46:44] [CHAT_STREAM] [CSV-EVIDENCE] 履歴保存開始 - totalElapsed: 246.84秒
+[2026-06-03 10:46:44] [CHAT_STREAM] [DEBUG] DBトランザクションを開始し、ステップ99・対話ログ・評価スコアを一元コミットします...
+[2026-06-03 10:46:44] [CHAT_STREAM] [DEBUG] chat_reasoning_steps の最終ステップ(99)を完了状態に更新しました。
+[2026-06-03 10:46:44] [CHAT_STREAM] [DEBUG] chat_history 登録成功. ID: 67
+[2026-06-03 10:46:44] [CHAT_STREAM] [DEBUG] chat_reasoning_steps のセッションを chat_history_id: 67 にバインド完了。
+[2026-06-03 10:46:44] [CHAT_STREAM] [DEBUG] DBトランザクションコミット成功。すべての書き込みデータ整合性を完全保護しました。
+[2026-06-03 10:46:44] [CHAT_STREAM] === Text-to-SQL 自律修復型分析パイプライン完了 ===
+[2026-06-03 10:46:44] [CHAT_STREAM] [CSV-EVIDENCE] CSV証拠読解ルートが完了しました。totalElapsed: 246.87秒
+[2026-06-03 10:46:44] [CHAT_STREAM] [SMART-ROUTER] ルート処理完了: data_analysis | elapsed: 246.91秒
+[2026-06-03 10:50:04] [CHAT_STREAM] === 新着チャット受信 | Host: http://host.docker.internal:11434 | Model: gemma4:e4b ===
+[2026-06-03 10:50:04] [CHAT_STREAM] ユーザー: admin (ID: 1) | 案件ID: 4
+[2026-06-03 10:50:04] [CHAT_STREAM] 質問内容: 「出荷一覧表」を日付別に集計してください。
+[2026-06-03 10:50:04] [CHAT_STREAM] [SMART-ROUTER] 純粋なデータ集計要求を検知。単発の「データ分析エージェント(chat_analysis.php)」を起動します。
+[2026-06-03 10:50:04] [CHAT_STREAM] [SMART-ROUTER] 最終ルート決定: data_analysis
+[2026-06-03 10:50:04] [CHAT_STREAM] >>> [データ分析ルート] 動的スキーマ監査型 多段階集計エージェントを起動します
+[2026-06-03 10:50:04] [CHAT_STREAM] [DEBUG] 引数情報 - Host: http://host.docker.internal:11434 | Model: gemma4:e4b | UserID: 1 | Role: admin
+[2026-06-03 10:50:04] [CHAT_STREAM] [DEBUG] 生成されたデータ分析セッションID (reasoningId): sql-reason_6a1f884c3bc32-5246
+[2026-06-03 10:50:04] [CHAT_STREAM] [DEBUG] データベースの実在スキーマ構造を動的に解析・スキャンします...
+[2026-06-03 10:50:04] [CHAT_STREAM] 網羅調査完了 - CSV行数: 53件, コメント: 0件, FAQ: 1件
+[2026-06-03 10:50:04] [CHAT_STREAM] [DEBUG] 動的スキーマ情報およびデータ総数マトリクスの構築完了。文字数: 7149文字
+[2026-06-03 10:50:04] [CHAT_STREAM] [CSV-SEARCH] CSV探索フェーズ開始 - totalRows: 53 | terms: 出荷一覧表
+[2026-06-03 10:50:04] [CHAT_STREAM] [CSV-SEARCH] キーワード検索完了 - hits: 24 | loaded: 24 | limited: no | elapsed: 0.01秒
+[2026-06-03 10:50:04] [CHAT_STREAM] [CSV-EVIDENCE] DBレコード収集完了 - rows: 24 | totalRows: 53 | elapsed: 0.01秒
+[2026-06-03 10:50:04] [CHAT_STREAM] [CSV-EVIDENCE] CSV証拠読解ルートを起動します。対象行数: 24 | searchHits: 24
+[2026-06-03 10:50:04] [CHAT_STREAM] [CSV-EVIDENCE] バッチ分割完了 - batches: 1 | maxRows: 50 | maxChars: 9000
+[2026-06-03 10:50:04] [CHAT_STREAM] [CSV-EVIDENCE] バッチAI読解開始 - batch: 1/1 | rows: 24 | chars: 6375
+[2026-06-03 10:50:04] [CHAT_STREAM] [CSV-EVIDENCE] Ollamaバッチ読解API送信 - batch: 1/1 | systemChars: 141 | userChars: 6621
+[2026-06-03 10:51:30] [CHAT_STREAM] [CSV-EVIDENCE] Ollamaバッチ読解API受信 - batch: 1/1 | rawChars: 479 | elapsed: 85.88秒
+[2026-06-03 10:51:30] [CHAT_STREAM] [CSV-EVIDENCE] バッチAI読解完了 - batch: 1/1 | responseChars: 651 | elapsed: 85.89秒
+[2026-06-03 10:51:30] [CHAT_STREAM] [CSV-EVIDENCE] 統合AI回答生成開始 - findingCount: 1
+[2026-06-03 10:51:30] [CHAT_STREAM] [CSV-EVIDENCE] Ollama統合回答API送信 - systemChars: 321 | userChars: 797
+[2026-06-03 10:52:09] [CHAT_STREAM] [CSV-EVIDENCE] Ollama統合回答API受信 - responseChars: 758 | elapsed: 38.73秒
+[2026-06-03 10:52:09] [CHAT_STREAM] [CSV-EVIDENCE] 統合AI回答生成完了 - responseChars: 758 | elapsed: 38.74秒
+[2026-06-03 10:52:09] [CHAT_STREAM] [CSV-EVIDENCE] 履歴保存開始 - totalElapsed: 124.77秒
+[2026-06-03 10:52:09] [CHAT_STREAM] [DEBUG] DBトランザクションを開始し、ステップ99・対話ログ・評価スコアを一元コミットします...
+[2026-06-03 10:52:09] [CHAT_STREAM] [DEBUG] chat_reasoning_steps の最終ステップ(99)を完了状態に更新しました。
+[2026-06-03 10:52:09] [CHAT_STREAM] [DEBUG] chat_history 登録成功. ID: 69
+[2026-06-03 10:52:09] [CHAT_STREAM] [DEBUG] chat_reasoning_steps のセッションを chat_history_id: 69 にバインド完了。
+[2026-06-03 10:52:09] [CHAT_STREAM] [DEBUG] DBトランザクションコミット成功。すべての書き込みデータ整合性を完全保護しました。
+[2026-06-03 10:52:09] [CHAT_STREAM] === Text-to-SQL 自律修復型分析パイプライン完了 ===
+[2026-06-03 10:52:09] [CHAT_STREAM] [CSV-EVIDENCE] CSV証拠読解ルートが完了しました。totalElapsed: 124.79秒
+[2026-06-03 10:52:09] [CHAT_STREAM] [SMART-ROUTER] ルート処理完了: data_analysis | elapsed: 124.84秒
+[2026-06-03 10:52:48] [CHAT_STREAM] === 新着チャット受信 | Host: http://host.docker.internal:11434 | Model: gemma4:e4b ===
+[2026-06-03 10:52:48] [CHAT_STREAM] ユーザー: admin (ID: 1) | 案件ID: 4
+[2026-06-03 10:52:48] [CHAT_STREAM] 質問内容: 全てのcsvファイルから、日付のあるレコードを特定して、日付別にどのような情報があるか、表にしてくだ...
+[2026-06-03 10:52:48] [CHAT_STREAM] [SMART-ROUTER] CSV証拠読解に適した質問を検知。CSV全件証拠収集ルートを優先します。
+[2026-06-03 10:52:48] [CHAT_STREAM] [SMART-ROUTER] 最終ルート決定: data_analysis
+[2026-06-03 10:52:48] [CHAT_STREAM] >>> [データ分析ルート] 動的スキーマ監査型 多段階集計エージェントを起動します
+[2026-06-03 10:52:48] [CHAT_STREAM] [DEBUG] 引数情報 - Host: http://host.docker.internal:11434 | Model: gemma4:e4b | UserID: 1 | Role: admin
+[2026-06-03 10:52:48] [CHAT_STREAM] [DEBUG] 生成されたデータ分析セッションID (reasoningId): sql-reason_6a1f88f07fb45-4100
+[2026-06-03 10:52:48] [CHAT_STREAM] [DEBUG] データベースの実在スキーマ構造を動的に解析・スキャンします...
+[2026-06-03 10:52:48] [CHAT_STREAM] 網羅調査完了 - CSV行数: 53件, コメント: 0件, FAQ: 1件
+[2026-06-03 10:52:48] [CHAT_STREAM] [DEBUG] 動的スキーマ情報およびデータ総数マトリクスの構築完了。文字数: 7149文字
+[2026-06-03 10:52:48] [CHAT_STREAM] [CSV-SEARCH] CSV探索フェーズ開始 - totalRows: 53 | terms: 全ての
+[2026-06-03 10:52:48] [CHAT_STREAM] [CSV-SEARCH] キーワード検索完了 - hits: 0 | loaded: 0 | limited: no | elapsed: 0.00秒
+[2026-06-03 10:52:48] [CHAT_STREAM] [CSV-SEARCH] 検索ヒット0件のため、全件AI読解を行わずメタデータ回答へフォールバックします。terms: 全ての
+[2026-06-03 10:52:48] [CHAT_STREAM] [DEBUG] DBトランザクションを開始し、ステップ99・対話ログ・評価スコアを一元コミットします...
+[2026-06-03 10:52:48] [CHAT_STREAM] [DEBUG] chat_reasoning_steps の最終ステップ(99)を完了状態に更新しました。
+[2026-06-03 10:52:48] [CHAT_STREAM] [DEBUG] chat_history 登録成功. ID: 71
+[2026-06-03 10:52:48] [CHAT_STREAM] [DEBUG] chat_reasoning_steps のセッションを chat_history_id: 71 にバインド完了。
+[2026-06-03 10:52:48] [CHAT_STREAM] [DEBUG] DBトランザクションコミット成功。すべての書き込みデータ整合性を完全保護しました。
+[2026-06-03 10:52:48] [CHAT_STREAM] === Text-to-SQL 自律修復型分析パイプライン完了 ===
+[2026-06-03 10:52:48] [CHAT_STREAM] [CSV-SEARCH] 検索ヒット0件フォールバック完了。totalElapsed: 0.02秒
+[2026-06-03 10:52:48] [CHAT_STREAM] [SMART-ROUTER] ルート処理完了: data_analysis | elapsed: 0.05秒
+[2026-06-03 10:53:04] [CHAT_STREAM] === 新着チャット受信 | Host: http://host.docker.internal:11434 | Model: gemma4:e4b ===
+[2026-06-03 10:53:04] [CHAT_STREAM] ユーザー: admin (ID: 1) | 案件ID: 4
+[2026-06-03 10:53:04] [CHAT_STREAM] 質問内容: 全てのcsvファイルから、日付のあるレコードを特定して、日付別にどのような情報があるか、表にしてくだ...
+[2026-06-03 10:53:04] [CHAT_STREAM] [SMART-ROUTER] CSV証拠読解に適した質問を検知。CSV全件証拠収集ルートを優先します。
+[2026-06-03 10:53:04] [CHAT_STREAM] [SMART-ROUTER] 最終ルート決定: data_analysis
+[2026-06-03 10:53:04] [CHAT_STREAM] >>> [データ分析ルート] 動的スキーマ監査型 多段階集計エージェントを起動します
+[2026-06-03 10:53:04] [CHAT_STREAM] [DEBUG] 引数情報 - Host: http://host.docker.internal:11434 | Model: gemma4:e4b | UserID: 1 | Role: admin
+[2026-06-03 10:53:04] [CHAT_STREAM] [DEBUG] 生成されたデータ分析セッションID (reasoningId): sql-reason_6a1f89008ae12-4644
+[2026-06-03 10:53:04] [CHAT_STREAM] [DEBUG] データベースの実在スキーマ構造を動的に解析・スキャンします...
+[2026-06-03 10:53:04] [CHAT_STREAM] 網羅調査完了 - CSV行数: 53件, コメント: 0件, FAQ: 1件
+[2026-06-03 10:53:04] [CHAT_STREAM] [DEBUG] 動的スキーマ情報およびデータ総数マトリクスの構築完了。文字数: 7149文字
+[2026-06-03 10:53:04] [CHAT_STREAM] [CSV-SEARCH] CSV探索フェーズ開始 - totalRows: 53 | terms: 全ての
+[2026-06-03 10:53:04] [CHAT_STREAM] [CSV-SEARCH] キーワード検索完了 - hits: 0 | loaded: 0 | limited: no | elapsed: 0.00秒
+[2026-06-03 10:53:04] [CHAT_STREAM] [CSV-SEARCH] 検索ヒット0件のため、全件AI読解を行わずメタデータ回答へフォールバックします。terms: 全ての
+[2026-06-03 10:53:04] [CHAT_STREAM] [DEBUG] DBトランザクションを開始し、ステップ99・対話ログ・評価スコアを一元コミットします...
+[2026-06-03 10:53:04] [CHAT_STREAM] [DEBUG] chat_reasoning_steps の最終ステップ(99)を完了状態に更新しました。
+[2026-06-03 10:53:04] [CHAT_STREAM] [DEBUG] chat_history 登録成功. ID: 73
+[2026-06-03 10:53:04] [CHAT_STREAM] [DEBUG] chat_reasoning_steps のセッションを chat_history_id: 73 にバインド完了。
+[2026-06-03 10:53:04] [CHAT_STREAM] [DEBUG] DBトランザクションコミット成功。すべての書き込みデータ整合性を完全保護しました。
+[2026-06-03 10:53:04] [CHAT_STREAM] === Text-to-SQL 自律修復型分析パイプライン完了 ===
+[2026-06-03 10:53:04] [CHAT_STREAM] [CSV-SEARCH] 検索ヒット0件フォールバック完了。totalElapsed: 0.02秒
+[2026-06-03 10:53:04] [CHAT_STREAM] [SMART-ROUTER] ルート処理完了: data_analysis | elapsed: 0.06秒
+[2026-06-03 10:53:13] [CHAT_STREAM] === 新着チャット受信 | Host: http://host.docker.internal:11434 | Model: gemma4:e4b ===
+[2026-06-03 10:53:13] [CHAT_STREAM] ユーザー: admin (ID: 1) | 案件ID: 4
+[2026-06-03 10:53:13] [CHAT_STREAM] 質問内容: 全てのcsvファイルから、日付のあるレコードを特定して、日付別にどのような情報があるか、集計にしてく...
+[2026-06-03 10:53:13] [CHAT_STREAM] [SMART-ROUTER] CSV証拠読解に適した質問を検知。CSV全件証拠収集ルートを優先します。
+[2026-06-03 10:53:13] [CHAT_STREAM] [SMART-ROUTER] 最終ルート決定: data_analysis
+[2026-06-03 10:53:13] [CHAT_STREAM] >>> [データ分析ルート] 動的スキーマ監査型 多段階集計エージェントを起動します
+[2026-06-03 10:53:13] [CHAT_STREAM] [DEBUG] 引数情報 - Host: http://host.docker.internal:11434 | Model: gemma4:e4b | UserID: 1 | Role: admin
+[2026-06-03 10:53:13] [CHAT_STREAM] [DEBUG] 生成されたデータ分析セッションID (reasoningId): sql-reason_6a1f890929e26-4758
+[2026-06-03 10:53:13] [CHAT_STREAM] [DEBUG] データベースの実在スキーマ構造を動的に解析・スキャンします...
+[2026-06-03 10:53:13] [CHAT_STREAM] 網羅調査完了 - CSV行数: 53件, コメント: 0件, FAQ: 1件
+[2026-06-03 10:53:13] [CHAT_STREAM] [DEBUG] 動的スキーマ情報およびデータ総数マトリクスの構築完了。文字数: 7149文字
+[2026-06-03 10:53:13] [CHAT_STREAM] [CSV-SEARCH] CSV探索フェーズ開始 - totalRows: 53 | terms: 全ての
+[2026-06-03 10:53:13] [CHAT_STREAM] [CSV-SEARCH] キーワード検索完了 - hits: 0 | loaded: 0 | limited: no | elapsed: 0.00秒
+[2026-06-03 10:53:13] [CHAT_STREAM] [CSV-SEARCH] 検索ヒット0件のため、全件AI読解を行わずメタデータ回答へフォールバックします。terms: 全ての
+[2026-06-03 10:53:13] [CHAT_STREAM] [DEBUG] DBトランザクションを開始し、ステップ99・対話ログ・評価スコアを一元コミットします...
+[2026-06-03 10:53:13] [CHAT_STREAM] [DEBUG] chat_reasoning_steps の最終ステップ(99)を完了状態に更新しました。
+[2026-06-03 10:53:13] [CHAT_STREAM] [DEBUG] chat_history 登録成功. ID: 75
+[2026-06-03 10:53:13] [CHAT_STREAM] [DEBUG] chat_reasoning_steps のセッションを chat_history_id: 75 にバインド完了。
+[2026-06-03 10:53:13] [CHAT_STREAM] [DEBUG] DBトランザクションコミット成功。すべての書き込みデータ整合性を完全保護しました。
+[2026-06-03 10:53:13] [CHAT_STREAM] === Text-to-SQL 自律修復型分析パイプライン完了 ===
+[2026-06-03 10:53:13] [CHAT_STREAM] [CSV-SEARCH] 検索ヒット0件フォールバック完了。totalElapsed: 0.02秒
+[2026-06-03 10:53:13] [CHAT_STREAM] [SMART-ROUTER] ルート処理完了: data_analysis | elapsed: 0.04秒
+[2026-06-03 13:14:48] [CHAT_STREAM] === 新着チャット受信 | Host: http://host.docker.internal:11434 | Model: gemma4:e4b ===
+[2026-06-03 13:14:48] [CHAT_STREAM] ユーザー: admin (ID: 1) | 案件ID: NULL (汎用)
+[2026-06-03 13:14:48] [CHAT_STREAM] 質問内容: 現在の全プロジェクト状況を150文字程度で、毎朝のビジネスブリーフィング風に、本日の要約と次の推奨ア...
+[2026-06-03 13:14:48] [CHAT_STREAM] [SMART-ROUTER] 高度なマルチタスク文脈を検知。最優先で「ハイブリッド多重推論統合ハブ(chat_advanced.php Colonial)」をキックします。
+[2026-06-03 13:14:48] [CHAT_STREAM] [SMART-ROUTER] 自律生成推論セッションID: auto-reason_6a1faa38ca780-3062
+[2026-06-03 13:14:48] [CHAT_STREAM] [SMART-ROUTER] 最終ルート決定: global_no_project
+[2026-06-03 13:14:48] [CHAT_STREAM] >>> [グローバルルート] 完全自律型 ReAct エージェントを起動します
+[2026-06-03 13:14:48] [CHAT_STREAM] [DEBUG] 引数情報 - Host: http://host.docker.internal:11434 | ReasoningModel: gemma4:e4b | SynthesisModel: gemma4:e4b | UserID: 1 | Role: admin
+[2026-06-03 13:14:48] [CHAT_STREAM] >>> [ReAct ループ 1/4] 思考・行動の生成中...
+[2026-06-03 13:14:54] [CHAT_STREAM] === 新着チャット受信 | Host: http://host.docker.internal:11434 | Model: gemma4:e4b ===
+[2026-06-03 13:14:54] [CHAT_STREAM] ユーザー: admin (ID: 1) | 案件ID: NULL (汎用)
+[2026-06-03 13:14:54] [CHAT_STREAM] 質問内容: 現在の全プロジェクト状況を150文字程度で、毎朝のビジネスブリーフィング風に、本日の要約と次の推奨ア...
+[2026-06-03 13:14:54] [CHAT_STREAM] [SMART-ROUTER] 重複リクエストを抑止しました。hash: 510b6d9842b44e8c1187c2eeec2f6ac1efaaad40eba410f3f9a3519d4f3093f9 | age: 6s
+[2026-06-03 13:15:02] [CHAT_STREAM] === 新着チャット受信 | Host: http://host.docker.internal:11434 | Model: gemma4:e4b ===
+[2026-06-03 13:15:02] [CHAT_STREAM] ユーザー: admin (ID: 1) | 案件ID: NULL (汎用)
+[2026-06-03 13:15:02] [CHAT_STREAM] 質問内容: 現在の全プロジェクト状況を150文字程度で、毎朝のビジネスブリーフィング風に、本日の要約と次の推奨ア...
+[2026-06-03 13:15:02] [CHAT_STREAM] [SMART-ROUTER] 重複リクエストを抑止しました。hash: 510b6d9842b44e8c1187c2eeec2f6ac1efaaad40eba410f3f9a3519d4f3093f9 | age: 14s

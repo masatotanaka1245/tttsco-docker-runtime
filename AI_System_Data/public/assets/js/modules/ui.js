@@ -198,20 +198,33 @@ function scrollToBottom() {
 function initChatInput() {
     const chatInput = document.getElementById('chat-input');
     if (!chatInput) return;
+    let isImeComposing = false;
+    let lastCompositionEndAt = 0;
 
-    // キーボードバインド回路: ShiftなしEnterによる非同期送信の精密ハンドリング
+    chatInput.addEventListener('compositionstart', () => {
+        isImeComposing = true;
+    });
+
+    chatInput.addEventListener('compositionend', () => {
+        isImeComposing = false;
+        lastCompositionEndAt = Date.now();
+    });
+
+    // IME変換中のEnter誤送信を避けつつ、ShiftなしEnterだけを送信に使う
     chatInput.addEventListener('keydown', function(e) {
         if (e.key === 'Enter') {
-            // Shiftキーが押されていない、かつ日本語のIME変換中でない場合
-            if (!e.shiftKey && !e.isComposing) {
+            const justFinishedComposition = Date.now() - lastCompositionEndAt < 80;
+            const isCompositionEnter = e.isComposing || isImeComposing || e.keyCode === 229 || e.which === 229 || justFinishedComposition;
+
+            if (!e.shiftKey && !isCompositionEnter) {
                 e.preventDefault(); // 通常サブミットによる暴発リロードを完全無効化
-                
+
                 // グローバル空間にバインドされているチャット送信メイン関数を安全に直接実行
                 if (typeof window.handleChat === 'function') {
                     window.handleChat(e);
                 }
             }
-            // ※ Shift+Enter時、または日本語変換中は通常通り物理改行・変換確定が安全に実行されます。
+            // Shift+Enter時、またはIME変換中/変換直後は通常通り改行・変換確定を優先する。
         }
     });
 
