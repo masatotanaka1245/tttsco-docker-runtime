@@ -41,6 +41,36 @@ body {
     margin-top: 1rem;
 }
 
+.chat-mode-switch {
+    display: block;
+    min-width: 0;
+    cursor: pointer;
+}
+
+.chat-mode-pill {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+    min-height: 2rem;
+    width: 100%;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.75rem;
+    background: #f8fafc;
+    color: #64748b;
+    font-size: 0.625rem;
+    font-weight: 800;
+    line-height: 1;
+    transition: border-color 0.16s ease, background-color 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
+    user-select: none;
+}
+
+.chat-mode-pill:hover {
+    border-color: #cbd5e1;
+    background: #ffffff;
+    color: #4F5D95;
+}
+
 /* ==========================================================================
    スクロールバーのカスタマイズ (Sleek Scroll)
    ========================================================================== */

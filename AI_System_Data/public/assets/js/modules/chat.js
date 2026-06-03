@@ -1,10 +1,10 @@
 /**
  * chat.js - RAG対応 AIチャット送受信およびポーリング監視モジュール (SSEリアルタイムストリーム対応・完全同期版)
  * (support.js からインポートされてグローバル空間にバインドされるモジュールファイルです)
- * * ★[UXガラス張り化パッチ・進行ステータス実況マウント完全版]
- * 1. AI応答開始時に、吹き出しの内部に「思考ログ専用コンテナ」を動的インジェクト。
- * 2. statusパケット受信時、インジケーターの上書きではなくタイムスタンプ付きで下部へ数珠繋ぎ（Append）追記。
- * 3. chunkおよびresultパケット受信時、ログコンテナを上部に維持したまま、下部へ美麗なMarkdown本文を共存調停。
+ * * ★[進行ステータス整理版]
+ * 1. 進行ステータスは入力欄上の小さなバーで表示。
+ * 2. statusパケットの詳細は内部で保持し、完了後に折りたたみログとして確認可能。
+ * 3. chunkおよびresultパケット受信時、回答本文を読みやすいMarkdownとして描画。
  */
 import { secureFetch, getConfig } from './api.js?v=4';
 import { scrollToBottom } from './ui.js?v=4';
@@ -479,7 +479,7 @@ function getChatStatusBar() {
     if (!bar) {
         bar = document.createElement('div');
         bar.id = 'chat-processing-status';
-        bar.className = 'hidden items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[10px] text-slate-500 shadow-2xs';
+        bar.className = 'hidden items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-[10px] text-slate-500 shadow-2xs';
         form.parentNode?.insertBefore(bar, form);
     }
     return bar;
@@ -496,7 +496,7 @@ function updateChatProcessingStatus(message, variant = 'processing') {
             ? 'border-red-200 bg-red-50 text-red-700'
             : 'border-amber-200 bg-amber-50 text-amber-800';
 
-    bar.className = `flex items-center justify-between gap-3 rounded-xl border px-3 py-2 text-[10px] shadow-2xs ${tone}`;
+    bar.className = `flex items-center justify-between gap-3 rounded-xl border px-3 py-1.5 text-[10px] shadow-2xs ${tone}`;
     bar.innerHTML = `
         <span class="flex min-w-0 items-center gap-2 font-bold">
             <span class="${variant === 'processing' ? 'inline-block h-2.5 w-2.5 rounded-full border-2 border-current border-t-transparent animate-spin' : 'inline-block h-2.5 w-2.5 rounded-full bg-current'}"></span>
@@ -698,13 +698,20 @@ function handleChat(e) {
     const diagramMode = diagramModeEl ? diagramModeEl.checked : false;
     const advancedReasoning = reportMode || (advancedReasoningMode ? advancedReasoningMode.checked : false);
     const reasoningId = advancedReasoning ? generateUUID() : null;
-    
+    const initialStatusText = reportMode
+        ? '報告書モードで、根拠収集・本文生成・PDF登録の準備を進めています...'
+        : advancedReasoning
+            ? '質問の意図を分析し、多段階の検証シナリオを準備しています...'
+            : diagramMode
+                ? '必要に応じて図表を含める準備をしています...'
+                : '関連資料を検索し、回答を準備しています...';
+
     const targetMessageId = 'ai-msg-' + generateUUID();
-    
+
     appendMsg('user', msg);
     input.value = '';
     input.style.height = 'auto';
-    setFormBusy(true, 'AIが回答を準備しています...');
+    setFormBusy(true, initialStatusText);
 
     const tempId = 'loading-' + Date.now();
     const chatBox = document.getElementById('chat-box');
@@ -713,12 +720,6 @@ function handleChat(e) {
         finishChatProcessingStatus('チャット画面を取得できませんでした。', 'error');
         return;
     }
-
-    const loadingText = reportMode
-        ? '📄 報告書モードで、根拠収集・本文生成・PDF登録の準備を進めています...'
-        : advancedReasoning
-        ? '🧠 質問の意図を分析し、最適な多段階集計・検証シナリオを構築しています...'
-        : '🔍 関連ドキュメントのベクトル類似度検索を実行しています...';
 
     const loadingDiv = document.createElement('div');
     loadingDiv.id = tempId; 
@@ -731,9 +732,9 @@ function handleChat(e) {
                 <span class="text-[9px] font-black text-slate-500 uppercase tracking-tight">AI Assistant</span>
                 <span class="text-[8px] text-slate-400 font-mono tracking-tighter">${formatChatDate(null)}</span>
             </div>
-            <div class="bg-white border border-slate-200 text-slate-400 rounded-2xl rounded-tl-none p-3.5 text-xs shadow-sm font-semibold flex items-center gap-2 leading-relaxed">
+            <div class="bg-white border border-slate-200 text-slate-500 rounded-2xl rounded-tl-none px-3.5 py-3 text-xs shadow-sm font-semibold flex items-center gap-2 leading-relaxed">
                 <span class="inline-block w-3 h-3 border-2 border-[#4F5D95] border-t-transparent rounded-full animate-spin"></span>
-                <span class="status-msg-holder">${loadingText}</span>
+                <span class="status-msg-holder">回答を準備しています...</span>
             </div>
         </div>
     `;
@@ -742,6 +743,7 @@ function handleChat(e) {
     let bubbleCreated = false;
     let streamContent = "";
     let terminalStatus = 'done';
+    const liveStatusLines = [];
 
     streamState.buffer = "";
     streamState.packetCounter = 0;
@@ -791,42 +793,20 @@ function handleChat(e) {
                         const sseData = JSON.parse(jsonStr);
 
                         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-                        // 🧠 【新仕様】type === 'status' パケットのリアルタイム数珠繋ぎ
+                        // type === 'status' は小さな進行バーに表示し、詳細は完了後の折りたたみへ退避
                         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
                         if (sseData.type === 'status') {
-                            setChatProcessingStatus(sseData.message || 'AI処理を継続しています...');
-                            if (!bubbleCreated) {
-                                document.getElementById(tempId)?.remove(); 
-                                aiRenderer.createMessageBubble(targetMessageId, 'assistant'); 
-                                
-                                // ① 空の吹き出しの中に、思考ログ実況専用のコンテナを動的生成・インジェクト
-                                const targetMsgEl = document.getElementById(targetMessageId);
-                                const textBody = targetMsgEl?.querySelector('.ai-text-body');
-                                if (textBody) {
-                                    const logContainer = document.createElement('div');
-                                    logContainer.className = 'ai-thought-log';
-                                    logContainer.style.cssText = 'background: #f4f6f8; border-left: 4px solid #007bff; padding: 10px; margin-bottom: 15px; font-family: monospace; font-size: 0.85em; border-radius: 4px; white-space: pre-wrap; line-height: 1.5; color: #495057;';
-                                    textBody.appendChild(logContainer);
-                                }
-                                bubbleCreated = true;
+                            const statusMessage = sseData.message || 'AI処理を継続しています...';
+                            setChatProcessingStatus(statusMessage);
+                            liveStatusLines.push(`${getLogTimestamp()} ${statusMessage}`);
+                            if (bubbleCreated) {
+                                const currentStep = sseData.step || 1;
+                                aiRenderer.updateStatusStep(targetMessageId, currentStep, statusMessage);
                             }
-                            
-                            // ② コンテナ内部へタイムスタンプ付き実況メッセージを数珠繋ぎで改行追記（Append）
-                            const targetMsgEl = document.getElementById(targetMessageId);
-                            const logBox = targetMsgEl?.querySelector('.ai-thought-log');
-                            if (logBox) {
-                                const ts = getLogTimestamp();
-                                const newLogLine = document.createTextNode(`${ts} ${sseData.message}\n`);
-                                logBox.appendChild(newLogLine);
-                            }
-
-                            // 既存の4段階ステップインジケーターの進捗同期も同時に維持（デグレ防止）
-                            const currentStep = sseData.step || 1;
-                            aiRenderer.updateStatusStep(targetMessageId, currentStep, sseData.message);
                             scrollToBottom();
 
                         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-                        // 🥞 【新仕様】type === 'chunk' 受信時の調停レンダリング
+                        // type === 'chunk' 受信時の本文レンダリング
                         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
                         } else if (sseData.type === 'chunk') {
                             setChatProcessingStatus('回答を生成中です。本文はリアルタイムに表示されています...');
@@ -838,7 +818,7 @@ function handleChat(e) {
 
                             streamContent += normalizeAiText(sseData.text ?? sseData.word ?? '');
                             
-                            // 思考ログコンテナは上部に残したまま、その下部にMarkdown本文を美しくストリームレンダリング
+                            // 本文をリアルタイムでMarkdown描画
                             aiRenderer.renderStream(targetMessageId, streamContent);
 
                             streamState.packetCounter++;
@@ -880,8 +860,7 @@ function handleChat(e) {
                                 // オブジェクト直撃バグの完全閉塞ガード層
                                 let finalReportText = normalizeAiText(sseData.response);
                                 
-                                const existingBubble = document.getElementById(targetMessageId);
-                                const liveLogText = existingBubble?.querySelector('.ai-thought-log')?.textContent || '';
+                                const liveLogText = liveStatusLines.join('\n');
 
                                 // 最終回答ドラフトを確定展開
                                 aiRenderer.finalize(targetMessageId, String(finalReportText));
@@ -894,7 +873,7 @@ function handleChat(e) {
                                         detailsBox.innerHTML = `
                                             <summary class="text-[10px] font-bold text-slate-600 p-2.5 cursor-pointer hover:bg-slate-100 transition-colors select-none outline-none flex items-center gap-1.5">
                                                 <span class="group-open:rotate-90 transition-transform text-[8px] w-3 text-center block">▶</span>
-                                                ⚙️ バックエンド自律推論ステータス実況ログを表示
+                                                処理ステータスの詳細を表示
                                             </summary>
                                             <div class="p-3.5 pt-0 font-mono text-[11px] leading-relaxed max-h-[200px] overflow-y-auto custom-scrollbar border-t border-slate-200 bg-white/80 whitespace-pre-wrap"></div>
                                         `;

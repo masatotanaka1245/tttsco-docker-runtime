@@ -28,8 +28,12 @@ class ReportGenerator
         ?array $evaluation = null,
         ?string $reasoningSessionId = null
     ): array {
+        $this->logReportPreflight($projectId, $chatHistoryId, $question, $answer, $evaluation, $reasoningSessionId);
         $project = $this->loadProject($projectId);
         $evidence = $this->loadEvidenceSummary($projectId, $reasoningSessionId);
+        $this->log('[REPORT] 参照データ概要ロード完了: documentsChars=' . mb_strlen($evidence['documents_text'] ?? '')
+            . ' | csvChars=' . mb_strlen($evidence['csv_text'] ?? '')
+            . ' | reasoningChars=' . mb_strlen($evidence['reasoning_text'] ?? ''));
         $title = 'AI報告書_' . date('Ymd_His') . '.pdf';
         $basename = 'report_' . uniqid('', true);
         $projectDir = $this->basePath . DIRECTORY_SEPARATOR . 'public' . DIRECTORY_SEPARATOR . '01_RAG_Documents' . DIRECTORY_SEPARATOR . $projectId;
@@ -41,20 +45,36 @@ class ReportGenerator
         $pdfPath = $projectDir . DIRECTORY_SEPARATOR . $basename . '.pdf';
         $html = $this->buildHtml($project, $question, $answer, $evaluation, $evidence);
         file_put_contents($htmlPath, $html, LOCK_EX);
+        $this->log('[REPORT] HTML生成完了: path=' . $this->relativePath($htmlPath)
+            . ' | bytes=' . (is_file($htmlPath) ? filesize($htmlPath) : 0)
+            . ' | chars=' . mb_strlen($html));
 
         $converter = $this->renderPdf($htmlPath, $pdfPath);
         if (!is_file($pdfPath) || filesize($pdfPath) === 0) {
             throw new RuntimeException('報告書PDFの生成に失敗しました。PDF変換コマンドを確認してください。');
         }
+        $this->log('[REPORT] PDF生成後チェック: path=' . $this->relativePath($pdfPath) . ' | bytes=' . filesize($pdfPath));
 
         $plainText = $this->buildSearchText($project, $question, $answer, $evaluation, $evidence);
-        $chunks = $this->splitTextIntoChunks($plainText, 700);
+        $chunks = $this->splitTextIntoChunks($plainText, 300);
+        $this->log('[REPORT] 検索登録テキスト準備完了: plainChars=' . mb_strlen($plainText)
+            . ' | initialChunks=' . count($chunks)
+            . ' | embedModel=' . $this->embedModel);
         $embeddingEngine = new EmbeddingEngine($this->ollamaHost, $this->embedModel);
-        $chunkEmbeddings = [];
+        $searchChunks = [];
         foreach ($chunks as $idx => $chunk) {
-            $chunkEmbeddings[$idx] = $embeddingEngine->embed($chunk);
-            $this->log("[REPORT] embedding生成: chunk=" . ($idx + 1) . '/' . count($chunks));
+            $searchChunks = array_merge(
+                $searchChunks,
+                $this->embedChunkWithAdaptiveSplit($embeddingEngine, $chunk, ($idx + 1) . '/' . count($chunks))
+            );
         }
+        if (!$searchChunks) {
+            $fallbackChunk = mb_substr($plainText, 0, 180);
+            $fallbackEmbedding = $embeddingEngine->embed($fallbackChunk);
+            $searchChunks[] = ['text' => $fallbackChunk, 'embedding' => $fallbackEmbedding];
+            $this->log('[REPORT] embeddingフォールバック生成: 短縮メタ情報を検索対象として登録します。');
+        }
+        $this->log('[REPORT] embedding生成フェーズ完了: searchableChunks=' . count($searchChunks));
         $dbPath = '01_RAG_Documents/' . $projectId . '/' . basename($pdfPath);
 
         $this->pdo->beginTransaction();
@@ -64,15 +84,15 @@ class ReportGenerator
             $docId = (int)$this->pdo->lastInsertId();
 
             $stmtChunk = $this->pdo->prepare('INSERT INTO doc_chunks (doc_id, page_number, chunk_text, embedding, image_description, created_at) VALUES (?, ?, ?, ?, ?, NOW())');
-            foreach ($chunks as $idx => $chunk) {
+            foreach ($searchChunks as $idx => $chunkData) {
                 $stmtChunk->execute([
                     $docId,
                     1,
-                    $chunk,
-                    json_encode($chunkEmbeddings[$idx]),
+                    $chunkData['text'],
+                    json_encode($chunkData['embedding']),
                     'AI生成報告書（Report Mode）'
                 ]);
-                $this->log("[REPORT] doc_chunks登録: doc_id={$docId} chunk=" . ($idx + 1) . '/' . count($chunks));
+                $this->log("[REPORT] doc_chunks登録: doc_id={$docId} chunk=" . ($idx + 1) . '/' . count($searchChunks));
             }
 
             $this->pdo->commit();
@@ -92,8 +112,46 @@ class ReportGenerator
         ];
     }
 
+    private function embedChunkWithAdaptiveSplit(EmbeddingEngine $embeddingEngine, string $chunk, string $label, int $depth = 0): array
+    {
+        $chunk = trim($chunk);
+        if ($chunk === '') {
+            return [];
+        }
+
+        try {
+            $embedding = $embeddingEngine->embed($chunk);
+            $this->log("[REPORT] embedding生成: chunk={$label} | chars=" . mb_strlen($chunk));
+            return [['text' => $chunk, 'embedding' => $embedding]];
+        } catch (Throwable $e) {
+            $length = mb_strlen($chunk);
+            $canSplit = $length > 120 && $depth < 4;
+            if ($canSplit) {
+                $this->log("[REPORT] embedding再分割: chunk={$label} | chars={$length} | reason=" . $this->summarizeException($e));
+                $mid = (int)ceil($length / 2);
+                $left = mb_substr($chunk, 0, $mid);
+                $right = mb_substr($chunk, $mid);
+                return array_merge(
+                    $this->embedChunkWithAdaptiveSplit($embeddingEngine, $left, $label . '-a', $depth + 1),
+                    $this->embedChunkWithAdaptiveSplit($embeddingEngine, $right, $label . '-b', $depth + 1)
+                );
+            }
+
+            $this->log("[REPORT] embedding生成をスキップ: chunk={$label} | chars={$length} | reason=" . $this->summarizeException($e));
+            return [];
+        }
+    }
+
+    private function summarizeException(Throwable $e): string
+    {
+        return mb_substr(preg_replace('/\s+/u', ' ', $e->getMessage()) ?: $e->getMessage(), 0, 240);
+    }
+
     private function renderPdf(string $htmlPath, string $pdfPath): string
     {
+        $this->log('[REPORT] PDF変換プリフライト: composerAutoload=' . ($this->composerAutoloadExists() ? 'yes' : 'no')
+            . ' | mpdfLoaded=' . (class_exists('\\Mpdf\\Mpdf') ? 'yes' : 'no')
+            . ' | japaneseFonts=' . $this->detectJapaneseFontSummary());
         if ($this->loadComposerAutoload() && class_exists('\\Mpdf\\Mpdf')) {
             $this->log('[REPORT] PDF変換ツール検出: mPDF');
             try {
@@ -103,13 +161,34 @@ class ReportGenerator
                     @mkdir($tempDir, 0777, true);
                 }
 
+                $fontDirs = method_exists('\\Mpdf\\Config\\ConfigVariables', 'getDefaults')
+                    ? (new \Mpdf\Config\ConfigVariables())->getDefaults()['fontDir']
+                    : [];
+                $fontData = method_exists('\\Mpdf\\Config\\FontVariables', 'getDefaults')
+                    ? (new \Mpdf\Config\FontVariables())->getDefaults()['fontdata']
+                    : [];
+                $notoRegular = '/usr/share/opentype/noto/NotoSansCJK-Regular.ttc';
+                $notoBold = '/usr/share/opentype/noto/NotoSansCJK-Bold.ttc';
+                $this->log('[REPORT] mPDFフォント設定: notoRegular=' . (is_file($notoRegular) ? 'yes' : 'no')
+                    . ' | notoBold=' . (is_file($notoBold) ? 'yes' : 'no')
+                    . ' | tempDir=' . (is_dir($tempDir) && is_writable($tempDir) ? $tempDir : sys_get_temp_dir()));
+                if (is_file($notoRegular)) {
+                    $fontDirs[] = dirname($notoRegular);
+                    $fontData['notosanscjkjp'] = [
+                        'R' => basename($notoRegular),
+                        'B' => is_file($notoBold) ? basename($notoBold) : basename($notoRegular),
+                    ];
+                }
+
                 $mpdf = new \Mpdf\Mpdf([
                     'mode' => 'utf-8',
                     'format' => 'A4',
                     'tempDir' => is_dir($tempDir) && is_writable($tempDir) ? $tempDir : sys_get_temp_dir(),
+                    'fontDir' => $fontDirs,
+                    'fontdata' => $fontData,
                     'autoScriptToLang' => true,
                     'autoLangToFont' => true,
-                    'default_font' => 'sans-serif',
+                    'default_font' => is_file($notoRegular) ? 'notosanscjkjp' : 'sans-serif',
                     'margin_left' => 16,
                     'margin_right' => 16,
                     'margin_top' => 18,
@@ -127,6 +206,10 @@ class ReportGenerator
             } catch (Throwable $e) {
                 $this->log('[REPORT] mPDF実行失敗: ' . $e->getMessage());
             }
+        } else {
+            $this->log('[REPORT] mPDFは利用不可のためフォールバック変換へ進みます。autoload='
+                . ($this->composerAutoloadExists() ? 'yes' : 'no')
+                . ' | class=' . (class_exists('\\Mpdf\\Mpdf') ? 'yes' : 'no'));
         }
 
         $wkhtmltopdf = $this->resolveBinary('wkhtmltopdf', [
@@ -163,9 +246,13 @@ class ReportGenerator
         ]);
         if ($browser !== '') {
             $this->log('[REPORT] PDF変換ツール検出: headless browser=' . $browser);
+            $version = trim((string)@shell_exec(escapeshellarg($browser) . ' --version 2>&1'));
+            if ($version !== '') {
+                $this->log('[REPORT] headless browser version: ' . mb_substr($version, 0, 160));
+            }
             $fileUrl = 'file:///' . str_replace(DIRECTORY_SEPARATOR, '/', realpath($htmlPath));
             $cmd = escapeshellarg($browser)
-                . ' --headless --disable-gpu --no-sandbox --disable-dev-shm-usage --print-to-pdf=' . escapeshellarg($pdfPath)
+                . ' --headless --disable-gpu --no-sandbox --disable-dev-shm-usage --print-to-pdf-no-header --print-to-pdf=' . escapeshellarg($pdfPath)
                 . ' ' . escapeshellarg($fileUrl) . ' 2>&1';
             $output = (string)shell_exec($cmd);
             if (is_file($pdfPath) && filesize($pdfPath) > 0) {
@@ -197,11 +284,77 @@ class ReportGenerator
             $realPath = realpath($autoloadPath);
             if ($realPath && is_file($realPath)) {
                 require_once $realPath;
+                $this->log('[REPORT] Composer autoload検出: ' . $realPath . ' | mpdfClass=' . (class_exists('\\Mpdf\\Mpdf') ? 'yes' : 'no'));
                 return class_exists('\\Mpdf\\Mpdf');
             }
         }
 
+        $this->log('[REPORT] Composer autoload未検出: checked=' . implode(', ', $autoloadCandidates));
         return false;
+    }
+
+    private function composerAutoloadExists(): bool
+    {
+        foreach ([
+            $this->basePath . DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR . 'autoload.php',
+            dirname($this->basePath) . DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR . 'autoload.php',
+            $this->basePath . DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR . 'autoload.php',
+        ] as $autoloadPath) {
+            $realPath = realpath($autoloadPath);
+            if ($realPath && is_file($realPath)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function detectJapaneseFontSummary(): string
+    {
+        $knownFiles = [
+            '/usr/share/opentype/noto/NotoSansCJK-Regular.ttc',
+            '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
+            '/usr/share/fonts/truetype/fonts-japanese-gothic.ttf',
+        ];
+        foreach ($knownFiles as $file) {
+            if (is_file($file)) {
+                return 'file:' . $file;
+            }
+        }
+
+        $fcMatch = trim((string)@shell_exec('command -v fc-match >/dev/null 2>&1 && fc-match "Noto Sans CJK JP" 2>&1'));
+        if ($fcMatch !== '') {
+            return 'fc-match:' . mb_substr($fcMatch, 0, 180);
+        }
+
+        return 'none';
+    }
+
+    private function logReportPreflight(
+        int $projectId,
+        int $chatHistoryId,
+        string $question,
+        string $answer,
+        ?array $evaluation,
+        ?string $reasoningSessionId
+    ): void {
+        $this->log('[REPORT] 生成プリフライト: project_id=' . $projectId
+            . ' | chat_history_id=' . $chatHistoryId
+            . ' | questionChars=' . mb_strlen($question)
+            . ' | answerChars=' . mb_strlen($answer)
+            . ' | verdict=' . (string)($evaluation['verdict'] ?? 'none')
+            . ' | score=' . (string)($evaluation['total_score'] ?? 'none')
+            . ' | reasoningSession=' . ($reasoningSessionId ?: 'none')
+            . ' | basePath=' . $this->basePath);
+    }
+
+    private function relativePath(string $path): string
+    {
+        $normalizedBase = rtrim(str_replace('\\', '/', $this->basePath), '/');
+        $normalizedPath = str_replace('\\', '/', $path);
+        if (str_starts_with($normalizedPath, $normalizedBase . '/')) {
+            return substr($normalizedPath, strlen($normalizedBase) + 1);
+        }
+        return $path;
     }
 
     private function extractHtmlTitle(string $html): string
@@ -257,14 +410,14 @@ class ReportGenerator
         return '<!doctype html><html lang="ja"><head><meta charset="utf-8">'
             . '<title>' . $projectName . ' AI報告書</title>'
             . '<style>'
-            . '@page{size:A4;margin:18mm 16mm;}body{font-family:"Yu Gothic","Meiryo",sans-serif;color:#1f2937;line-height:1.72;font-size:12px;}'
+            . '@page{size:A4;margin:18mm 16mm;}body{font-family:"Noto Sans CJK JP","Noto Sans JP","Yu Gothic","Meiryo",sans-serif;color:#1f2937;line-height:1.72;font-size:12px;}'
             . 'h1{font-size:24px;margin:0 0 8px;color:#111827;}h2{font-size:16px;margin:24px 0 8px;border-bottom:1px solid #cbd5e1;padding-bottom:5px;color:#334155;}h3{font-size:13px;margin:16px 0 6px;color:#475569;}'
             . '.cover{border-left:6px solid #4F5D95;padding:18px 20px;margin-bottom:20px;background:#f8fafc;}'
             . '.meta{color:#64748b;font-size:11px;margin-top:8px}.pill{display:inline-block;border:1px solid #c7d2fe;color:#3730a3;background:#eef2ff;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:bold;margin-left:6px;}'
             . '.section{page-break-inside:avoid}.box{border:1px solid #e2e8f0;background:#fff;padding:12px 14px;border-radius:8px;margin:8px 0;}.summary{background:#eef2ff;border-color:#c7d2fe;color:#312e81;font-weight:600;}'
-            . 'pre{white-space:pre-wrap;font-family:"Yu Gothic","Meiryo",sans-serif;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;}'
+            . 'pre{white-space:pre-wrap;font-family:"Noto Sans CJK JP","Noto Sans JP","Yu Gothic","Meiryo",sans-serif;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;}'
             . '.report-body p{margin:0 0 9px;}.report-body ul{margin:6px 0 12px 1.2em;padding:0;}.report-body li{margin:3px 0;}.report-body strong{color:#111827;}'
-            . 'table{width:100%;border-collapse:collapse;margin:8px 0;}td,th{border:1px solid #e2e8f0;padding:6px;vertical-align:top;}th{background:#f1f5f9;}'
+            . 'table{width:100%;border-collapse:collapse;margin:8px 0 14px;}td,th{border:1px solid #e2e8f0;padding:6px;vertical-align:top;}th{background:#f1f5f9;font-weight:700;}'
             . '.small{font-size:10px;color:#64748b}.footer{margin-top:28px;padding-top:10px;border-top:1px solid #e2e8f0;color:#64748b;font-size:10px;}'
             . '</style></head><body>'
             . '<div class="cover"><h1>' . $projectName . ' AI報告書</h1>'
@@ -293,7 +446,7 @@ class ReportGenerator
             $evidence['documents_text'] ?? '',
             $evidence['csv_text'] ?? '',
             $evidence['reasoning_text'] ?? '',
-            '品質評価: ' . json_encode($evaluation ?? [], JSON_UNESCAPED_UNICODE)
+            '品質評価: ' . $this->buildEvaluationSearchText($evaluation)
         ];
         return $this->normalizeUtf8(implode("\n\n", array_filter($lines, fn($v) => trim((string)$v) !== '')));
     }
@@ -301,7 +454,7 @@ class ReportGenerator
     private function buildEvidenceHtml(array $evidence): string
     {
         $html = '';
-        foreach (['documents_text' => '登録PDF', 'csv_text' => 'CSVデータ', 'reasoning_text' => '推論ステップ'] as $key => $label) {
+        foreach (['documents_text' => '登録資料', 'csv_text' => 'CSVデータ', 'reasoning_text' => '推論ステップ'] as $key => $label) {
             $value = trim((string)($evidence[$key] ?? ''));
             if ($value === '') {
                 continue;
@@ -316,12 +469,54 @@ class ReportGenerator
         if (!$evaluation) {
             return '<span class="small">評価データはありません。</span>';
         }
-        return '<pre>' . $this->e(json_encode($evaluation, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)) . '</pre>';
+        $score = $evaluation['total_score'] ?? null;
+        $verdict = $evaluation['verdict'] ?? '';
+        $feedback = trim((string)($evaluation['feedback'] ?? ''));
+        $feedback = $this->removeInternalRewriteNotes($feedback);
+        $feedback = mb_substr($feedback, 0, 260) . (mb_strlen($feedback) > 260 ? '...' : '');
+
+        $rows = [];
+        if ($score !== null) {
+            $rows[] = '<tr><th>総合評価</th><td>' . $this->e((string)$score) . '点</td></tr>';
+        }
+        if ($verdict !== '') {
+            $rows[] = '<tr><th>判定</th><td>' . $this->e((string)$verdict) . '</td></tr>';
+        }
+        if ($feedback !== '') {
+            $rows[] = '<tr><th>コメント</th><td>' . nl2br($this->e($feedback)) . '</td></tr>';
+        }
+
+        return $rows ? '<table>' . implode('', $rows) . '</table>' : '<span class="small">評価データはありません。</span>';
+    }
+
+    private function buildEvaluationSearchText(?array $evaluation): string
+    {
+        if (!$evaluation) {
+            return '';
+        }
+        $parts = [];
+        if (isset($evaluation['total_score'])) {
+            $parts[] = '総合評価 ' . $evaluation['total_score'] . '点';
+        }
+        if (!empty($evaluation['verdict'])) {
+            $parts[] = '判定 ' . $evaluation['verdict'];
+        }
+        if (!empty($evaluation['feedback'])) {
+            $parts[] = 'コメント ' . $this->removeInternalRewriteNotes((string)$evaluation['feedback']);
+        }
+        return implode(' / ', $parts);
+    }
+
+    private function removeInternalRewriteNotes(string $text): string
+    {
+        $text = preg_replace('/\[TEXT-ONLY-REWRITE\].*$/su', '', $text);
+        return trim((string)$text);
     }
 
     private function makeShortSummary(string $answer): string
     {
         $plain = preg_replace('/```.*?```/su', '', $answer);
+        $plain = $this->stripDecorativeSymbols((string)$plain);
         $plain = preg_replace('/[#*_>`\[\]\(\)\-]+/u', ' ', (string)$plain);
         $plain = trim((string)preg_replace('/\s+/u', ' ', (string)$plain));
         if ($plain === '') {
@@ -332,7 +527,7 @@ class ReportGenerator
 
     private function formatReportBody(string $markdown): string
     {
-        $markdown = $this->normalizeUtf8($markdown);
+        $markdown = $this->stripDecorativeSymbols($this->normalizeUtf8($markdown));
         $blocks = preg_split('/(```.*?```)/su', $markdown, -1, PREG_SPLIT_DELIM_CAPTURE) ?: [$markdown];
         $html = '';
 
@@ -347,7 +542,9 @@ class ReportGenerator
 
             $lines = preg_split('/\r\n|\r|\n/u', $block) ?: [];
             $inList = false;
-            foreach ($lines as $line) {
+            $lineCount = count($lines);
+            for ($i = 0; $i < $lineCount; $i++) {
+                $line = $lines[$i];
                 $line = trim($line);
                 if ($line === '') {
                     if ($inList) {
@@ -363,6 +560,16 @@ class ReportGenerator
                     }
                     $level = min(3, max(2, strlen($m[1])));
                     $html .= '<h' . $level . '>' . $this->inlineMarkdown($m[2]) . '</h' . $level . '>';
+                    continue;
+                }
+                if ($this->isMarkdownTableStart($lines, $i)) {
+                    if ($inList) {
+                        $html .= '</ul>';
+                        $inList = false;
+                    }
+                    [$tableHtml, $consumed] = $this->consumeMarkdownTable($lines, $i);
+                    $html .= $tableHtml;
+                    $i += $consumed - 1;
                     continue;
                 }
                 if (preg_match('/^[-*]\s+(.+)$/u', $line, $m)) {
@@ -389,9 +596,53 @@ class ReportGenerator
 
     private function inlineMarkdown(string $text): string
     {
+        $text = $this->stripDecorativeSymbols($text);
         $escaped = $this->e($text);
         $escaped = preg_replace('/\*\*(.+?)\*\*/u', '<strong>$1</strong>', $escaped);
         return $escaped !== null ? $escaped : $this->e($text);
+    }
+
+    private function isMarkdownTableStart(array $lines, int $index): bool
+    {
+        $current = trim((string)($lines[$index] ?? ''));
+        $next = trim((string)($lines[$index + 1] ?? ''));
+        return str_contains($current, '|')
+            && preg_match('/^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?$/u', $next) === 1;
+    }
+
+    private function consumeMarkdownTable(array $lines, int $index): array
+    {
+        $rows = [];
+        for ($i = $index; $i < count($lines); $i++) {
+            $line = trim((string)$lines[$i]);
+            if ($line === '' || !str_contains($line, '|')) {
+                break;
+            }
+            if ($i === $index + 1 && preg_match('/^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?$/u', $line)) {
+                continue;
+            }
+            $cells = array_map('trim', explode('|', trim($line, '|')));
+            if ($cells) {
+                $rows[] = $cells;
+            }
+        }
+
+        if (!$rows) {
+            return ['', 0];
+        }
+
+        $html = '<table>';
+        foreach ($rows as $rowIndex => $cells) {
+            $tag = $rowIndex === 0 ? 'th' : 'td';
+            $html .= '<tr>';
+            foreach ($cells as $cell) {
+                $html .= '<' . $tag . '>' . $this->inlineMarkdown($cell) . '</' . $tag . '>';
+            }
+            $html .= '</tr>';
+        }
+        $html .= '</table>';
+
+        return [$html, $i - $index];
     }
 
     private function loadProject(int $projectId): array
@@ -404,7 +655,14 @@ class ReportGenerator
     private function loadEvidenceSummary(int $projectId, ?string $reasoningSessionId): array
     {
         $docs = [];
-        $stmtDocs = $this->pdo->prepare('SELECT title, created_at FROM documents WHERE project_id = ? ORDER BY created_at DESC LIMIT 10');
+        $stmtDocs = $this->pdo->prepare(
+            "SELECT title, created_at FROM documents
+             WHERE project_id = ?
+               AND title NOT LIKE 'AI報告書\\_%' ESCAPE '\\\\'
+               AND file_path NOT LIKE '%/report\\_%' ESCAPE '\\\\'
+             ORDER BY created_at DESC
+             LIMIT 10"
+        );
         $stmtDocs->execute([$projectId]);
         foreach ($stmtDocs->fetchAll(PDO::FETCH_ASSOC) as $row) {
             $docs[] = '- ' . $row['title'] . ' (' . $row['created_at'] . ')';
@@ -485,6 +743,12 @@ class ReportGenerator
         }
         $cleaned = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $text);
         return $cleaned !== null ? $cleaned : $text;
+    }
+
+    private function stripDecorativeSymbols(string $text): string
+    {
+        $text = preg_replace('/[\x{1F300}-\x{1FAFF}\x{2600}-\x{27BF}]/u', '', $text);
+        return $text !== null ? $text : '';
     }
 
     private function log(string $message): void

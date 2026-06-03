@@ -278,6 +278,7 @@ require_once __DIR__ . '/../../src/Auth.php';
 require_once __DIR__ . '/../../src/EmbeddingEngine.php';
 require_once __DIR__ . '/../../src/VectorSearch.php';
 require_once __DIR__ . '/../../src/PromptManager.php';
+require_once __DIR__ . '/../../src/ChatRequestGuard.php';
 
 // 認証チェック
 $auth = new Auth($pdo);
@@ -333,6 +334,27 @@ try {
     chatLogger("質問内容: " . mb_substr($message, 0, 50) . (mb_strlen($message) > 50 ? '...' : ''));
     if ($report_mode || $diagram_mode) {
         chatLogger("[OUTPUT-MODE] report_mode=" . ($report_mode ? 'on' : 'off') . " | diagram_mode=" . ($diagram_mode ? 'on' : 'off'));
+    }
+
+    $requestGuard = ChatRequestGuard::inspect($message, $project_id !== null ? (int)$project_id : null, $report_mode, $diagram_mode);
+    if (($requestGuard['action'] ?? 'continue') !== 'continue') {
+        $routeName = $requestGuard['mode_used'] ?: 'input_guard';
+        $routeStart = microtime(true);
+        chatLogger("[INPUT-GUARD] action={$requestGuard['action']} | reason={$requestGuard['reason']} | report_mode=" . ($report_mode ? 'on' : 'off') . " | diagram_mode=" . ($diagram_mode ? 'on' : 'off'));
+        sendSSE('result', [
+            'status' => 'success',
+            'response' => $requestGuard['response'],
+            'sources' => [],
+            'mode_used' => $routeName,
+            'detected_page' => null,
+            'hit_count' => 0,
+            'reasoning_steps' => [],
+            'applied_model' => $selected_model,
+            'created_at' => date('Y/m/d H:i'),
+            'report_document' => null
+        ]);
+        chatLogger("[SMART-ROUTER] ルート処理完了: {$routeName} | elapsed: " . number_format(microtime(true) - $routeStart, 2) . "秒");
+        exit;
     }
 
     // 🧠 自律型スマート・ルーティング (Smart Routing) ──【ハイブリッド要塞・完全調和版】

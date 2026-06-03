@@ -123,7 +123,7 @@
     <header class="text-center mb-16 border-b border-slate-200 pb-12">
       <h1 class="text-4xl md:text-5xl font-black text-slate-900 tracking-tight mb-4">TEPSCOルーティンズ</h1>
       <p class="text-xl md:text-2xl text-slate-500 font-semibold tracking-wide">現行コード解析にもとづく統合仕様書</p>
-      <p class="text-xs md:text-sm text-slate-400 font-bold mt-2">最終更新: 2026/06/02 / 対象環境: Windows + Apache + PHP + MySQL</p>
+      <p class="text-xs md:text-sm text-slate-400 font-bold mt-2">最終更新: 2026/06/03 / 対象環境: Windows + Apache + PHP + MySQL</p>
       <div class="flex justify-center flex-wrap gap-3 mt-6">
         <span class="env-tag bg-indigo-100 text-indigo-700">PHP 8.2.8</span>
         <span class="env-tag bg-blue-100 text-blue-700">MySQL 8.0.33</span>
@@ -241,7 +241,7 @@
 │   ├── <span class="text-indigo-400 font-bold">assets/js/modules/</span>
 │   │   ├── <span class="text-green-400">project.js</span> <span class="text-slate-500"># 案件CRUD、コメント、メンバー、FAQ制御</span>
 │   │   ├── <span class="text-green-400">csv.js</span>     <span class="text-slate-500"># CSV/外部PostgreSQLインポート、プレビュー、削除</span>
-│   │   ├── <span class="text-green-400">chat.js</span>    <span class="text-slate-500"># SSEチャット、Markdown/Mermaid描画、参照元バッジ</span>
+│   │   ├── <span class="text-green-400">chat.js</span>    <span class="text-slate-500"># SSEチャット、回答モードUI、Markdown/Mermaid描画、参照元バッジ</span>
 │   │   ├── <span class="text-green-400">map.js</span>     <span class="text-slate-500"># 住所検索、座標コピー、Leafletモーダル地図</span>
 │   │   └── <span class="text-green-400">api.js</span>     <span class="text-slate-500"># CSRF付き secureFetch 共通通信</span>
 │   ├── <span class="text-indigo-400 font-bold">api/</span>
@@ -262,6 +262,8 @@
 │   ├── <span class="text-green-400">ProjectAccess.php</span>    <span class="text-slate-500"># 案件参照/管理権限</span>
 │   ├── <span class="text-green-400">VectorSearch.php</span>     <span class="text-slate-500"># doc_chunks類似度検索</span>
 │   ├── <span class="text-green-400">SqlExecutionEngine.php</span><span class="text-slate-500"># Text-to-SQL安全実行</span>
+│   ├── <span class="text-green-400">ChatRequestGuard.php</span><span class="text-slate-500"># 誤送信・不明瞭入力の事前ガード</span>
+│   ├── <span class="text-green-400">ChatEvaluationPolicy.php</span><span class="text-slate-500"># 通常RAG評価実行可否の判定</span>
 │   ├── <span class="text-green-400">ChatEvaluator.php</span>    <span class="text-slate-500"># LLM-as-a-Judge評価</span>
 │   └── <span class="text-green-400">FaqAutoRegistrar.php</span> <span class="text-slate-500"># 高評価回答のFAQ自動登録</span>
 └── <span class="text-indigo-400 font-bold">logs/</span> <span class="text-slate-500"># app_error、chat_debug、upload_debug、進捗JSON</span></pre>
@@ -388,7 +390,7 @@
 
       <h2 class="text-xl font-semibold sub-section text-slate-800">4.5 AIチャット・分析モード</h2>
       <p class="text-sm md:text-base text-slate-700">
-        <code>chat.php</code> はSSE形式のチャットエントリーポイントで、質問内容に応じて通常RAG、フル思考、CSV証拠読解、Text-to-SQL分析、admin専用全社横断調査の各ルートへ分岐する。通常RAGは <code>chat_normal.php</code>、多段階推論は <code>chat_advanced.php</code>、CSV証拠読解とText-to-SQL集計は <code>chat_analysis.php</code>、admin専用の全社横断調査は <code>chat_global.php</code> が担当する。回答と質問は <code>chat_history</code> に保存され、推論過程は <code>chat_reasoning_steps</code>、品質評価は <code>chat_evaluations</code> に保存される。高評価の回答は要点化され、FAQ候補として <code>project_faqs</code> に自動登録される。<code>SupportController.php</code> は保存済み推論ステップを再取得し、ブラウザ更新後もプロセス表示を復元する。
+        <code>chat.php</code> はSSE形式のチャットエントリーポイントで、質問内容に応じて通常RAG、フル思考、CSV証拠読解、Text-to-SQL分析、admin専用全社横断調査の各ルートへ分岐する。ルーティング前に <code>ChatRequestGuard.php</code> が空入力、挨拶、誤送信に近い短文、報告書モードに不十分な指示を判定し、重い推論へ入る前に確認応答へ切り替える。通常RAGは <code>chat_normal.php</code>、多段階推論は <code>chat_advanced.php</code>、CSV証拠読解とText-to-SQL集計は <code>chat_analysis.php</code>、admin専用の全社横断調査は <code>chat_global.php</code> が担当する。回答と質問は <code>chat_history</code> に保存され、推論過程は <code>chat_reasoning_steps</code>、品質評価は <code>chat_evaluations</code> に保存される。高評価の回答は要点化され、FAQ候補として <code>project_faqs</code> に自動登録される。<code>SupportController.php</code> は保存済み推論ステップを再取得し、ブラウザ更新後もプロセス表示を復元する。
       </p>
 
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm mt-4">
@@ -397,6 +399,8 @@
           <ul class="list-disc list-inside text-slate-600 space-y-1">
             <li>SSEの <code>status</code>、<code>chunk</code>、<code>result</code> を受信し、本文をリアルタイム描画</li>
             <li>Markdown、Chart.js用 <code>json:chart</code>、Mermaid図をチャット内にJIT描画</li>
+            <li>support.phpの回答モードは「フル思考」「図解」「報告書」の小型スイッチで切替</li>
+            <li>生成中ステータスは入力欄上の小さなバーに表示し、詳細は回答完了後の折りたたみで確認</li>
             <li>Markedのコードブロック互換差異、DOMPurifyによる <code>canvas</code> と <code>data-*</code> 削除を考慮</li>
           </ul>
         </div>
@@ -416,13 +420,14 @@
             <li>報告書モードは、チャット回答をHTML/CSSで整形し、サーバー側でmPDFを優先してPDFファイルとして出力する。</li>
             <li>生成PDFは通常アップロードPDFと同じ保存領域に配置し、documentsへ親レコードとして登録する。</li>
             <li>報告書本文は生成時のテキストを直接チャンク化し、doc_chunksへ登録するため、再OCRせず高速に検索対象化できる。</li>
+            <li>報告書モードでも入力が不明瞭な場合はPDF生成を行わず、確認応答で終了する。</li>
           </ul>
         </div>
       </div>
 
       <h2 class="text-xl font-semibold sub-section text-slate-800">4.6 ログ・運用設定</h2>
       <p class="text-sm md:text-base text-slate-700">
-        ログは <code>logs/</code> 配下に出力する。<code>upload_debug.log</code> はアップロードやCSV/PG取込の進捗、<code>chat_debug.log</code> はチャットのルート判定、DB収集、SQL生成・監査、Ollama送受信、評価、履歴保存までの詳細ログ、<code>app_error.log</code> はAPI内部エラーを記録する。support.phpにはadmin向けのリアルタイムログビューアがあり、<code>chat_debug_tail.php</code> で追記分をtail表示できる。本番では詳細例外を画面に出さず、ログ肥大化に注意して運用する。
+        ログは <code>logs/</code> 配下に出力する。<code>upload_debug.log</code> はアップロードやCSV/PG取込の進捗、<code>chat_debug.log</code> はチャットのルート判定、入力ガード、DB収集、SQL生成・監査、Ollama送受信、評価、履歴保存までの詳細ログ、<code>app_error.log</code> はAPI内部エラーを記録する。support.phpにはadmin向けのリアルタイムログビューアがあり、<code>chat_debug_tail.php</code> で追記分をtail表示できる。<code>[INPUT-GUARD]</code>、<code>[SQL-REPAIR-POLICY]</code>、<code>[EVAL-POLICY]</code> により、誤送信抑止、SQL修復上限、品質評価上限を確認できる。本番では詳細例外を画面に出さず、ログ肥大化に注意して運用する。
       </p>
     </section>
 
@@ -617,12 +622,12 @@ graph TD
         <span class="section-number">7</span>AI回答生成 (RAG) アーキテクチャとシーケンス図
       </h1>
       <p class="text-slate-700 mb-6 text-sm md:text-base leading-relaxed">
-        本システムにおけるAI対話パイプラインは、<code>public/api/chat.php</code> を入口としてSSEで進捗と最終回答を返す。ユーザー入力の内容、文字数、分析キーワード、CSV読解キーワード、全社横断キーワード、フロント側のモード指定に基づき、通常RAG、フル思考、Text-to-SQL分析、CSV検索先行読解、admin専用グローバル調査へ分岐する。
+        本システムにおけるAI対話パイプラインは、<code>public/api/chat.php</code> を入口としてSSEで進捗と最終回答を返す。ユーザー入力の内容、文字数、分析キーワード、CSV読解キーワード、全社横断キーワード、フロント側の回答モード指定に基づき、通常RAG、フル思考、Text-to-SQL分析、CSV検索先行読解、admin専用グローバル調査へ分岐する。入力が短すぎる、挨拶のみ、報告書生成に必要な意図が不足している場合は、ルーティング前に軽量な確認応答で終了する。
       </p>
 
       <h2 class="text-xl font-semibold sub-section text-slate-800 border-l-4 border-primary pl-3 mb-4">7.1 【軽量ルート】一問一答型RAG（文脈補正・一発検索）</h2>
       <p class="text-slate-700 text-xs md:text-sm mb-4">
-        <code>chat_normal.php</code> が担当する基本ルートです。質問ベクトルを生成し、案件内の <code>doc_chunks</code> を検索する。PDF本文、PDF画像説明、CSVから自然言語化された行データを同じ検索対象として扱い、関連チャンクをプロンプトに入れて回答を生成する。
+        <code>chat_normal.php</code> が担当する基本ルートです。質問ベクトルを生成し、案件内の <code>doc_chunks</code> を検索する。PDF本文、PDF画像説明、CSVから自然言語化された行データを同じ検索対象として扱い、関連チャンクをプロンプトに入れて回答を生成する。通常RAGの品質評価は <code>ChatEvaluationPolicy.php</code> で必要性を判定し、根拠が薄い軽量応答や短い定型応答ではLLM-as-a-Judgeを省略して待ち時間を抑える。
       </p>
       <div class="mermaid-container mb-10">
         <div class="mermaid">
@@ -670,7 +675,7 @@ sequenceDiagram
 
       <h2 class="text-xl font-semibold sub-section text-slate-800 border-l-4 border-indigo-500 pl-3 mb-4">7.2 【重厚ルート】フル思考モード</h2>
       <p class="text-slate-700 text-xs md:text-sm mb-4">
-        <code>chat_advanced.php</code> が担当する多段階推論ルートです。質問を複数観点へ分解し、観点ごとに資料・CSV・コメント・FAQを探索する。中間結果は <code>chat_reasoning_steps</code> に保存され、最終回答は統合モデルで生成する。進捗はSSEでリアルタイムにプッシュされます。
+        <code>chat_advanced.php</code> が担当する多段階推論ルートです。質問を複数観点へ分解し、観点ごとに資料・CSV・コメント・FAQを探索する。中間結果は <code>chat_reasoning_steps</code> に保存され、最終回答は統合モデルで生成する。SQL自己修復と品質評価の差し戻しはモード別上限で制御し、通常は短く、図解・報告書モードでは少し厚めに実行する。進捗はSSEでプッシュされ、フロントエンドでは小さな進行バーと折りたたみ詳細ログに整理して表示する。
       </p>
       <div class="mermaid-container mb-10">
         <div class="mermaid">
@@ -1089,7 +1094,7 @@ sequenceDiagram
         </div>
         <div class="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
           <h3 class="font-bold text-slate-800 mb-2">定番SQLフォールバック</h3>
-          <p class="text-xs md:text-sm text-slate-600 leading-relaxed">3回の修復で解消しない場合でも、質問意図と実在スキーマから安全な定番SQLを提案し、単なる文字列返却での強行突破を避ける。</p>
+          <p class="text-xs md:text-sm text-slate-600 leading-relaxed">SQL自己修復は通常1回、図解・報告書モードは2回を目安に制御する。上限到達後も、質問意図と実在スキーマから安全な定番SQLを提案し、単なる文字列返却での強行突破を避ける。</p>
         </div>
       </div>
     </section>
@@ -1230,7 +1235,7 @@ sequenceDiagram
         <span class="section-number" style="background-color: #8b5cf6;">11</span>LLM-as-a-Judge による自律型評価と自己修正ループ
       </h1>
       <p class="text-slate-700 mb-6 text-sm md:text-base leading-relaxed">
-        フル思考モードや分析ルートで生成された最終回答に対し、システムが裏側でAI自身（評価役）に品質を採点させます。スコアが閾値（合格点）に満たない場合は、AIが自らフィードバックを生成し書き直しを要求します。基準値を大きく上回る回答は、質問と回答を要点化したうえでFAQへ自動登録します。
+        フル思考モードや分析ルートで生成された最終回答に対し、システムが裏側でAI自身（評価役）に品質を採点させます。通常RAGでは <code>ChatEvaluationPolicy.php</code> が、根拠要求・長文・複数資料参照・図解/報告書モードなど評価が必要なケースだけを選別します。スコアが閾値（合格点）に満たない場合は、モード別上限の範囲でフィードバックを使って書き直しまたは追加抽出を行います。基準値を大きく上回る回答は、質問と回答を要点化したうえでFAQへ自動登録します。
       </p>
 
       <h2 class="text-xl font-semibold sub-section text-slate-800 border-l-4 border-violet-500 pl-3 mb-4">11.1 評価観点（メトリクス）設計</h2>
@@ -1270,7 +1275,7 @@ sequenceDiagram
     Note over Judge: 1. Proactivity (提案力)<br/>2. Faithfulness (忠実性)<br/>3. Answer Relevance (的確性)<br/>4. Clarity (可読性)
     Judge-->>API: JSON形式で各スコア(0-100)とフィードバック(改善点)を返却
     
-    alt 総合スコアが閾値(例:80点)未満、かつリトライ回数上限内
+    alt 総合スコアが閾値(例:80点)未満、かつモード別リトライ上限内
         API->>Gen: 評価フィードバックを渡し、「一歩進んだ提案を含めた第1稿の修正」を要求
         Gen-->>API: 改善・提案が追加された「第2稿(リファイン版)」を返却
         API->>API: 第2稿を最終回答として採用
@@ -1295,6 +1300,19 @@ sequenceDiagram
           <li>重複登録を避けるため、元の <code>chat_history_id</code> と質問要約を確認する。</li>
           <li>評価プロセスのフェイルセーフや初期ドラフト採用時は自動登録しない。</li>
           <li>通常チャット、分析チャット、フル思考チャットの履歴保存トランザクション内で実行する。</li>
+        </ul>
+      </div>
+
+      <h2 class="text-xl font-semibold sub-section text-slate-800 border-l-4 border-violet-500 pl-3 mb-4">11.4 評価・修復の待ち時間抑制</h2>
+      <div class="bg-slate-50 border border-slate-200 rounded-xl p-5 text-sm text-slate-700 leading-relaxed">
+        <p class="mb-3">
+          通常チャットまで常に重い評価・修復ループへ入ると、回答表示後から保存完了までの待ち時間が長くなる。現行実装では、評価の必要性を先に判定し、SQL自己修復と評価差し戻しの上限をモード別に制御する。
+        </p>
+        <ul class="list-disc list-inside text-xs md:text-sm text-slate-600 space-y-1.5">
+          <li>通常RAGの短い回答や根拠不要の軽量回答は、品質評価をスキップする。</li>
+          <li>SQL自己修復は通常1回、図解・報告書モードは2回を上限の目安とする。</li>
+          <li>品質評価の差し戻しも通常1回、図解・報告書モードは2回を上限の目安とする。</li>
+          <li>上限値は <code>[SQL-REPAIR-POLICY]</code> と <code>[EVAL-POLICY]</code> として <code>chat_debug.log</code> に記録する。</li>
         </ul>
       </div>
     </section>

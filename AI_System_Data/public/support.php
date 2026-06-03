@@ -45,7 +45,7 @@ if (!function_exists('h')) {
     
     <link rel="stylesheet" href="<?= !empty($URL_LEAFLET_CSS) ? h($URL_LEAFLET_CSS) : 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css' ?>" />
     <script src="<?= !empty($URL_LEAFLET_JS) ? h($URL_LEAFLET_JS) : 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js' ?>"></script>
-    <link rel="stylesheet" href="assets/css/styles.css?v=10">
+    <link rel="stylesheet" href="assets/css/styles.css?v=11">
     <style>
         .tab-content { display: none; }
         .tab-content.active { display: block; }
@@ -481,20 +481,34 @@ if (!function_exists('h')) {
                 <button type="button" onclick="const input=document.getElementById('chat-input'); input.value='これまでの会話内容を簡潔にまとめてください。'; input.dispatchEvent(new Event('input')); input.focus();" class="text-[9px] bg-slate-50 hover:bg-slate-100 border border-slate-200/80 rounded-full px-3 py-1 font-bold text-slate-500 shadow-2xs transition-all duration-200 ease-in-out transform hover:border-[#4F5D95] hover:text-[#4F5D95] hover:-translate-y-0.5 hover:shadow-xs hover:scale-[1.02] active:scale-95 active:shadow-inner">📝 文脈総括</button>
             </div>
 
-            <div class="flex flex-wrap items-center gap-2 px-1">
-                <label class="flex items-center gap-2 text-[10px] text-slate-400 font-bold cursor-pointer hover:text-[#4F5D95] transition-colors duration-150 ease-in-out" title="AIが質問を要素分解し、個別に資料を精読してから統合回答を作成します">
-                    <input type="checkbox" id="advanced-reasoning-mode" class="rounded border-slate-300 text-[#4F5D95] focus:ring-[#4F5D95]/40 w-3.5 h-3.5 cursor-pointer">
-                    <span class="bg-indigo-50/80 text-indigo-700 px-2 py-0.5 rounded-lg border border-indigo-100 font-extrabold text-[9px]">🧠 フル思考モード</span>
-                    <span class="font-medium text-slate-400 tracking-tight">(チェックすると強制的に多段階推論により高精度分析を実行)</span>
-                </label>
-                <label class="flex items-center gap-1.5 text-[10px] text-slate-400 font-bold cursor-pointer hover:text-[#4F5D95] transition-colors duration-150 ease-in-out" title="必要に応じてMermaidやChart.jsの図表を回答に含めます">
-                    <input type="checkbox" id="diagram-mode" class="rounded border-slate-300 text-[#4F5D95] focus:ring-[#4F5D95]/40 w-3.5 h-3.5 cursor-pointer">
-                    <span class="bg-emerald-50/80 text-emerald-700 px-2 py-0.5 rounded-lg border border-emerald-100 font-extrabold text-[9px]">📈 図解</span>
-                </label>
-                <label class="flex items-center gap-1.5 text-[10px] text-slate-400 font-bold cursor-pointer hover:text-[#4F5D95] transition-colors duration-150 ease-in-out" title="回答をHTML/CSS報告書としてPDF化し、PDFタブと検索対象へ登録します">
-                    <input type="checkbox" id="report-mode" class="rounded border-slate-300 text-[#4F5D95] focus:ring-[#4F5D95]/40 w-3.5 h-3.5 cursor-pointer">
-                    <span class="bg-amber-50/80 text-amber-700 px-2 py-0.5 rounded-lg border border-amber-100 font-extrabold text-[9px]">📄 報告書</span>
-                </label>
+            <div class="space-y-1.5 px-1">
+                <div class="flex items-center justify-between gap-2">
+                    <span class="text-[9px] font-black text-slate-400 uppercase tracking-wider">回答モード</span>
+                    <span class="text-[9px] text-slate-400 font-medium truncate">必要な時だけ切替</span>
+                </div>
+                <div class="grid grid-cols-3 gap-1.5" role="group" aria-label="回答モード">
+                    <label class="chat-mode-switch" title="AIが質問を要素分解し、個別に資料を精読してから統合回答を作成します">
+                        <input type="checkbox" id="advanced-reasoning-mode" class="sr-only peer">
+                        <span class="chat-mode-pill peer-checked:border-indigo-300 peer-checked:bg-indigo-50 peer-checked:text-indigo-700 peer-checked:shadow-sm">
+                            <span class="text-[12px]" aria-hidden="true">🧠</span>
+                            <span>フル思考</span>
+                        </span>
+                    </label>
+                    <label class="chat-mode-switch" title="必要に応じてMermaidやChart.jsの図表を回答に含めます">
+                        <input type="checkbox" id="diagram-mode" class="sr-only peer">
+                        <span class="chat-mode-pill peer-checked:border-emerald-300 peer-checked:bg-emerald-50 peer-checked:text-emerald-700 peer-checked:shadow-sm">
+                            <span class="text-[12px]" aria-hidden="true">📈</span>
+                            <span>図解</span>
+                        </span>
+                    </label>
+                    <label class="chat-mode-switch" title="回答をHTML/CSS報告書としてPDF化し、PDFタブと検索対象へ登録します">
+                        <input type="checkbox" id="report-mode" class="sr-only peer">
+                        <span class="chat-mode-pill peer-checked:border-amber-300 peer-checked:bg-amber-50 peer-checked:text-amber-700 peer-checked:shadow-sm">
+                            <span class="text-[12px]" aria-hidden="true">📄</span>
+                            <span>報告書</span>
+                        </span>
+                    </label>
+                </div>
             </div>
 
             <?php if ($role === 'admin'): ?>

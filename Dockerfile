@@ -7,6 +7,7 @@ RUN apt-get update && apt-get install -y \
     default-mysql-client \
     poppler-utils \
     chromium \
+    fonts-noto-cjk \
     libzip-dev \
     libonig-dev \
     libicu-dev \

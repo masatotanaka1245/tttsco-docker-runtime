@@ -91,19 +91,39 @@ class NormalStreamingRouteProcessor {
         if (!$this->streamOllamaGeneration()) {
             return;
         }
-        
-        // 本物の仕様（1引数コンストラクタ ＆ evaluateDraft）へ正確にマウント
+
+        $this->runQualityEvaluationIfNeeded();
+        // 履歴永続化処理の一元トランザクション保護近代化へ委譲
+        $this->saveHistoryAndEvaluations();
+        $this->sendFinalResult();
+    }
+
+    private function runQualityEvaluationIfNeeded(): void {
+        require_once __DIR__ . '/../../src/ChatEvaluationPolicy.php';
+        $policy = ChatEvaluationPolicy::shouldEvaluateNormalRag(
+            $this->originalMessage,
+            $this->fullResponse,
+            $this->contextText,
+            count($this->sourceDocs),
+            $this->reportMode,
+            $this->diagramMode
+        );
+
+        if (($policy['evaluate'] ?? false) !== true) {
+            chatLogger("[JUDGE-NORMAL-SKIP] 通常RAG品質評価をスキップしました。reason={$policy['reason']} | responseChars=" . mb_strlen($this->fullResponse) . " | contextChars=" . mb_strlen($this->contextText) . " | sources=" . count($this->sourceDocs));
+            return;
+        }
+
         try {
             require_once __DIR__ . '/../../src/ChatEvaluator.php';
-            // 本物の仕様（1引数コンストラクタ）へ正確にマウント
             $evaluator = new ChatEvaluator($this->ollama_host);
-            
-            // 通常RAGルートでは、実際に使用したRAG文脈を評価器へ渡す
-            sendSSE('status', ['message' => '⚖️ レポートの最終品質審査（LLM-as-a-Judge）を実行中...']);
+
+            sendSSE('status', ['message' => '⚖️ 回答の品質確認を実行中...']);
             $contextForEval = trim((string)$this->contextText);
             if ($contextForEval === '') {
                 $contextForEval = "通常RAG検索（中間ステップなし）";
             }
+            chatLogger("[JUDGE-NORMAL-START] 通常RAG品質評価を開始します。reason={$policy['reason']} | responseChars=" . mb_strlen($this->fullResponse) . " | contextChars=" . mb_strlen($contextForEval) . " | sources=" . count($this->sourceDocs));
             $this->evalResult = $evaluator->evaluateDraft($this->originalMessage, $contextForEval, $this->fullResponse, $this->model);
 
             if (($this->evalResult['needs_revision'] ?? false) === true) {
@@ -114,7 +134,7 @@ class NormalStreamingRouteProcessor {
                     $forbiddenActions = [$forbiddenActions];
                 }
 
-                sendSSE('status', ['message' => '📝 品質審査の指摘を反映し、既存根拠だけで回答を整えています...']);
+                sendSSE('status', ['message' => '📝 品質確認の指摘を反映し、既存根拠だけで回答を整えています...']);
                 $rewritten = $evaluator->reviseDraftTextOnly(
                     $this->originalMessage,
                     $contextForEval,
@@ -132,16 +152,11 @@ class NormalStreamingRouteProcessor {
                 }
             }
 
-            // 📢 【品質管理フェーズ】門番の生審査結果ダンプ
             chatLogger("[JUDGE-NORMAL-EVAL] 通常RAG回答品質管理審査結果マトリクス:\n" . print_r($this->evalResult, true));
             chatLogger("[DEBUG] ChatEvaluator による通常RAG最終回答品質審査が正常開通しました。");
         } catch (Exception $evalEx) {
             chatLogger("品質評価エージェントキック中に例外検出(スキップ保護): " . $evalEx->getMessage());
         }
-
-        // 履歴永続化処理の一元トランザクション保護近代化へ委譲
-        $this->saveHistoryAndEvaluations();
-        $this->sendFinalResult();
     }
 
     private function parseQuery(): void {
@@ -429,6 +444,11 @@ class NormalStreamingRouteProcessor {
 
     private function createReportDocumentIfRequested(int $historyId): void {
         if (!$this->reportMode || $this->projectId === null) {
+            return;
+        }
+        if (($this->evalResult['verdict'] ?? '') === 'reject') {
+            chatLogger('[REPORT] 品質評価がrejectのため、報告書PDF生成をスキップしました。chat_history_id=' . $historyId);
+            sendSSE('status', ['message' => '⚠️ 回答が報告書として成立しない判定のため、PDF生成はスキップしました。']);
             return;
         }
         try {

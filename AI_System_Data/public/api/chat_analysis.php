@@ -121,6 +121,14 @@ class AdvancedReasoningRouteProcessor {
         return $instructions;
     }
 
+    private function maxSqlRepairRetries(): int {
+        return ($this->reportMode || $this->diagramMode) ? 2 : 1;
+    }
+
+    private function maxEvalRetries(): int {
+        return ($this->reportMode || $this->diagramMode) ? 2 : 1;
+    }
+
     /**
      * メメイン実行パイプライン
      */
@@ -198,9 +206,10 @@ class AdvancedReasoningRouteProcessor {
         // 門番からのフィードバック（データ不足等）を受け、データ追加抽出のSQL生成フェーズまで
         // 「巻き戻る」真のActor-Critic無限リトライループ
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        $maxEvalRetries = 10;
+        $maxEvalRetries = $this->maxEvalRetries();
         $this->retryCount = 0;
-        
+        chatLogger("[EVAL-POLICY] maxEvalRetries={$maxEvalRetries} | report_mode=" . ($this->reportMode ? 'on' : 'off') . " | diagram_mode=" . ($this->diagramMode ? 'on' : 'off'));
+
         try {
             require_once __DIR__ . '/../../src/ChatEvaluator.php';
             $evaluator = new ChatEvaluator($this->ollama_host);
@@ -212,8 +221,8 @@ class AdvancedReasoningRouteProcessor {
                 }
 
                 sendSSE('status', [
-                    'step'    => 4, 
-                    'message' => '⚖️ レポートの品質審査（LLM-as-a-Judge）を実行中...' . ($this->retryCount > 0 ? " [リトライ: {$this->retryCount}]" : "")
+                    'step'    => 4,
+                    'message' => '⚖️ レポートの品質審査（LLM-as-a-Judge）を実行中...' . ($this->retryCount > 0 ? " [リトライ: {$this->retryCount}/{$maxEvalRetries}]" : "")
                 ]);
                 
                 // 門番キック
@@ -230,7 +239,7 @@ class AdvancedReasoningRouteProcessor {
                     if (in_array($verdict, ['revise_text_only', 'reject'], true)) {
                         sendSSE('status', [
                             'step'    => 4,
-                            'message' => "📝 追加抽出は行わず、既存根拠だけで回答文を修正しています... [試行: {$this->retryCount}]"
+                            'message' => "📝 追加抽出は行わず、既存根拠だけで回答文を修正しています... [試行: {$this->retryCount}/{$maxEvalRetries}]"
                         ]);
 
                         $forbiddenActions = $this->evalResult['forbidden_actions'] ?? [];
@@ -258,7 +267,7 @@ class AdvancedReasoningRouteProcessor {
 
                     sendSSE('status', [
                         'step'    => 4,
-                        'message' => "🔄 門番からデータ不足の指摘を受信。不足データを追加抽出します... [試行: {$this->retryCount}]"
+                        'message' => "🔄 門番からデータ不足の指摘を受信。不足データを追加抽出します... [試行: {$this->retryCount}/{$maxEvalRetries}]"
                     ]);
 
                     // ✨【巻き戻し】門番のフィードバックを元に、新しい追加の分析観点（目的）を自律生成
@@ -271,8 +280,8 @@ class AdvancedReasoningRouteProcessor {
                     $this->subAnswers[] = "◆ 追加抽出観点 [リトライ {$this->retryCount}]: {$newSubQ}\n{$subAnsText}";
                     
                     sendSSE('status', [
-                        'step'    => 4, 
-                        'message' => "🔄 追加データをマージし、レポートを再構築中... [試行: {$this->retryCount}]"
+                        'step'    => 4,
+                        'message' => "🔄 追加データをマージし、レポートを再構築中... [試行: {$this->retryCount}/{$maxEvalRetries}]"
                     ]);
 
                     // 新たなデータを含めて、最終レポートをバックグラウンドで再生成（ストリームなし）
@@ -1461,17 +1470,18 @@ class AdvancedReasoningRouteProcessor {
     private function executeAndAnalyzeSql(string $sqlJsonStr, string $subQ, int $stepCounter, string $stepLabel = ""): string {
         $fence = str_repeat("\x60", 3);
         
-        // 最大3回までの自律デバッグループ（while構造）の展開
-        $max_retries = 3;
+        // モード別上限までの自律デバッグループ（while構造）の展開
+        $max_retries = $this->maxSqlRepairRetries();
         $retry_count = 0;
         $execResult = ['success' => false, 'error' => 'クエリが初期化されていません。', 'data' => []];
+        chatLogger("[SQL-REPAIR-POLICY] max_retries={$max_retries} | report_mode=" . ($this->reportMode ? 'on' : 'off') . " | diagram_mode=" . ($this->diagramMode ? 'on' : 'off'));
 
         require_once __DIR__ . '/../../src/SqlExecutionEngine.php';
         $sqlEngine = new SqlExecutionEngine($this->pdo, $this->projectId);
 
         while ($retry_count <= $max_retries) {
             // 📢 [超詳細ログ1] Ollamaから届いた「パース前」の生JSONレスポンスをそのまま完全可視化
-            chatLogger("[OLLAMA-RAW-RESPONSE] (試行 {$retry_count}/3) Ollama側からの受信生データ:\n" . $sqlJsonStr);
+            chatLogger("[OLLAMA-RAW-RESPONSE] (試行 {$retry_count}/{$max_retries}) Ollama側からの受信生データ:\n" . $sqlJsonStr);
 
             // 初回のJSONパース・抽出処理
             $clean_json = preg_replace('/^' . preg_quote($fence, '/') . '(?:json|sql)?\s*(.*?)\s*' . preg_quote($fence, '/') . '$/ms', '$1', trim($sqlJsonStr));
@@ -1488,7 +1498,7 @@ class AdvancedReasoningRouteProcessor {
             }
 
             // 📢 [超詳細ログ2] 万能クレンザーで補正をかける「前」の、AIが組み立てた素のSQLを克明に記録
-            chatLogger("[Text-to-SQL-BEFORE] (試行 {$retry_count}/3) プログラム補正前の素のSQL: " . $generated_sql);
+            chatLogger("[Text-to-SQL-BEFORE] (試行 {$retry_count}/{$max_retries}) プログラム補正前の素のSQL: " . $generated_sql);
 
             // ━━━━【SQL実行直前の構文補正レイヤー（万能クレンザー）】━━━━
             // 追加防衛シールド：AIが変数に逃げた場合も、水際で生のプロジェクトID数字へ強制書き換え
@@ -1505,7 +1515,7 @@ class AdvancedReasoningRouteProcessor {
             $generated_sql = preg_replace('/\\s+COLLATE\\s+[\'"]?[a-zA-Z0-9_-]+[\'"]?/i', '', $generated_sql);
             
             // 📢 [超詳細ログ3] プログラムが構文補正した「後」の、実際にMySQLへ送り込まれる最終確定SQLを記録
-            chatLogger("[Text-to-SQL-AFTER]  (試行 {$retry_count}/3) プログラム補正後の最終実行SQL: " . $generated_sql);
+            chatLogger("[Text-to-SQL-AFTER]  (試行 {$retry_count}/{$max_retries}) プログラム補正後の最終実行SQL: " . $generated_sql);
 
             // 動的ホワイトリスト照合回路
             if (preg_match('/FROM\s+`?([a-zA-Z0-9_-]+)`?/i', $generated_sql, $tableMatch)) {
@@ -1518,8 +1528,8 @@ class AdvancedReasoningRouteProcessor {
             // フロントエンド UI への進捗（4段階インジケーター）同期SSEパケット送信
             if ($retry_count > 0) {
                 sendSSE('status', [
-                    'step'    => 3, 
-                    'message' => "🛠️ [自律修復: 試行 {$retry_count}/3回] クエリのエラー原因を分析し、SQLを自律デバッグ中..."
+                    'step'    => 3,
+                    'message' => "🛠️ [自律修復: 試行 {$retry_count}/{$max_retries}回] クエリのエラー原因を分析し、SQLを自律デバッグ中..."
                 ]);
             } else {
                 sendSSE('status', [
@@ -1538,12 +1548,12 @@ class AdvancedReasoningRouteProcessor {
             }
 
             // 📢 [超詳細ログ4] 実行失敗時、セキュリティ監査の拒否理由やMySQLの生エラー文をダイレクトに記録
-            chatLogger("[SQL-EXEC-FAILED] (試行 {$retry_count}/3) 監査拒否またはMySQL生エラー文: " . ($execResult['error'] ?? 'Unknown Error'));
+            chatLogger("[SQL-EXEC-FAILED] (試行 {$retry_count}/{$max_retries}) 監査拒否またはMySQL生エラー文: " . ($execResult['error'] ?? 'Unknown Error'));
             $repairGuidance = $sqlEngine->buildRepairGuidance($generated_sql, (string)($execResult['error'] ?? 'Unknown Error'), $subQ);
 
             $retry_count++;
             if ($retry_count > $max_retries) {
-                chatLogger("[CRITICAL-LOOP] 3回のリトライすべてで監査拒否またはMySQLエラーが発生しました。ループを強制遮断します。");
+                chatLogger("[CRITICAL-LOOP] {$max_retries}回のリトライすべてで監査拒否またはMySQLエラーが発生しました。ループを強制遮断します。");
                 break;
             }
 
@@ -1566,7 +1576,7 @@ class AdvancedReasoningRouteProcessor {
                                 . $repairGuidance;
 
             // 📢 [超詳細ログ5] 次の周回リトライに向けて、AIの脳みそへ叩き込む「反省用インジェクションデータ」をすべてダンプ
-            chatLogger("[OLLAMA-REFLECT-INPUT] (次の一手: 試行 {$retry_count}/3) AIへ送り届ける自己反省材料:\n" . $debug_user_context);
+            chatLogger("[OLLAMA-REFLECT-INPUT] (次の一手: 試行 {$retry_count}/{$max_retries}) AIへ送り届ける自己反省材料:\n" . $debug_user_context);
 
             $sql_model = $this->model;
             chatLogger("[OLLAMA-DEBUG] 自律修正リクエストを送信します...");
@@ -1577,7 +1587,7 @@ class AdvancedReasoningRouteProcessor {
             $sqlJsonStr = $retry_json_str; 
         }
 
-        // 3回リトライしても安全に完走できなかった場合のフォールバック安全文言の返却
+        // 自律修復上限まで試しても安全に完走できなかった場合のフォールバック安全文言の返却
         if (!$execResult['success']) {
             chatLogger("[WARN] 自律修復上限超過：最終SQLの監査遮断またはエラーが解消されませんでした。");
             $fallbackSql = $sqlEngine->suggestFallbackSql($subQ, $generated_sql ?? '');
@@ -1593,7 +1603,7 @@ class AdvancedReasoningRouteProcessor {
         }
 
         if (!$execResult['success']) {
-            return "⚠️ **3回自律修復を試みましたが、集計を完了できませんでした。条件を絞り込んで再度ご指示ください。**\n\n最終エラー詳細: " . ($execResult['error'] ?? '不明なエラー。') . "\n\nデバッグ対象クエリ: `{$generated_sql}`";
+            return "⚠️ **{$max_retries}回の自律修復を試みましたが、集計を完了できませんでした。条件を絞り込んで再度ご指示ください。**\n\n最終エラー詳細: " . ($execResult['error'] ?? '不明なエラー。') . "\n\nデバッグ対象クエリ: `{$generated_sql}`";
         }
 
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1938,6 +1948,14 @@ class AdvancedReasoningRouteProcessor {
 
     private function createReportDocumentIfRequested(int $historyId): void {
         if (!$this->reportMode || $this->projectId === null) {
+            return;
+        }
+        if (($this->evalResult['verdict'] ?? '') === 'reject') {
+            chatLogger('[REPORT] 品質評価がrejectのため、報告書PDF生成をスキップしました。chat_history_id=' . $historyId);
+            sendSSE('status', [
+                'step' => 6,
+                'message' => '⚠️ 回答が報告書として成立しない判定のため、PDF生成はスキップしました。'
+            ]);
             return;
         }
         try {
