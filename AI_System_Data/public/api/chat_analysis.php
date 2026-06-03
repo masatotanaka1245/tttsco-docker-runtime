@@ -241,7 +241,14 @@ class AdvancedReasoningRouteProcessor {
                 
                 // 門番キック
                 $this->evalResult = $evaluator->evaluateDraft($this->originalMessage, $mergedReasoningText, $this->finalResponse, $this->model);
+                $evaluationMode = (string)($this->evalResult['evaluation_mode'] ?? 'unknown');
+                $evaluationSource = (string)($this->evalResult['evaluation_source'] ?? 'unknown');
+                $verdict = (string)($this->evalResult['verdict'] ?? 'unknown');
+                $score = (int)($this->evalResult['total_score'] ?? 0);
+                $relevance = (int)($this->evalResult['scores']['answer_relevance'] ?? 0);
+                $faithfulness = (int)($this->evalResult['scores']['faithfulness'] ?? 0);
                 chatLogger("[DEBUG] ChatEvaluator 品質審査完了。");
+                chatLogger("[EVAL-" . strtoupper($evaluationMode) . "] source={$evaluationSource} | verdict={$verdict} | score={$score} | relevance={$relevance} | faithfulness={$faithfulness}");
 
                 // 不合格（needs_revision）の場合は、評価器のverdictに応じて文章修正か追加抽出を選ぶ
                 if (isset($this->evalResult) && (($this->evalResult['needs_revision'] ?? false) === true)) {
@@ -1470,7 +1477,7 @@ class AdvancedReasoningRouteProcessor {
                     $word = $json['response'] ?? '';
                     $self->finalResponse .= $word;
 
-                    sendSSE('chunk', ['text' => $word, 'word' => $word]);
+                    // 回答本文は内部バッファへ保持し、品質確認後に result イベントでのみ出荷する。
                 }
             }
 

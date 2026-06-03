@@ -125,6 +125,13 @@ class NormalStreamingRouteProcessor {
             }
             chatLogger("[JUDGE-NORMAL-START] 通常RAG品質評価を開始します。reason={$policy['reason']} | responseChars=" . mb_strlen($this->fullResponse) . " | contextChars=" . mb_strlen($contextForEval) . " | sources=" . count($this->sourceDocs));
             $this->evalResult = $evaluator->evaluateDraft($this->originalMessage, $contextForEval, $this->fullResponse, $this->model);
+            $evaluationMode = (string)($this->evalResult['evaluation_mode'] ?? 'unknown');
+            $evaluationSource = (string)($this->evalResult['evaluation_source'] ?? 'unknown');
+            $verdict = (string)($this->evalResult['verdict'] ?? 'unknown');
+            $score = (int)($this->evalResult['total_score'] ?? 0);
+            $relevance = (int)($this->evalResult['scores']['answer_relevance'] ?? 0);
+            $faithfulness = (int)($this->evalResult['scores']['faithfulness'] ?? 0);
+            chatLogger("[EVAL-" . strtoupper($evaluationMode) . "] source={$evaluationSource} | verdict={$verdict} | score={$score} | relevance={$relevance} | faithfulness={$faithfulness}");
 
             if (($this->evalResult['needs_revision'] ?? false) === true) {
                 $verdict = $this->evalResult['verdict'] ?? 'revise_text_only';
@@ -314,11 +321,7 @@ class NormalStreamingRouteProcessor {
                     $me->fullResponse .= $word;
                     $me->tokenCount++;
                     
-                    // 🔥【UXガラス張り化】裏で生成されている1文字ずつのトークンを、せき止めずにリアルタイムでフロントの『実況コンソール』へ横流し射撃する！
-                    sendSSE('chunk', [
-                        'text' => $word, 
-                        'word' => $word
-                    ]);
+                    // 回答本文は内部バッファへ保持し、品質確認後に result イベントでのみ出荷する。
                 }
             }
             $current_len = mb_strlen($me->fullResponse);

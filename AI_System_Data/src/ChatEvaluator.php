@@ -230,6 +230,8 @@ EOT;
         return [
             'question_type' => $questionType,
             'verdict' => 'pass',
+            'evaluation_mode' => 'fallback',
+            'evaluation_source' => 'judge_fallback',
             'scores' => [
                 'proactivity' => 80,
                 'faithfulness' => 100,
@@ -337,6 +339,8 @@ EOT;
         return [
             'question_type' => $questionType,
             'verdict' => $verdict,
+            'evaluation_mode' => 'real',
+            'evaluation_source' => 'judge',
             'scores' => $normalizedScores,
             'total_score' => $totalScore,
             'feedback' => $feedback !== '' ? $feedback : '質問意図とContextに合わせて、過不足のない最終回答に調整してください。',

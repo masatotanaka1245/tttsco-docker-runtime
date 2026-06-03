@@ -214,6 +214,12 @@ if (!function_exists('factorizeChatRequest')) {
             $scope = 'file_content';
             $operation = 'summarize';
             $route = 'data_analysis.csv_summary';
+        } elseif ($hasSummaryIntent && $projectId !== null && preg_match('/(CSV|csv|ファイル|データ)/u', $message) === 1) {
+            $intent = 'summarize';
+            $target = 'all_csv';
+            $scope = 'project_wide';
+            $operation = 'summarize';
+            $route = 'data_analysis.csv_summary';
         } elseif ($projectId !== null && !$targetsAllCsv && $mentionedCsv === null && ($hasDocReference || $hasDocActionIntent)) {
             $intent = 'extract_evidence';
             $target = 'pdf';
@@ -523,8 +529,21 @@ try {
     ], JSON_UNESCAPED_UNICODE));
     $dedupeLocked = true;
 
+    $csvSummaryOrAggRoute = in_array(($factorizedQuery['route'] ?? null), ['data_analysis.csv_agg', 'data_analysis.csv_summary'], true);
+    $allowCsvRouteOverride = $project_id !== null
+        && !$report_mode
+        && $csvSummaryOrAggRoute;
+
+    if ($allowCsvRouteOverride && ($factorizedQuery['route'] ?? null) === 'data_analysis.csv_agg') {
+        $is_analysis_mode = true;
+        chatLogger("[SMART-ROUTER] CSV集計系の質問は軽量分析を優先します。explicit_advanced=" . ($explicit_advanced ? 'on' : 'off') . " | file=" . ($factorizedQuery['target_file_name'] ?? 'all'));
+
+    } elseif ($allowCsvRouteOverride && ($factorizedQuery['route'] ?? null) === 'data_analysis.csv_summary') {
+        $is_analysis_mode = true;
+        chatLogger("[SMART-ROUTER] CSV要約系の質問は軽量分析を優先します。explicit_advanced=" . ($explicit_advanced ? 'on' : 'off') . " | target=" . ($factorizedQuery['target'] ?? 'unknown'));
+
     // 🔥【絶対防衛線】フロントから明示指定された場合は「ハイブリッド脳」を最優先する
-    if ($explicit_advanced) {
+    } elseif ($explicit_advanced) {
         $advanced_reasoning = true;
         $is_analysis_mode   = false;
         chatLogger("[SMART-ROUTER] フル思考モードの明示指定を検知。ハイブリッド多重推論統合ハブをキックします。");
@@ -545,15 +564,15 @@ try {
         $is_analysis_mode = true;
         chatLogger("[SMART-ROUTER] 質問因数分解によりCSV要約ルートを優先します。file=" . ($factorizedQuery['target_file_name'] ?? 'unknown'));
 
-    } elseif ($project_id !== null && preg_match($csv_evidence_pattern, $message)) {
-        // CSVの内容・概要・項目確認は、SQL自由生成より先に「証拠全件読解」分析ルートへ流す
-        $is_analysis_mode = true;
-        chatLogger("[SMART-ROUTER] CSV証拠読解に適した質問を検知。CSV全件証拠収集ルートを優先します。");
-
     } elseif ($project_id !== null && ($factorizedQuery['route'] ?? null) === 'advanced_hybrid.doc_extract') {
         $advanced_reasoning = true;
         $is_analysis_mode   = false;
         chatLogger("[SMART-ROUTER] 質問因数分解により資料PDF抽出ルートを優先します。target=" . ($factorizedQuery['target'] ?? 'unknown'));
+
+    } elseif ($project_id !== null && preg_match($csv_evidence_pattern, $message)) {
+        // PDF/報告書系の資料抽出が明示されている場合は、CSV証拠読解で上書きしない
+        $is_analysis_mode = true;
+        chatLogger("[SMART-ROUTER] CSV証拠読解に適した質問を検知。CSV全件証拠収集ルートを優先します。");
 
     } elseif (preg_match($normal_rag_preferred_pattern, $message)) {
         $prefer_normal_rag = true;
@@ -633,7 +652,12 @@ try {
         chatLogger("[WARN] 会話履歴コンテキスト取得に失敗: " . $historyEx->getMessage());
     }
 
-    if ($project_id !== null && !$advanced_reasoning && !$is_history_summary_mode) {
+    if (
+        $project_id !== null &&
+        !$advanced_reasoning &&
+        !$is_history_summary_mode &&
+        ($factorizedQuery['route'] ?? null) !== 'advanced_hybrid.doc_extract'
+    ) {
         try {
             $mentionedCsv = findMentionedCsvFileName($pdo, (int)$project_id, $message);
             if ($mentionedCsv !== null) {

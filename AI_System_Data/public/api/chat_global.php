@@ -313,7 +313,7 @@ class GlobalChatRouteProcessor {
                     $word = $json['response'] ?? '';
                     $self->finalResponse .= $word;
 
-                    sendSSE('chunk', ['text' => $word, 'word' => $word]);
+                    // 回答本文は内部バッファへ保持し、最終確定後に result イベントでのみ出荷する。
                 }
             }
 

@@ -818,6 +818,9 @@ class AdvancedReasoningRouteProcessor {
             if ($this->shouldUsePresetDocSemanticExtractSql($tableName, $operationType)) {
                 $generatedSql = $this->buildPresetDocSemanticExtractSql();
                 chatLogger("[AUTO-SQL-PRESET] (ステップ {$stepCounter}) 資料PDF抽出の定番SQLを適用しました。");
+            } elseif ($this->shouldUsePresetProjectCsvFilesSql($tableName, $operationType, $purpose)) {
+                $generatedSql = $this->buildPresetProjectCsvFilesSql();
+                chatLogger("[AUTO-SQL-PRESET] (ステップ {$stepCounter}) CSVファイル一覧の定番SQLを適用しました。");
             } else {
                 // SQL生成時の創造性を完全パージするオプション引き締めへのリフォーム
                 $sqlJsonStr = callOllamaChat($this->ollama_host, $this->reasoningModel, $sqlSysPrompt, $sqlUserPrompt, 'json', ["temperature" => 0.0, "top_p" => 0.1, "num_ctx" => 4096]);
@@ -1121,6 +1124,25 @@ class AdvancedReasoningRouteProcessor {
                   AND d.title NOT LIKE 'AI報告書%'
                 ORDER BY d.created_at DESC, d.id DESC, c.page_number ASC, c.id ASC
                 LIMIT 24";
+    }
+
+    private function shouldUsePresetProjectCsvFilesSql(string $tableName, string $operationType, string $purpose): bool {
+        if ($tableName !== 'project_csv_files') {
+            return false;
+        }
+
+        $context = $purpose . "\n" . $this->searchQuery;
+        $looksLikeCsvOverview = preg_match('/(CSV|csv|ファイル|データセット)/u', $context) === 1
+            && preg_match('/(一覧|概要|内訳|カラム|列|ヘッダー|行数|row_count|ファイル名)/u', $context) === 1;
+
+        return in_array($operationType, ['semantic_extract', 'simple_aggregate'], true) && $looksLikeCsvOverview;
+    }
+
+    private function buildPresetProjectCsvFilesSql(): string {
+        return "SELECT file_name, column_headers, row_count
+                FROM project_csv_files
+                WHERE project_id = {$this->projectId}
+                ORDER BY id ASC";
     }
 
     private function shouldUsePresetDocPlan(): bool {
@@ -1541,6 +1563,8 @@ class AdvancedReasoningRouteProcessor {
                     $this->evalResult = [
                         'question_type' => 'doc_semantic_extract',
                         'verdict' => 'pass',
+                        'evaluation_mode' => 'synthetic',
+                        'evaluation_source' => 'lightweight_doc_final',
                         'scores' => [
                             'proactivity' => 90,
                             'faithfulness' => 100,
@@ -1555,6 +1579,7 @@ class AdvancedReasoningRouteProcessor {
                         'forbidden_actions' => [],
                         'needs_revision' => false,
                     ];
+                    chatLogger("[EVAL-SYNTHETIC] 軽量最終回答ルートの擬似評価を記録します。source=lightweight_doc_final | verdict=pass | score=95 | relevance=95 | faithfulness=100");
                     sendSSE('status', [
                         'step'    => 6,
                         'message' => "✅ 品質監査を省略し、軽量最終回答を送出します。"
@@ -1637,7 +1662,14 @@ class AdvancedReasoningRouteProcessor {
             
             // 門番（スパルタデータ監査官）による採点執行
             $this->evalResult = $evaluator->evaluateDraft($this->originalMessage, $mergedReasoningText, $currentDraft, $this->reasoningModel);
+            $evaluationMode = (string)($this->evalResult['evaluation_mode'] ?? 'unknown');
+            $evaluationSource = (string)($this->evalResult['evaluation_source'] ?? 'unknown');
+            $verdict = (string)($this->evalResult['verdict'] ?? 'unknown');
+            $score = (int)($this->evalResult['total_score'] ?? 0);
+            $relevance = (int)($this->evalResult['scores']['answer_relevance'] ?? 0);
+            $faithfulness = (int)($this->evalResult['scores']['faithfulness'] ?? 0);
             chatLogger("[DEBUG] ChatEvaluator 品質審査完了。");
+            chatLogger("[EVAL-" . strtoupper($evaluationMode) . "] source={$evaluationSource} | verdict={$verdict} | score={$score} | relevance={$relevance} | faithfulness={$faithfulness}");
 
             // 不合格（needs_revision = true）の場合、評価器のverdictに応じて文章修正か追加抽出を選ぶ
             if (isset($this->evalResult) && (($this->evalResult['needs_revision'] ?? false) === true)) {

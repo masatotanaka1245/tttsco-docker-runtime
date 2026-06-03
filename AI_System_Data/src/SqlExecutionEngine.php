@@ -501,6 +501,16 @@ class SqlExecutionEngine {
     public function suggestFallbackSql(string $task, string $failedSql = ''): ?string {
         $text = $task . "\n" . $failedSql;
 
+        if (
+            preg_match('/(project_csv_files|file_name|column_headers|row_count)/iu', $text)
+            || (
+                preg_match('/(CSV|csv|ファイル|データセット)/u', $text)
+                && preg_match('/(一覧|内訳|概要|カラム|列|ヘッダー|行数|row_count)/u', $text)
+            )
+        ) {
+            return "SELECT file_name, column_headers, row_count FROM project_csv_files WHERE project_id = {$this->projectId} ORDER BY id ASC";
+        }
+
         if (preg_match('/(CSV|csv|集計|概要|総数|件数|行数|レコード数)/u', $text)) {
             return "SELECT COUNT(DISTINCT f.id) AS total_csv_files, COUNT(r.id) AS total_csv_rows FROM project_csv_files f LEFT JOIN project_csv_rows r ON f.id = r.csv_file_id";
         }

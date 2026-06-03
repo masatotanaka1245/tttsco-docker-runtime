@@ -1294,11 +1294,12 @@ sequenceDiagram
       <h2 class="text-xl font-semibold sub-section text-slate-800 border-l-4 border-violet-500 pl-3 mb-4">11.3 高評価回答のFAQ自動登録</h2>
       <div class="bg-violet-50 border border-violet-100 rounded-xl p-5 text-sm text-slate-700 leading-relaxed">
         <p class="mb-3">
-          <code>FaqAutoRegistrar.php</code> は、回答評価が十分に高く、差し戻し対象ではなく、タイムアウトやエラー応答でもない場合に、<code>project_faqs</code> へ自動登録します。登録時はチャット全文をそのまま保存せず、質問は短い要約に、回答はコードブロックや図表定義を除いた要点に整形します。保存条件を満たさなかった場合も、<code>[FAQ-AUTO]</code> ログで理由を追跡できます。
+          <code>FaqAutoRegistrar.php</code> は、回答評価が十分に高く、差し戻し対象ではなく、タイムアウトやエラー応答でもない場合に、<code>project_faqs</code> へ自動登録します。登録時はチャット全文をそのまま保存せず、質問は短い要約に、回答はコードブロックや図表定義を除いた要点に整形します。さらに、<code>evaluation_mode=real</code> の本審査結果だけをFAQ候補として扱い、軽量最終回答ルートの擬似評価やフェイルセーフ評価は別扱いにします。保存条件を満たさなかった場合も、<code>[FAQ-AUTO]</code> ログで理由を追跡できます。
         </p>
         <ul class="list-disc list-inside text-xs md:text-sm text-slate-600 space-y-1.5">
           <li>重複登録を避けるため、元の <code>chat_history_id</code> に加え、正規化した質問要約と回答要約を確認する。</li>
           <li>評価プロセスのフェイルセーフや初期ドラフト採用時は自動登録しない。</li>
+          <li><code>[EVAL-REAL]</code> / <code>[EVAL-SYNTHETIC]</code> / <code>[EVAL-FALLBACK]</code> を見れば、品質スコアが本審査か擬似評価かを運用ログ上で識別できる。</li>
           <li>通常チャット、分析チャット、フル思考チャットの履歴保存トランザクション内で実行する。</li>
         </ul>
       </div>

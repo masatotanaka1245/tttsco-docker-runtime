@@ -341,6 +341,8 @@ class ReportGenerator
             . ' | chat_history_id=' . $chatHistoryId
             . ' | questionChars=' . mb_strlen($question)
             . ' | answerChars=' . mb_strlen($answer)
+            . ' | evaluationMode=' . (string)($evaluation['evaluation_mode'] ?? 'none')
+            . ' | evaluationSource=' . (string)($evaluation['evaluation_source'] ?? 'none')
             . ' | verdict=' . (string)($evaluation['verdict'] ?? 'none')
             . ' | score=' . (string)($evaluation['total_score'] ?? 'none')
             . ' | reasoningSession=' . ($reasoningSessionId ?: 'none')

@@ -234,6 +234,61 @@ function openFaqModal(q = '', a = '') {
     }
 }
 
+async function handleSaveFaq(e) {
+    e.preventDefault();
+    const { projectId } = getConfig();
+    if (!projectId) {
+        alert('案件IDが取得できませんでした。画面を再読み込みしてください。');
+        return;
+    }
+
+    const form = e.target;
+    const formData = new FormData(form);
+    const question = String(formData.get('question') || '').trim();
+    const answer = String(formData.get('answer') || '').trim();
+
+    if (!question || !answer) {
+        alert('質問・回答の両方を入力してください。');
+        return;
+    }
+
+    const submitButton = form.querySelector('button[type="submit"]');
+    if (submitButton) {
+        submitButton.disabled = true;
+        submitButton.textContent = '保存中...';
+    }
+
+    try {
+        const res = await secureFetch('api/add_faq.php', {
+            method: 'POST',
+            body: JSON.stringify({
+                project_id: projectId,
+                question,
+                answer
+            })
+        });
+
+        if (res.success) {
+            const modal = document.getElementById('faq-modal');
+            if (modal) {
+                modal.classList.replace('flex', 'hidden');
+            }
+            form.reset();
+            location.reload();
+            return;
+        }
+
+        alert(res.error || 'ナレッジの保存に失敗しました。');
+    } catch (err) {
+        alert('通信エラーが発生しました: ' + err.message);
+    } finally {
+        if (submitButton) {
+            submitButton.disabled = false;
+            submitButton.textContent = '保存する';
+        }
+    }
+}
+
 // =========================================================================
 // 4. ファイルアップロード関連
 // ── 進捗オーバーレイ付き upload.js へ移管
@@ -277,9 +332,9 @@ function bindGlobalFunctions() {
     window.handleRemoveComment = Project.handleRemoveComment;
     window.handleAddMember = Project.handleAddMember;
     window.handleRemoveMember = Project.handleRemoveMember;
-    window.handleDeleteFaq = Project.handleDeleteFaq;
-    window.openFaqModal = Project.openFaqModal;
-    window.handleSaveFaq = Project.handleSaveFaq;
+    window.handleDeleteFaq = handleDeleteFaq;
+    window.openFaqModal = openFaqModal;
+    window.handleSaveFaq = handleSaveFaq;
     
     // CSV同期・ファイルアップロード系 (csv.jsからインポートした関数を直接マウント)
     window.handleCsvUpload = handleCsvUpload;
@@ -322,6 +377,7 @@ export {
     handleRemoveMember,
     handleDeleteFaq,
     openFaqModal,
+    handleSaveFaq,
     handleCsvUpload,
     loadCsvData,
     handleDeleteCsv,

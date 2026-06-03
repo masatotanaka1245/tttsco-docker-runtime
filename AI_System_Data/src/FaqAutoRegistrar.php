@@ -34,6 +34,8 @@ class FaqAutoRegistrar {
                 $this->logSkip($qualification['reason'], [
                     'chat_history_id' => $chatHistoryId,
                     'project_id' => (int)$projectId,
+                    'evaluation_mode' => (string)($evalResult['evaluation_mode'] ?? 'none'),
+                    'evaluation_source' => (string)($evalResult['evaluation_source'] ?? 'none'),
                     'score' => (int)($evalResult['total_score'] ?? 0),
                     'relevance' => (int)(($evalResult['scores']['answer_relevance'] ?? 0)),
                     'faithfulness' => (int)(($evalResult['scores']['faithfulness'] ?? 0)),
@@ -86,6 +88,11 @@ class FaqAutoRegistrar {
 
         if (($evalResult['needs_revision'] ?? true) === true) {
             return ['qualified' => false, 'reason' => 'needs_revision'];
+        }
+
+        $evaluationMode = (string)($evalResult['evaluation_mode'] ?? '');
+        if ($evaluationMode !== 'real') {
+            return ['qualified' => false, 'reason' => 'non_real_evaluation_mode'];
         }
 
         $feedback = (string)($evalResult['feedback'] ?? '');
