@@ -182,7 +182,9 @@
   - DB列の追加を伴う設定項目は、先に UI と保存APIへ入れる場合でも、`UserSettingsSchema` のような存在確認で本番互換を壊さない
   - モデル名の保存時は `Ollama /api/tags` などで存在確認を行い、typo や未取得モデルをセッションやDBへそのまま保存しない
   - `mxbai-embed-large` と `mxbai-embed-large:latest` のような tag 差は、保存時に Ollama の実在モデル名へ正規化して吸収する
-  - 本番検証では、ログだけでなく `result.model_roles` も見て、`main_model` / `sub_model` / `applied_role` が設計どおり返っているかを確認する
+  - 本番検証では、ログだけでなく `result.model_roles` も見て、`main_model` / `sub_model` / `embedding_model` / `applied_role` が設計どおり返っているかを確認する
+  - `sub_model` は「その route で使われたかどうか」ではなく「configured value」として返すことがあるため、実際の出荷役は `applied_role` で判断する
+  - `history_summary` や `normal_rag` のような軽量 route でも、`result.model_roles` の shape は他 route と揃える
 
 ### 3.8 軽量ルート最終回答の教訓（2026-06-04）
 

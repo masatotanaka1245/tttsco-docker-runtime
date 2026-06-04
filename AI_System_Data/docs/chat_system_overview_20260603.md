@@ -430,6 +430,11 @@ FAQ 自動登録は、現在以下のみ候補にします。
 - 差し戻しループ
 - 報告書寄り制御
 
+補足:
+
+- 2026-06-05 時点では、上の粒度だけでは分割順を決めにくいため、`chat_advanced.php` の内部責務をもう一段細かく棚卸しする
+- 観測ログを崩さないため、関数の並びではなく「入出力の束」で分ける
+
 ## 16. 将来のファイル分割候補
 
 ### `chat.php`
@@ -461,6 +466,81 @@ FAQ 自動登録は、現在以下のみ候補にします。
 - `AdvancedRouteCriticLoop`
 - `AdvancedRouteReportFinalizer`
 
+#### 2026-06-05 時点の責務棚卸し
+
+1. ルート全体の進行管理
+   - `execute`
+   - `completeAdvancedRoute`
+   - `elapsedSeconds`
+   - 役割: フェーズ接続、タイミング計測、ルート全体の進行制御
+
+2. 質問因数分解とサブクエリ補正
+   - `decomposeQuestion`
+   - `generateAdditionalSubQuery`
+   - `normalizeSubQueries`
+   - `isDocExtractionQuery`
+   - `shouldForceSemanticDocExtract`
+   - `forceSemanticDocExtractSubQueries`
+   - `isDocOnlySemanticExtractQuery`
+   - `shouldSkipSqlSequenceForDocOnlySubQueries`
+   - 役割: 最初の質問を後続フロー向けの `subQueries` へ正規化する
+
+3. SQL分析シーケンス
+   - `processSubQueries`
+   - `executeSingleSubQuery`
+   - `executeAndAnalyzeSql`
+   - `buildSqlRepairGuidance`
+   - `isLikelySqlAuditFailure`
+   - 役割: Text-to-SQL の生成、監査、自己修復、要約
+
+4. 実行計画と資料巡回
+   - `generateExecutionPlan`
+   - `executePlanSteps`
+   - `buildPresetDocPlan`
+   - `shouldUsePresetDocPlan`
+   - `buildPresetDocSql`
+   - `shouldUsePresetDocSql`
+   - `extractPdfHintFromQuestion`
+   - 役割: Planner と定番プランを切り替えつつ `doc_chunks` / `documents` を巡回する
+
+5. PDF 向け軽量最終回答
+   - `shouldUseLightweightDocFinalAnswerRoute`
+   - `buildLightweightDocFinalAnswer`
+   - `buildDeterministicDocLightweightAnswer`
+   - `buildDocLightweightEvidencePacket`
+   - `extractDocEvidenceBlocks`
+   - `scoreDocEvidenceBlock`
+   - `selectBestDocEvidenceBlocks`
+   - `isWeakDocEvidenceText`
+   - `isVeryWeakDocEvidenceText`
+   - `normalizeDocEvidenceText`
+   - `summarizeDocEvidenceText`
+   - `buildDocChunkEvidenceSummary`
+   - 役割: 資料PDF抽出を deterministic に整形し、`DOC-CANDIDATES` 観測込みで出荷する
+
+6. 統合・推敲・追加探索
+   - `buildEvidenceDraft`
+   - `mergeAndRefineReport`
+   - `generateAdditionalChunkQuery`
+   - `applyReportModeFinalPolish`
+   - 役割: advanced_hybrid の重い統合ループを担当する
+
+7. 保存・出荷・権限
+   - `saveHistoryAndEvaluations`
+   - `createReportDocumentIfRequested`
+   - `checkAuthority`
+   - `sendFinalResult`
+   - `logFinalResponseSnapshot`
+   - 役割: 履歴保存、評価同期、レポート出力、最終レスポンス送出
+
+8. 共有ユーティリティ
+   - `composeMemoryAwarePrompt`
+   - `buildModelRolesPayload`
+   - `normalizeUtf8`
+   - `loadCsvSchemas`
+   - `buildLogger`
+   - 役割: 各責務群から使う補助処理を薄く提供する
+
 ## 17. 分割の進め方
 
 おすすめ順:
@@ -473,3 +553,27 @@ FAQ 自動登録は、現在以下のみ候補にします。
 6. `chat_advanced.php` は最後に小さく刻む
 
 最初から大手術するより、挙動を変えずに責務単位で移す方が安全です。
+
+### `chat_advanced.php` の推奨分割順
+
+`chat_advanced.php` は最後に回す前提を維持しつつ、着手するなら次の順が安全です。
+
+1. `AdvancedDocAnswerBuilder`
+   - 対象: PDF 向け軽量最終回答の関数群
+   - 理由: `DOC-CANDIDATES` で観測しやすく、他フェーズからの依存が比較的薄い
+
+2. `AdvancedQuestionDecomposer`
+   - 対象: 因数分解、`semantic_extract` 補正、doc-only 判定
+   - 理由: route 前半の分岐ルールを局所化できる
+
+3. `AdvancedRoutePlanner`
+   - 対象: Planner、preset plan/sql、RAG/SQL ステップ巡回
+   - 理由: advanced_hybrid の中盤を独立観測しやすくなる
+
+4. `AdvancedRouteReportFinalizer`
+   - 対象: 保存・評価・レポート・出荷
+   - 理由: route 共通 helper 化の候補にもなりやすい
+
+5. `AdvancedRouteMerger` / `AdvancedRouteCriticLoop`
+   - 対象: 統合・推敲・追加探索
+   - 理由: 他の束を外した後の方が依存の向きが見えやすい

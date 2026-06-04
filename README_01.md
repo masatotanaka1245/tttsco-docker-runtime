@@ -83,7 +83,7 @@ Tailwind CSS	3.x
 - 2026-06-04 の時点で、`save_user_settings.php` は `Ollama /api/tags` を使って `main / sub / embedding` のモデル名存在チェックを行い、未取得モデルの保存を防ぐ
 - 保存時のモデル検証では、`mxbai-embed-large` と `mxbai-embed-large:latest` のような tag 差を吸収し、Ollama 側の実在名へ正規化して保存する
 - 2026-06-04 の時点で、`data_analysis` も第一段として `sub_model` を受け取り始めており、CSV証拠読解、semantic 系、Text-to-SQL 生成と再生成から順に `sub` へ寄せている
-- 2026-06-04 の時点で、`history_summary / normal_rag / data_analysis / advanced_hybrid / global` の `result` payload には `model_roles` が入り、`main_model` / `sub_model` / `applied_role` を後から確認できる
+- 2026-06-05 の時点で、`history_summary / normal_rag / data_analysis / advanced_hybrid / global` の `result` payload には共通 shape の `model_roles` が入り、`main_model` / `sub_model` / `embedding_model` / `applied_role` を後から確認できる
 - 2026-06-04 の時点で、`ChatRouteDispatcher` も `[MODEL-ROLES]` ログを出し、route 決定直後の `main / sub / embedding` を追える
 - 2026-06-04 の時点で、`callOllamaChat()` は `[OLLAMA-PAYLOAD]` と `[OLLAMA-THINK]` ログを出し、Gemma 系モデルで `<|think|>` を自動付与したか、応答に思考トレースが含まれたかを追える
 - `diagram_mode=on` の小規模CSV概要は、`CSV-SUMMARY` の軽量ルートでも deterministic に `json:chart` を返す
@@ -102,10 +102,26 @@ Tailwind CSS	3.x
 
 ### モデル責務の確認観点
 
+`result.model_roles` は「設定されていたモデル」と「実際にどの役で出荷したか」を分けて見る。
+
+- `main_model`
+  - その route で最終回答品質を担う設定モデル
+- `sub_model`
+  - 中間処理用の設定モデル
+  - 軽量 route (`history_summary` / `normal_rag`) でも、未使用なら `applied_role` とは切り離して configured value を返す
+- `embedding_model`
+  - ベクトル検索や埋め込み更新で使う設定モデル
+- `applied_role`
+  - その最終 payload をどの役で出荷したか
+  - 現時点では最終回答の payload はすべて `main`
+
 - `history_summary`
-  - DB要約のみで返り、`result.model_roles.applied_role = main`
+  - DB要約のみで返る
+  - `result.model_roles.applied_role = main`
+  - `result.model_roles.sub_model` は configured value を保持していてよい
 - `normal_rag`
-  - 最終回答は `main` で着地し、`sub_model` は `null`
+  - 最終回答は `main` で着地する
+  - `result.model_roles.sub_model` は configured value を保持していてよい
 - `data_analysis`
   - 因数分解・最終統合・評価は `main`
   - SQL生成、CSV証拠読解のバッチ分析、semantic 補助推定は `sub`
