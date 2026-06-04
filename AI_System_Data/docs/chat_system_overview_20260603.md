@@ -524,6 +524,7 @@ FAQ 自動登録は、現在以下のみ候補にします。
    - `generateAdditionalChunkQuery`
    - `applyReportModeFinalPolish`
    - 役割: advanced_hybrid の重い統合ループを担当する
+   - 2026-06-05 時点で、周辺のドラフト組み立てと報告書整形は `AdvancedDraftComposer`、品質評価ループ本体は `AdvancedCriticLoop` へ寄せ始めている
 
 7. 保存・出荷・権限
    - `saveHistoryAndEvaluations`
@@ -532,6 +533,7 @@ FAQ 自動登録は、現在以下のみ候補にします。
    - `sendFinalResult`
    - `logFinalResponseSnapshot`
    - 役割: 履歴保存、評価同期、レポート出力、最終レスポンス送出
+   - 2026-06-05 時点で、履歴保存・PDF登録・最終出荷は `AdvancedRouteFinalizer` へ寄せ始めている
 
 8. 共有ユーティリティ
    - `composeMemoryAwarePrompt`
@@ -562,18 +564,30 @@ FAQ 自動登録は、現在以下のみ候補にします。
    - 対象: PDF 向け軽量最終回答の関数群
    - 理由: `DOC-CANDIDATES` で観測しやすく、他フェーズからの依存が比較的薄い
 
-2. `AdvancedQuestionDecomposer`
-   - 対象: 因数分解、`semantic_extract` 補正、doc-only 判定
+2. `AdvancedSubQueryNormalizer`
+   - 対象: 因数分解後の正規化、`semantic_extract` 補正、doc-only 判定
    - 理由: route 前半の分岐ルールを局所化できる
 
 3. `AdvancedRoutePlanner`
-   - 対象: Planner、preset plan/sql、RAG/SQL ステップ巡回
-   - 理由: advanced_hybrid の中盤を独立観測しやすくなる
+   - 対象: Planner、preset plan
+   - 理由: advanced_hybrid の中盤入口を独立観測しやすくなる
 
-4. `AdvancedRouteReportFinalizer`
+4. `AdvancedPlanExecutor`
+   - 対象: preset SQL、RAG/SQL ステップ巡回、資料巡回ステップ保存
+   - 理由: 実行フェーズの副作用と SQL 実行をまとめて外へ寄せられる
+
+5. `AdvancedDraftComposer`
+   - 対象: `buildEvidenceDraft`、`generateAdditionalChunkQuery`、`applyReportModeFinalPolish`
+   - 理由: 統合ループの周辺依存を先に薄くしてから本体へ着手できる
+
+6. `AdvancedCriticLoop`
+   - 対象: ChatEvaluator ループ、text-only rewrite、doc_chunks 再探索、最終リライト
+   - 理由: `mergeAndRefineReport()` の最も重い判断塊を独立観測しやすくなる
+
+7. `AdvancedRouteFinalizer`
    - 対象: 保存・評価・レポート・出荷
    - 理由: route 共通 helper 化の候補にもなりやすい
 
-5. `AdvancedRouteMerger` / `AdvancedRouteCriticLoop`
+8. `AdvancedRouteMerger`
    - 対象: 統合・推敲・追加探索
    - 理由: 他の束を外した後の方が依存の向きが見えやすい

@@ -30,6 +30,11 @@ require_once __DIR__ . '/../../src/ProjectContextMemory.php';
 require_once __DIR__ . '/../../src/ChatModelRolePayload.php';
 require_once __DIR__ . '/../../src/AdvancedDocAnswerBuilder.php';
 require_once __DIR__ . '/../../src/AdvancedSubQueryNormalizer.php';
+require_once __DIR__ . '/../../src/AdvancedRoutePlanner.php';
+require_once __DIR__ . '/../../src/AdvancedPlanExecutor.php';
+require_once __DIR__ . '/../../src/AdvancedDraftComposer.php';
+require_once __DIR__ . '/../../src/AdvancedCriticLoop.php';
+require_once __DIR__ . '/../../src/AdvancedRouteFinalizer.php';
 
 if (!function_exists('chatLogger')) {
     function chatLogger($msg) {
@@ -156,6 +161,128 @@ class AdvancedReasoningRouteProcessor {
             $this->searchQuery,
             $this->originalMessage,
             array_values(array_unique(array_merge($this->dynamicTableWhitelist, array_keys(self::$tablesSchema)))),
+            fn(string $message) => chatLogger($message)
+        );
+    }
+
+    private function buildRoutePlanner(): AdvancedRoutePlanner
+    {
+        return new AdvancedRoutePlanner(
+            $this->ollama_host,
+            $this->reasoningModel,
+            $this->projectId,
+            $this->reasoningId,
+            $this->originalMessage,
+            $this->searchQuery,
+            $this->schemaInfo,
+            self::$tablesBrief,
+            fn(string $prompt): string => $this->composeMemoryAwarePrompt($prompt),
+            fn(string $text): string => $this->inferOperationType($text),
+            function (string $thought): void {
+                try {
+                    $stmt = $this->pdo->prepare("INSERT INTO chat_reasoning_steps (project_id, session_id, original_question, step_number, sub_query, sub_answer, created_at) VALUES (?, ?, ?, 0, '【AIの思考プロセス: 実行計画生成】', ?, NOW())");
+                    $stmt->execute([$this->projectId, $this->reasoningId, $this->originalMessage, $thought]);
+                } catch (Exception $ex) {
+                    chatLogger("思考プロセス保存例外: " . $ex->getMessage());
+                }
+            },
+            fn(string $message) => chatLogger($message)
+        );
+    }
+
+    private function buildPlanExecutor(): AdvancedPlanExecutor
+    {
+        return new AdvancedPlanExecutor(
+            $this->pdo,
+            $this->projectId,
+            $this->ollama_host,
+            $this->reasoningModel,
+            $this->searchQuery,
+            $this->originalMessage,
+            $this->reasoningId,
+            fn(string $prompt): string => $this->composeMemoryAwarePrompt($prompt),
+            fn(string $text): string => $this->inferOperationType($text),
+            fn(array $rows): string => $this->buildDocChunkEvidenceSummary($rows),
+            function (array $row, string $tableName, int $stepCounter): void {
+                $docId = $row['doc_id'] ?? ($row['document_id'] ?? ($row['id'] ?? $stepCounter));
+                $title = $row['title'] ?? ($row['file_name'] ?? ($row['file_path'] ?? ($row['question_summary'] ?? "巡回ステップデータ")));
+                $page = $row['page_number'] ?? 1;
+                $this->uniqueSources[$docId . '-' . $page] = [
+                    "title" => $title,
+                    "page" => $page,
+                    "doc_id" => $docId,
+                ];
+            },
+            function (string $subAnswer): void {
+                $this->subAnswers[] = $subAnswer;
+            },
+            fn(string $message) => chatLogger($message)
+        );
+    }
+
+    private function buildDraftComposer(): AdvancedDraftComposer
+    {
+        return new AdvancedDraftComposer(
+            $this->originalMessage,
+            $this->subAnswers,
+            $this->ollama_host,
+            $this->reasoningModel,
+            $this->synthesisModel,
+            $this->reportMode,
+            fn(string $prompt): string => $this->composeMemoryAwarePrompt($prompt)
+        );
+    }
+
+    private function buildCriticLoop(): AdvancedCriticLoop
+    {
+        return new AdvancedCriticLoop(
+            $this->pdo,
+            $this->projectId,
+            $this->ollama_host,
+            $this->originalMessage,
+            $this->mainModel,
+            $this->synthesisModel,
+            $this->reportMode,
+            $this->diagramMode,
+            fn(string $feedback): string => $this->generateAdditionalChunkQuery($feedback),
+            fn(string $currentDraft): string => $this->applyReportModeFinalPolish($currentDraft),
+            fn(): array => $this->subAnswers,
+            function (string $subAnswer): void {
+                $this->subAnswers[] = $subAnswer;
+            },
+            function (array $source): void {
+                $docId = $source['doc_id'] ?? 'unknown';
+                $page = $source['page'] ?? 1;
+                $this->uniqueSources[$docId . '-' . $page] = [
+                    'title' => $source['title'] ?? '追加反省抽出エビデンス',
+                    'page' => $page,
+                    'doc_id' => $docId,
+                ];
+            },
+            fn(string $message) => chatLogger($message)
+        );
+    }
+
+    private function buildRouteFinalizer(): AdvancedRouteFinalizer
+    {
+        return new AdvancedRouteFinalizer(
+            $this->pdo,
+            $this->projectId,
+            $this->user_id,
+            $this->reasoningId,
+            $this->originalMessage,
+            $this->finalResponse,
+            $this->evalResult,
+            $this->retryCount,
+            $this->reportMode,
+            $this->ollama_host,
+            realpath(__DIR__ . '/../../') ?: (__DIR__ . '/../..'),
+            $this->mainModel,
+            $this->subModel,
+            $this->embeddingModel,
+            $this->synthesisModel,
+            $this->uniqueSources,
+            fn(string $text): string => $this->normalizeUtf8($text),
             fn(string $message) => chatLogger($message)
         );
     }
@@ -697,91 +824,7 @@ class AdvancedReasoningRouteProcessor {
      * カラムDDLを一切隠蔽し、1行説明のみで1〜3ステップのJSON配列を生成させる Planner回路
      */
     private function generateExecutionPlan(): array {
-        $briefText = "【利用可能なデータベース・テーブル一覧】\n";
-        foreach (self::$tablesBrief as $tableName => $description) {
-            $briefText .= "- テーブル名: [{$tableName}] (概要: {$description})\n";
-        }
-
-        // 動的なバッククォート3つのフェンス生成によるハードコード防止
-        $fence = str_repeat("\x60", 3);
-
-        $sysPrompt = "あなたは超一流のシステムアーキテクトおよびデータアナリストです。\n"
-                   . "ユーザーから提示された質問を解決するために、どのテーブルから、どのような順番で情報を取得すべきか、1〜3つのステップで構成される論理的な「実行計画（手順書）」を策定してください。\n\n"
-                   . "【絶対ルール】\n"
-                   . "軽量LLMの混乱を防ぎレスポンス精度を最大化するため、プロンプトには詳細なカラム情報をあえて含めていません。テーブル名と概要から情報構造を推測し、ステップバイステップの手順を構築してください。\n"
-                   . "回答は、必ず以下のJSON配列形式のブロック【のみ】を出力してください。Markdownの説明文や余計なプロースは一切禁止します。\n\n"
-                   . $fence . "json\n"
-                   . "[\n"
-                   . "  {\"step\": 1, \"table\": \"テーブル名\", \"purpose\": \"このステップで検索・集計する具体的な目的（日本語）\", \"operation_type\": \"semantic_extract\"}\n"
-                   . "]\n"
-                   . $fence . "\n\n"
-                   . $briefText;
-
-        // PromptManager由来の記憶プロンプトを最先頭へインジェクト
-        $sysPrompt = $this->composeMemoryAwarePrompt($sysPrompt);
-        $userPrompt = "【ユーザーの質問】\n{$this->searchQuery}";
-        $thought = "";
-
-        // 計画手順書策定の遊びを完全に排除する超決定論化オプション（4096固定）
-        $res = callOllamaChat($this->ollama_host, $this->reasoningModel, $sysPrompt, $userPrompt, 'json', ["temperature" => 0.0, "top_p" => 0.1, "num_ctx" => 4096], $thought);
-
-        // Ollamaから受信した生の計画データをそのままダンプ記録
-        chatLogger("[PLANNER-RAW-RESPONSE] Ollamaから受信した生の計画データ:\n" . $res);
-
-        // 思考プロセスをステップ0として記録
-        if (!empty($thought) && $this->reasoningId) {
-            try {
-                $stmt = $this->pdo->prepare("INSERT INTO chat_reasoning_steps (project_id, session_id, original_question, step_number, sub_query, sub_answer, created_at) VALUES (?, ?, ?, 0, '【AIの思考プロセス: 実行計画生成】', ?, NOW())");
-                $stmt->execute([$this->projectId, $this->reasoningId, $this->originalMessage, $thought]);
-            } catch (Exception $ex) {
-                chatLogger("思考プロセス保存例外: " . $ex->getMessage());
-            }
-        }
-
-        // 動的エスケープを使用した安全なマークダウンパース
-        $cleanJson = $res;
-        $fencePattern = '/^' . preg_quote($fence, '/') . '(?:json)?\s*(\\[.*?\\])\s*' . preg_quote($fence, '/') . '/is';
-        if (preg_match($fencePattern, $res, $matches)) {
-            $cleanJson = $matches[1];
-        } elseif (preg_match('/(\\[.*?\\])/is', $res, $matches)) {
-            $cleanJson = $matches[1];
-        }
-
-        $plan = json_decode($cleanJson, true);
-        if (is_array($plan) && isset($plan['plan']) && is_array($plan['plan'])) {
-            $plan = $plan['plan'];
-        } elseif (is_array($plan) && isset($plan['steps']) && is_array($plan['steps'])) {
-            $plan = $plan['steps'];
-        } elseif (is_array($plan) && isset($plan['table'])) {
-            chatLogger("[FORMAT-RECOVERY] 単一の計画オブジェクトを配列構造に自動ラップ救済しました。");
-            $plan = [$plan];
-        }
-
-        // 【インテリジェント・フォールバック計画への賢いアップグレード】
-        if (!is_array($plan) || empty($plan) || !isset($plan[0]['table'])) {
-            chatLogger("[PLANNER-PARSE-FAILED] 計画JSONのパースに失敗したため、安全フォールバック回路が起動しました。対象質問: " . $this->searchQuery);
-            
-            if (preg_match('/(集計|件数|平均|合計|割合)/u', $this->searchQuery)) {
-                $fallbackTable = 'project_csv_rows';
-            } elseif (preg_match('/(会話|履歴|チャット|これまでの|まとめ)/u', $this->searchQuery)) {
-                $fallbackTable = 'chat_history';
-            } else {
-                $fallbackTable = 'doc_chunks';
-            }
-
-                $fallbackPurpose = match ($fallbackTable) {
-                    'project_csv_rows' => 'CSV行データから質問に関連する集計・傾向を抽出する',
-                    'chat_history' => '過去の対話履歴から質問に関連する文脈を抽出する',
-                    default => '関連資料PDFの本文チャンクから主要な留意点・根拠を抽出する',
-                };
-
-                $plan = [
-                ["step" => 1, "table" => $fallbackTable, "purpose" => $fallbackPurpose, "operation_type" => $this->inferOperationType($this->searchQuery)]
-            ];
-        }
-
-        chatLogger("策定された実行計画ステップ数: " . count($plan));
-        return $plan;
+        return $this->buildRoutePlanner()->generateExecutionPlan();
     }
 
     /**
@@ -789,231 +832,8 @@ class AdvancedReasoningRouteProcessor {
      * ❌ 悪魔の二重重複を完全物理パージ！クレンザーとロジックを綺麗に一本化した防衛開通版
      */
     private function executePlanSteps(array $plan): array {
-        $stepResults = [];
-        $stepCounter = 0;
-        
-        // 共通監査・クエリ実行エンジンの安全なインスタンス化
-        require_once __DIR__ . '/../../src/SqlExecutionEngine.php';
-        $sqlEngine = new SqlExecutionEngine($this->pdo, $this->projectId); 
-
-        // 動的マークダウンフェンス用
-        $fence = str_repeat("\x60", 3);
-
-        foreach ($plan as $stepItem) {
-            $stepCounter++;
-            $tableName = $stepItem['table'] ?? '';
-            $purpose   = $stepItem['purpose'] ?? '';
-            $operationType = $stepItem['operation_type'] ?? $this->inferOperationType($purpose . ' ' . $this->searchQuery);
-
-            if (!isset(self::$tablesSchema[$tableName])) {
-                continue;
-            }
-
-            $this->model = $this->reasoningModel; // 内部ステート保持同期
-
-            chatLogger("【フル思考】フェーズ2.{$stepCounter}: テーブル「{$tableName}」の動的マスキングスキャン実行中...");
-            
-            // 進捗のステップ番号をシーケンス順（資料巡回をステップ3〜4に制御）にパディングしてSSE送信
-            sendSSE('status', [
-                'step'    => 3, 
-                'message' => "🔍 【シーケンス2/3】資料巡回ステップ [{$stepCounter}/" . count($plan) . "]: テーブル「{$tableName}」を自動精読中..."
-            ]);
-
-            // 動的プロンプトマスキング：対象テーブルのみの詳細スキーマを抽出し、残り7つは完全消去
-            $targetSchema = self::$tablesSchema[$tableName];
-            if ($tableName === 'doc_chunks') {
-                $targetSchema .= "\n\n関連テーブルとしてJOIN可能:\n" . self::$tablesSchema['documents'];
-            }
-
-            // 射影用コンテキスト制約
-            $projectConstraint = "";
-            if ($tableName === 'doc_chunks') {
-                $projectConstraint = "・doc_chunks には project_id が存在しません。案件で絞り込む場合は documents d と JOIN し、d.project_id = {$this->projectId} を使用してください。\n";
-            } elseif ($tableName !== 'project_csv_rows' && $tableName !== 'users') {
-                $projectConstraint = "・テーブルに [project_id] カラムが存在する場合は、必ず [project_id = {$this->projectId}] の絞り込み条件を含めてください。\n";
-            }
-
-            // ✨【🛠️パッチ修正②】日本語キーによるパースエラー3143を物理封殺する絶対拘束ルールの上書き
-            $sqlSysPrompt = "あなたは極めて正確なデータ抽出SQLを構築する MySQL エキスパートです。\n"
-                          . "提示された【対象データの詳細スキーマ情報】のみを頭に入れ、ユーザーの目的を達成するための MySQL 8.0 互換の SELECT クエリを作成してください。\n"
-                          . "関係のない他のテーブルは使わないでください。ただし doc_chunks から本文を読む場合は、出典表示のため documents とのJOINを許可します。\n\n"
-                          . "【対象テーブルのスキーマ情報】\n"
-                          . $targetSchema . "\n\n"
-                          . "★【重要：マルチテナント隔離の絶対ルール（プレースホルダー完全禁止）】\n"
-                          . "・クエリを組み立てる際、お前が WHERE 条件に必ず「生の数字」で直接指定しなければいけない現在の project_id は 【 {$this->projectId} 】 です。\n"
-                          . "・`:project_id` などのプレースホルダー記号や変数は【絶対に生成禁止】です。必ず文字通り `WHERE [テーブル名].project_id = {$this->projectId}` のように、生の整数値を直接クエリ文字列に書き込んでください。\n\n"
-                          . "【絶対ルール】\n"
-                          . $projectConstraint
-                          . "・★【最重要：MySQL 8.0 日本語JSONパスの絶対拘束ルール】\n"
-                          . "  JSON型（row_data カラム）から「所属」や「課題など」といった日本語キーを抽出・集計する際は、必ず `JSON_UNQUOTE(JSON_EXTRACT(T1.row_data, '$.\"項目名\"'))` を使用せよ。\n"
-                          . "  `project_csv_rows` に `row_count` カラムは存在しない。CSV行数は `COUNT(T1.id)`、CSVファイル側の登録行数は `project_csv_files.row_count` を使用せよ。\n"
-                          . "・キャスト時に COLLATE 句は絶対に使用しないでください。\n"
-                          . "・PDFや資料本文を読む semantic_extract では title, page_number, chunk_text, image_description を優先して取得してください。\n"
-                          . "・出力は必ず実行可能なSQL文字列1つのみを内包したJSON形式で出力してください。Markdownや説明テキスト、コメントは完全禁止です。\n"
-                          . '{"sql": "SELECT ..."}';
-
-            // 個別SQL生成システムプロンプトの最先頭へ記憶プロンプトをインジェクト
-            $sqlSysPrompt = $this->composeMemoryAwarePrompt($sqlSysPrompt);
-
-            // 🔄 [エスケープ補助] プロンプト内のドル記号の直後に予期せず入った半角スペースを削除し、構文を完全正常化
-            $sqlSysPrompt = str_replace('$ ', '$', $sqlSysPrompt);
-
-            $sqlUserPrompt = "【全体の質問】\n{$this->searchQuery}\n\n【このステップの目的】\n{$purpose}\n\n【operation_type】\n{$operationType}";
-            
-            $generatedSql = "";
-            if ($this->shouldUsePresetDocSemanticExtractSql($tableName, $operationType)) {
-                $generatedSql = $this->buildPresetDocSemanticExtractSql();
-                chatLogger("[AUTO-SQL-PRESET] (ステップ {$stepCounter}) 資料PDF抽出の定番SQLを適用しました。");
-            } elseif ($this->shouldUsePresetProjectCsvFilesSql($tableName, $operationType, $purpose)) {
-                $generatedSql = $this->buildPresetProjectCsvFilesSql();
-                chatLogger("[AUTO-SQL-PRESET] (ステップ {$stepCounter}) CSVファイル一覧の定番SQLを適用しました。");
-            } else {
-                // SQL生成時の創造性を完全パージするオプション引き締めへのリフォーム
-                $sqlJsonStr = callOllamaChat($this->ollama_host, $this->reasoningModel, $sqlSysPrompt, $sqlUserPrompt, 'json', ["temperature" => 0.0, "top_p" => 0.1, "num_ctx" => 4096]);
-
-                // 📢 [超詳細ログ2] Ollamaが作成したパース前の生JSON文字列を出力
-                chatLogger("[AUTO-SQL-RAW] (ステップ {$stepCounter}) 受信生クエリデータ: " . $sqlJsonStr);
-
-                // SQL抽出のためのクレンジング
-                $cleanJsonPattern = '/^' . preg_quote($fence, '/') . '(?:json|sql)?\s*(.*?)\s*' . preg_quote($fence, '/') . '$/ms';
-                $cleanJsonStr = preg_replace($cleanJsonPattern, '$1', trim($sqlJsonStr));
-                $sqlData = json_decode($cleanJsonStr, true);
-
-                if (is_array($sqlData) && isset($sqlData['sql'])) {
-                    $generatedSql = trim($sqlData['sql']);
-                } elseif (is_array($sqlData) && isset($sqlData['query']) && preg_match('/^\s*SELECT/i', (string)$sqlData['query'])) {
-                    $generatedSql = trim((string)$sqlData['query']);
-                } else {
-                    if (preg_match('/SELECT\s+.*?(?:;|$)/is', $sqlJsonStr, $matches)) {
-                        $generatedSql = trim($matches[0]);
-                    } else {
-                        $generatedSql = trim($cleanJsonStr);
-                    }
-                }
-            }
-
-            // 📢 [超詳細ログ2] 万能クレンザーで自動補正をかける「直前」の素のSQLを出力（大文字キャメル一元同期）
-            chatLogger("[AGENT-SQL-BEFORE] (ステップ {$stepCounter}) プログラム補正前の素のSQL: " . $generatedSql);
-
-            // ━━━━【SQL実行直前の構文補正レイヤー（万能クレンザー）】━━━━
-            // 追加防衛シールド：AIが変数に逃げた場合も、水際で生のプロジェクトID数字へ強制書き換え
-            $generatedSql = preg_replace('/:\??project_id/i', $this->projectId, $generatedSql);
-            
-            // 🔄 [最終ネジ締め修正] SQLを絶対に破壊せず、日本語キーだけを確実に射撃する安全クレンザー（Unicodeブロック完全拘束版）
-            $generatedSql = preg_replace(
-                "/((?:[a-zA-Z0-9_]+\.)?row_data)\s*->>\s*['\"]?\\$?\.?([a-zA-Z0-9_\-\x{3040}-\x{309F}\x{30A0}-\x{30FF}\x{4E00}-\x{9FAF}]+)['\"]?/u",
-                'JSON_UNQUOTE(JSON_EXTRACT($1, \'$."$2"\'))',
-                $generatedSql
-            );
-            
-            $generatedSql = preg_replace('/' . preg_quote($fence, '/') . 'sql|' . preg_quote($fence, '/') . '/i', '', $generatedSql);
-            $generatedSql = preg_replace('/["\'}\]\s;]+$/', '', trim($generatedSql));
-            $generatedSql = preg_replace('/\\s+COLLATE\\s+[\'"]?[a-zA-Z0-9_-]+[\'"]?/i', '', $generatedSql);
-
-            // 📢 [超詳細ログ2] 万能クレンザーで自動補正をかけた「直後」のMySQLへ投入される最終実行SQLを出力（大文字キャメル一元同期）
-            chatLogger("[AGENT-SQL-AFTER]  (ステップ {$stepCounter}) プログラム補正後の最終実行SQL: " . $generatedSql);
-
-            $subAnsText = "";
-            $resultJson = "[]";
-            $isSafeSql = preg_match('/^\s*SELECT/i', $generatedSql) && !preg_match('/\b(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|EXECUTE)\b/i', $generatedSql);
-
-            if (empty($generatedSql) || !$isSafeSql) {
-                $subAnsText = "⚠️ SQLの構築に失敗したか、安全ではないクエリと判定されました。\n生成されたSQL: {$generatedSql}";
-            } else {
-                try {
-                    // 共通エンジン「SqlExecutionEngine」を呼び出して安全に実行
-                    $execResult = $sqlEngine->execute($generatedSql);
-
-                    if (!$execResult['success']) {
-                        chatLogger("[AGENT-EXEC-FAILED] (ステップ {$stepCounter}) 監査拒否または生エラー: " . ($execResult['error'] ?? 'Unknown Error'));
-                        $repairGuidance = $sqlEngine->buildRepairGuidance($generatedSql, (string)($execResult['error'] ?? 'Unknown Error'), $purpose);
-                        chatLogger("[AGENT-REPAIR-GUIDANCE] (ステップ {$stepCounter}) 正解誘導ヒント:\n" . $repairGuidance);
-
-                        $fallbackSql = $sqlEngine->suggestFallbackSql($purpose, $generatedSql);
-                        if ($fallbackSql) {
-                            chatLogger("[AGENT-FALLBACK-SQL] (ステップ {$stepCounter}) 実在スキーマに基づく定番SQLで救済試行: " . $fallbackSql);
-                            $fallbackResult = $sqlEngine->execute($fallbackSql);
-                            if (($fallbackResult['success'] ?? false) === true) {
-                                $generatedSql = $fallbackResult['sql'] ?? $fallbackSql;
-                                $execResult = $fallbackResult;
-                                chatLogger("[AGENT-FALLBACK-SQL-SUCCESS] (ステップ {$stepCounter}) 定番SQLによる救済に成功しました。");
-                            }
-                        }
-                    }
-
-                    if (!$execResult['success']) {
-                        $subAnsText = "⚠️ クエリの実行がセキュリティまたは構文監査により遮断されました。理由: " . ($execResult['error'] ?? '不明な拒否。');
-                    } else {
-                        $rows = $execResult['data'] ?? [];
-                        
-                        // エントリポイント側との互換性確保のために、RAGや文書ソースのメタ情報を動的に吸い上げる
-                        foreach ($rows as $row) {
-                            if (in_array($tableName, ['doc_chunks', 'documents', 'project_faqs', 'project_csv_files'])) {
-                                $docId = $row['doc_id'] ?? ($row['document_id'] ?? ($row['id'] ?? $stepCounter));
-                                $title = $row['title'] ?? ($row['file_name'] ?? ($row['file_path'] ?? ($row['question_summary'] ?? "巡回ステップデータ")));
-                                $page  = $row['page_number'] ?? 1;
-                                $this->uniqueSources[$docId . '-' . $page] = ["title" => $title, "page" => $page, "doc_id" => $docId];
-                            }
-                        }
-                        
-                        $resultJson = json_encode($rows, JSON_UNESCAPED_UNICODE);
-                        if (mb_strlen($resultJson) > 3000) {
-                            $resultJson = mb_substr($resultJson, 0, 3000) . "\n...[Context Guard: 容量超過のためデータ末尾をカット]";
-                        }
-
-                        if ($tableName === 'doc_chunks' && $operationType === 'semantic_extract') {
-                            $subAnsText = "【実行SQL】\n" . $fence . "sql\n{$generatedSql}\n" . $fence
-                                . "\n\n【取得した資料根拠】\n" . $this->buildDocChunkEvidenceSummary($rows);
-                        } else {
-                            // 軽量LLM向けに、結果の単一中間考察を生成
-                            $analysisSys = "あなたはデータアナリストです。提示された【実行したクエリ】と【抽出データ】から、何が読み取れるか客観的なインサイトのみを日本語で簡潔に1行〜数行で要約してください。";
-                            $analysisUser = "【ステップ目的】\n{$purpose}\n\n========================================\n【実行クエリ】\n{$generatedSql}\n========================================\n【抽出データ】\n{$resultJson}";
-                            $analysisThought = "";
-
-                            $analysisRes = callOllamaChat($this->ollama_host, $this->reasoningModel, $analysisSys, $analysisUser, null, ["num_ctx" => 4096], $analysisThought);
-
-                            if (!empty($analysisThought)) {
-                                $analysisRes = "🤔 **[データ考察プロセス]**\n<details><summary>分析過程を展開</summary>\n\n" . $analysisThought . "\n\n</details>\n\n---\n\n" . $analysisRes;
-                            }
-
-                            $subAnsText = "【実行SQL】\n" . $fence . "sql\n{$generatedSql}\n" . $fence . "\n\n【取得データ抜粋】\n" . $fence . "json\n{$resultJson}\n" . $fence . "\n\n【中間考察】\n" . $analysisRes;
-                        }
-                    }
-
-                } catch (Exception $e) {
-                    chatLogger("[AGENT-EXEC-FAILED] (ステップ {$stepCounter}) 例外詳細: " . $e->getMessage());
-                    $subAnsText = "[ERROR] クエリ実行エラー: " . $e->getMessage() . "\nSQL: {$generatedSql}";
-                }
-            }
-
-            // 即座に同一の番地(reasoningId)へダンプ合流・永続化
-            if ($this->reasoningId) {
-                try {
-                    $stmtInsertStep = $this->pdo->prepare("INSERT INTO chat_reasoning_steps (project_id, session_id, original_question, step_number, sub_query, sub_answer, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW())");
-                    $stmtInsertStep->execute([
-                        $this->projectId, 
-                        $this->reasoningId, 
-                        $this->originalMessage, 
-                        2 + $stepCounter, 
-                        "[資料巡回: {$tableName}] {$purpose}", 
-                        $subAnsText
-                    ]);
-                } catch (Exception $ex) {
-                    chatLogger("資料巡回ステップ保存例外: " . $ex->getMessage());
-                }
-            }
-
-            $stepResults[] = [
-                'step'    => $stepCounter,
-                'table'   => $tableName,
-                'purpose' => $purpose,
-                'result'  => $subAnsText
-            ];
-
-            $this->subAnswers[] = "◆ 資料巡回ステップ {$stepCounter} (テーブル: {$tableName}): {$purpose}\n{$subAnsText}";
-        }
-
-        return $stepResults;
+        $this->model = $this->reasoningModel;
+        return $this->buildPlanExecutor()->execute($plan, self::$tablesSchema);
     }
 
     private function normalizeRawSubQueryItem($item): array {
@@ -1052,51 +872,14 @@ class AdvancedReasoningRouteProcessor {
         return $this->buildSubQueryNormalizer()->shouldSkipSqlSequenceForDocOnlySubQueries($this->subQueries);
     }
 
-    private function shouldUsePresetDocSemanticExtractSql(string $tableName, string $operationType): bool {
-        return $tableName === 'doc_chunks' && $operationType === 'semantic_extract';
-    }
-
-    private function buildPresetDocSemanticExtractSql(): string {
-        return "SELECT d.id AS doc_id, d.title, d.file_path, c.page_number, c.chunk_text, c.image_description
-                FROM documents d
-                JOIN doc_chunks c ON d.id = c.doc_id
-                WHERE d.project_id = {$this->projectId}
-                  AND LOWER(d.file_path) LIKE '%.pdf'
-                  AND d.title NOT LIKE 'AI報告書%'
-                ORDER BY d.created_at DESC, d.id DESC, c.page_number ASC, c.id ASC
-                LIMIT 24";
-    }
-
-    private function shouldUsePresetProjectCsvFilesSql(string $tableName, string $operationType, string $purpose): bool {
-        if ($tableName !== 'project_csv_files') {
-            return false;
-        }
-
-        $context = $purpose . "\n" . $this->searchQuery;
-        $looksLikeCsvOverview = preg_match('/(CSV|csv|ファイル|データセット)/u', $context) === 1
-            && preg_match('/(一覧|概要|内訳|カラム|列|ヘッダー|行数|row_count|ファイル名)/u', $context) === 1;
-
-        return in_array($operationType, ['semantic_extract', 'simple_aggregate'], true) && $looksLikeCsvOverview;
-    }
-
-    private function buildPresetProjectCsvFilesSql(): string {
-        return "SELECT file_name, column_headers, row_count
-                FROM project_csv_files
-                WHERE project_id = {$this->projectId}
-                ORDER BY id ASC";
-    }
-
     private function shouldUsePresetDocPlan(): bool {
-        return $this->shouldSkipSqlSequenceForDocOnlySubQueries();
+        return $this->buildRoutePlanner()->shouldUsePresetDocPlan(
+            fn(): bool => $this->shouldSkipSqlSequenceForDocOnlySubQueries()
+        );
     }
 
     private function buildPresetDocPlan(): array {
-        return [[
-            'step' => 1,
-            'table' => 'doc_chunks',
-            'purpose' => 'アップロードされた資料PDFから、案件に関する主要な留意点や重要な情報を抽出する。',
-            'operation_type' => 'semantic_extract',
-        ]];
+        return $this->buildRoutePlanner()->buildPresetDocPlan();
     }
 
     private function shouldUseLightweightDocFinalAnswerRoute(): bool {
@@ -1112,41 +895,7 @@ class AdvancedReasoningRouteProcessor {
     }
 
     private function applyReportModeFinalPolish(string $currentDraft): string {
-        if (!$this->reportMode) {
-            return trim($currentDraft);
-        }
-
-        $reasoningText = implode("\n\n", $this->subAnswers);
-        if (mb_strlen($reasoningText) > 6500) {
-            $reasoningText = mb_substr($reasoningText, 0, 6500) . "\n...[制限超過による省略]";
-        }
-
-        $systemPrompt = "あなたは技術報告書を仕上げる業務支援AIです。"
-            . "与えられた根拠だけを使い、推測や一般論に逃げず、この案件の報告書本文としてそのまま使える最終版を日本語Markdownで出力してください。"
-            . "必ず次の見出しをこの順で含めてください: "
-            . "## 結論 / ## 分析対象 / ## 根拠 / ## 留意点 / ## 推奨アクション / ## 出典。"
-            . "資料紹介や概要説明だけで終わらせず、ユーザーの質問に対する直接の答えを最初に述べてください。"
-            . "根拠に書かれていない資料名、建物名、用途、数値、法規名、結論を推測で補ってはいけません。"
-            . "根拠が弱い項目は断定せず、『要確認』として扱ってください。"
-            . "留意点と推奨アクションは、根拠に結び付く具体的な項目を優先し、冗長な一般論は避けてください。"
-            . "出典では、可能な限り資料名、ページ、CSV名、ステップ番号など識別できる情報を箇条書きで示してください。";
-
-        $userPrompt = "【ユーザーの質問】\n{$this->originalMessage}\n\n"
-            . "【利用可能な根拠】\n{$reasoningText}\n\n"
-            . "【現在のドラフト】\n{$currentDraft}\n\n"
-            . "上記だけを使い、報告書本文として完成した最終版のみを日本語Markdownで出力してください。";
-
-        $response = callOllamaChat(
-            $this->ollama_host,
-            $this->synthesisModel,
-            $this->composeMemoryAwarePrompt($systemPrompt),
-            $userPrompt,
-            null,
-            ["temperature" => 0.0, "top_p" => 0.1, "num_ctx" => 4096]
-        );
-
-        $response = trim((string)$response);
-        return $response !== '' ? $response : trim($currentDraft);
+        return $this->buildDraftComposer()->applyReportModeFinalPolish($currentDraft);
     }
 
     private function buildDocChunkEvidenceSummary(array $rows): string {
@@ -1154,31 +903,7 @@ class AdvancedReasoningRouteProcessor {
     }
 
     private function buildEvidenceDraft(array $stepResults): string {
-        $parts = [];
-        foreach ($this->subAnswers as $answer) {
-            $trimmed = trim((string)$answer);
-            if ($trimmed !== '') {
-                $parts[] = $trimmed;
-            }
-        }
-        foreach ($stepResults as $result) {
-            $purpose = trim((string)($result['purpose'] ?? ''));
-            $body = trim((string)($result['result'] ?? ''));
-            if ($body !== '') {
-                $parts[] = "◆ 資料巡回: {$purpose}\n{$body}";
-            }
-        }
-
-        if (empty($parts)) {
-            return "ユーザーの質問に対して利用可能な根拠データを取得できませんでした。";
-        }
-
-        $evidence = implode("\n\n", $parts);
-        if (mb_strlen($evidence) > 6000) {
-            $evidence = mb_substr($evidence, 0, 6000) . "\n...[制限超過による省略]";
-        }
-
-        return "## サブクエリ別の中間回答\n\n" . $evidence;
+        return $this->buildDraftComposer()->buildEvidenceDraft($stepResults);
     }
 
     /**
@@ -1420,206 +1145,15 @@ class AdvancedReasoningRouteProcessor {
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         // 品質評価はモード別の上限で制御し、通常利用時の待ち時間を抑える
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        $maxEvalRetries = $this->maxEvalRetries();
-        $this->retryCount = 0;
-        chatLogger("[EVAL-POLICY] maxEvalRetries={$maxEvalRetries} | report_mode=" . ($this->reportMode ? 'on' : 'off') . " | diagram_mode=" . ($this->diagramMode ? 'on' : 'off'));
-        require_once __DIR__ . '/../../src/ChatEvaluator.php';
-        $evaluator = new ChatEvaluator($this->ollama_host);
-
-        while ($this->retryCount < $maxEvalRetries) {
-            $mergedReasoningText = implode("\n\n", $this->subAnswers);
-            if (mb_strlen($mergedReasoningText) > 4000) {
-                $mergedReasoningText = mb_substr($mergedReasoningText, 0, 4000) . "\n...[制限超過による省略]";
-            }
-
-            sendSSE('status', [
-                'step'    => 4,
-                'message' => "⚖️ レポートの最終品質監査（LLM-as-a-Judge）を実行中..." . ($this->retryCount > 0 ? " [反省周回: {$this->retryCount}/{$maxEvalRetries}]" : "")
-            ]);
-            
-            // 門番（スパルタデータ監査官）による採点執行
-            $this->evalResult = $evaluator->evaluateDraft($this->originalMessage, $mergedReasoningText, $currentDraft, $this->mainModel);
-            $evaluationMode = (string)($this->evalResult['evaluation_mode'] ?? 'unknown');
-            $evaluationSource = (string)($this->evalResult['evaluation_source'] ?? 'unknown');
-            $verdict = (string)($this->evalResult['verdict'] ?? 'unknown');
-            $score = (int)($this->evalResult['total_score'] ?? 0);
-            $relevance = (int)($this->evalResult['scores']['answer_relevance'] ?? 0);
-            $faithfulness = (int)($this->evalResult['scores']['faithfulness'] ?? 0);
-            chatLogger("[DEBUG] ChatEvaluator 品質審査完了。");
-            chatLogger("[EVAL-" . strtoupper($evaluationMode) . "] source={$evaluationSource} | verdict={$verdict} | score={$score} | relevance={$relevance} | faithfulness={$faithfulness}");
-
-            // 不合格（needs_revision = true）の場合、評価器のverdictに応じて文章修正か追加抽出を選ぶ
-            if (isset($this->evalResult) && (($this->evalResult['needs_revision'] ?? false) === true)) {
-                $this->retryCount++;
-                $feedback = $this->evalResult['feedback'] ?? '要求要件の網羅性が不足しています。';
-                $verdict = $this->evalResult['verdict'] ?? 'need_more_data';
-                chatLogger("[CRITIC-NG] 門番による差し戻し執行。verdict={$verdict} | 作戦指示: {$feedback}");
-
-                if (in_array($verdict, ['revise_text_only', 'reject'], true)) {
-                    sendSSE('status', [
-                        'step'    => 4,
-                        'message' => "📝 追加再探索は行わず、既存根拠だけで回答文を修正しています... [反省周回: {$this->retryCount}/{$maxEvalRetries}]"
-                    ]);
-
-                    $forbiddenActions = $this->evalResult['forbidden_actions'] ?? [];
-                    if (!is_array($forbiddenActions)) {
-                        $forbiddenActions = [$forbiddenActions];
-                    }
-
-                    $rewritten = $evaluator->reviseDraftTextOnly(
-                        $this->originalMessage,
-                        $mergedReasoningText,
-                        $currentDraft,
-                        $feedback,
-                        $this->synthesisModel,
-                        $forbiddenActions
-                    );
-
-                    if (!empty($rewritten)) {
-                        $currentDraft = trim($rewritten);
-                        $this->evalResult['needs_revision'] = false;
-                        $this->evalResult['feedback'] = $feedback . "\n[TEXT-ONLY-REWRITE] 既存根拠のみで最終回答を修正しました。";
-                        chatLogger("[CRITIC-TEXT-ONLY] verdict={$verdict} のためdoc_chunks追加探索を行わず最終回答を文章修正しました。");
-                        break;
-                    }
-                }
-
-                sendSSE('status', [
-                    'step'    => 4,
-                    'message' => "🔄 網羅性エラーを検知。資料（doc_chunks）へ巻き戻り追加再探索中... [試行: {$this->retryCount}/{$maxEvalRetries}]"
-                ]);
-
-                // 🛠️ 1. 門番の具体的作戦指示をベースに、不足を埋めるための追加検索キーワード単語を自律抽出
-                $additionalKeyword = $this->generateAdditionalChunkQuery($feedback);
-                chatLogger("[RE-SEARCH-QUERY] 巻き戻り抽出キーワード: {$additionalKeyword}");
-
-                // 🛠️ 2. 【doc_chunks 物理カラム完全シンクロ】
-                // 外部キー「doc_id」を正確に射撃し、追加キーワードに部分一致する断片をデータベースからダイレクト追加抽出
-                $stmtChunks = $this->pdo->prepare("
-                    SELECT id, doc_id, page_number, chunk_text 
-                    FROM doc_chunks 
-                    WHERE doc_id IN (SELECT id FROM documents WHERE project_id = ?) 
-                      AND (chunk_text LIKE ? OR image_description LIKE ?)
-                    ORDER BY id ASC 
-                    LIMIT 3
-                ");
-                $likeParam = '%' . $additionalKeyword . '%';
-                $stmtChunks->execute([$this->projectId, $likeParam, $likeParam]);
-                $newChunks = $stmtChunks->fetchAll(PDO::FETCH_ASSOC);
-
-                $extractedChunkText = "";
-                if (!empty($newChunks)) {
-                    foreach ($newChunks as $c) {
-                        $extractedChunkText .= "■ 資料ID: {$c['doc_id']} (P.{$c['page_number']}) 本文断片:\n{$c['chunk_text']}\n\n";
-                        // ソースドキュメントメタデータへの追加同期
-                        $this->uniqueSources[$c['doc_id'] . '-' . $c['page_number']] = [
-                            "title" => "追加反省抽出エビデンス", 
-                            "page" => $c['page_number'], 
-                            "doc_id" => $c['doc_id']
-                        ];
-                    }
-                } else {
-                    $extractedChunkText = "（追加キーワードに部分一致する新たな資料チャンクは発見されませんでした）";
-                }
-
-                // 考察歴史の数珠繋ぎ（State-Saving）へ即時マウント蓄積
-                $this->subAnswers[] = "◆ 巻き戻り反省巡回 [周回 {$this->retryCount}] (検索キー: {$additionalKeyword})\n" . $extractedChunkText;
-
-                sendSSE('status', [
-                    'step'    => 4, 
-                    'message' => "🥞 【State-Saving】既出の真実をコンテキストに固定し、ドラフトを重ね書き精錬中..."
-                ]);
-
-                // 🛠️ 3. 【State-Saving ＆ 重ね書きRefine（過積載防止VRAMダイエット版）】
-                // 軽量LLMのバッファ決壊（Code 400や3分フリーズ）を防ぐため、システム履歴は直近の中間考察のみに圧縮インジェクト！
-                $shortReasoningHistory = mb_strlen($mergedReasoningText) > 2000 ? mb_substr($mergedReasoningText, -2000) : $mergedReasoningText;
-                $shortDraft = mb_strlen($currentDraft) > 1500 ? mb_substr($currentDraft, 0, 1500) . "\n...[以降割愛]" : $currentDraft;
-
-                $refineSystemPrompt = "【回答レポートの骨格（State-Saving）】\n" . $shortDraft . "\n\n"
-                                    . "【直近の集計・データ考察の歴史】\n" . $shortReasoningHistory . "\n"
-                                    . "--------------------------------------------------\n"
-                                    . "お前は一歩も脱線を許されない丁寧なデータアナリストアシスタントAIである。品質審査責任者からの以下の【絶対修正命令】、およびデータベースから新たに引き抜いた【追加の資料本文断片】を熟読せよ。\n\n"
-                                    . "【品質審査責任者からの絶対修正命令】\n" . $feedback . "\n\n"
-                                    . "【新着の追加資料本文断片】\n" . $extractedChunkText . "\n\n"
-                                    . "【課せられた絶対ルール】\n"
-                                    . "既存のドラフトに記載されている重要な事実や検証結果、グラフ構造を決して破壊したり忘却して消去したりせず、新着の資料エビデンスを論理的にマージ（歴史を重ね書き）して、ドラフトを完璧に精錬・アップデートせよ。";
-
-                // 指示の骨格をベースラインとマージし、Chart指示をインジェクト
-                $refineSystemPrompt = $baseSystemPrompt . "\n" . $refineSystemPrompt . $chartInstruction;
-                if ($this->diagramMode) {
-                    $refineSystemPrompt .= "\n\n図解モードが有効です。必要な場合のみ、最後にChart.js仕様のJSONブロックを1つ含めてください。不要なら文章のみで構いません。";
-                }
-
-                $refineUserPrompt = "【最初の要求質問】\n{$this->originalMessage}\n\n"
-                                  . "これまでの真実の歴史に新着エビデンスをマージし、指示を105%クリアした最新の回答レポート（マークダウン形式）を出力してください。";
-
-                // 裏側で最高精度（温度0.0、容量4096）のまま、過積載をパージして超高速マージ実行！
-                $refinedResponse = callOllamaChat(
-                    $this->ollama_host, 
-                    $this->synthesisModel, 
-                    $refineSystemPrompt, 
-                    $refineUserPrompt, 
-                    null, 
-                    ["temperature" => 0.0, "top_p" => 0.1, "num_ctx" => 4096]
-                );
-
-                if (!empty($refinedResponse)) {
-                    $currentDraft = $refinedResponse; // 成長したドラフトを上書きバインド
-                    chatLogger("[REFINE-SUCCESS] ハイブリッド歴史の重ね書きアップデート成功 [周回: {$this->retryCount}]");
-                }
-            } else {
-                chatLogger("[CRITIC-PASS] 門番のスパルタ審査を105%完全クリアしました（総反省周回: {$this->retryCount}回）。");
-                break;
-            }
-        }
-
-        if (isset($this->evalResult) && (($this->evalResult['needs_revision'] ?? false) === true)) {
-            $feedback = $this->evalResult['feedback'] ?? '要求要件の網羅性が不足しています。';
-            chatLogger("[CRITIC-FINAL-REWRITE] 最大反省周回後も未合格のため、最新フィードバックを直接注入して最終リライトを実行します。");
-            sendSSE('status', [
-                'step'    => 5,
-                'message' => '🛠️ 品質監査の最終指摘を反映し、確定回答を再構成しています...'
-            ]);
-
-            $mergedReasoningText = implode("\n\n", $this->subAnswers);
-            if (mb_strlen($mergedReasoningText) > 6000) {
-                $mergedReasoningText = mb_substr($mergedReasoningText, 0, 6000) . "\n...[制限超過による省略]";
-            }
-
-            $forceSystemPrompt = $baseSystemPrompt . "\n"
-                . "あなたは最終回答の品質保証リライト担当です。以下の品質監査フィードバックを必ず反映し、ユーザーの質問に直接答える最終版のみを出力してください。\n"
-                . "拒否応答、質問未提示という誤認、監査手順の説明、内部ログの引用は禁止です。";
-            $forceUserPrompt = "【ユーザーの質問】\n{$this->originalMessage}\n\n"
-                . "【利用可能な根拠・中間考察】\n{$mergedReasoningText}\n\n"
-                . "【現在のドラフト】\n{$currentDraft}\n\n"
-                . "【品質監査フィードバック】\n{$feedback}\n\n"
-                . "上記を反映し、ユーザーへ提示する最終回答だけを日本語Markdownで出力してください。";
-
-            $forcedResponse = callOllamaChat(
-                $this->ollama_host,
-                $this->synthesisModel,
-                $forceSystemPrompt,
-                $forceUserPrompt,
-                null,
-                ["temperature" => 0.0, "top_p" => 0.1, "num_ctx" => 8192]
-            );
-
-            if (!empty($forcedResponse)) {
-                $currentDraft = trim($forcedResponse);
-                $this->evalResult['needs_revision'] = false;
-                $this->evalResult['feedback'] = '最大反省周回後、最新の品質監査フィードバックを直接反映して最終リライトしました。';
-            }
-        }
-
-        if ($this->reportMode) {
-            chatLogger("[REPORT-POLISH] 報告書モード向けの最終整形を実行します。");
-            sendSSE('status', [
-                'step'    => 6,
-                'message' => '📄 報告書として読みやすい構成へ最終整形しています...'
-            ]);
-            $currentDraft = $this->applyReportModeFinalPolish($currentDraft);
-        }
-
+        $criticResult = $this->buildCriticLoop()->run(
+            $currentDraft,
+            $baseSystemPrompt,
+            $chartInstruction,
+            $this->maxEvalRetries()
+        );
+        $currentDraft = (string)($criticResult['draft'] ?? $currentDraft);
+        $this->evalResult = $criticResult['eval_result'] ?? $this->evalResult;
+        $this->retryCount = (int)($criticResult['retry_count'] ?? 0);
         $this->finalResponse = $currentDraft;
         sendSSE('status', [
             'step'    => 6,
@@ -1631,148 +1165,15 @@ class AdvancedReasoningRouteProcessor {
      * 門番のフィードバック文から、doc_chunksを再検索するための純粋なキーワード単語を自律切り出しさせるメソッド
      */
     private function generateAdditionalChunkQuery(string $feedback): string {
-        $sysPrompt = "お前は超一流の検索エンジン最適化エージェントです。\n"
-                   . "品質審査責任者からの以下の【修正指示文】を読み、データベース（LIKE検索）から不足しているテキスト断片を探し出すために最も適切な「具体的な検索キーワード（単語1つのみ）」を自律抽出してください。\n\n"
-                   . "【修正指示文】\n{$feedback}\n\n"
-                   . "【出力absolute制約】\n出力は説明文、Markdown、句読点などを一切含めず、純粋な単語（例: 補強工法）を1つ【のみ】テキストとして出力してください。挨拶は完全禁止します。";
-
-        $userPrompt = "抽出された検索キーワード:";
-        $thoughtDummy = "";
-        
-        $keyword = callOllamaChat($this->ollama_host, $this->reasoningModel, $sysPrompt, $userPrompt, null, ["temperature" => 0.0, "top_p" => 0.1, "num_ctx" => 2048], $thoughtDummy);
-        
-        return trim($keyword, " \t\n\r\0\x0B\"'`.");
+        return $this->buildDraftComposer()->generateAdditionalChunkQuery($feedback);
     }
 
     /**
      * 進捗ステップ99、チャット履歴、および品質評価スコアを一元コミットする単一トランザクション保護回路
      */
     private function saveHistoryAndEvaluations(): void {
-        sendSSE('status', [
-            'step' => 6,
-            'message' => '💾 最終回答の品質確認が完了しました。会話履歴・推論プロセス・評価結果を保存しています...'
-        ]);
-        chatLogger("[DEBUG] DBトランザクションを開始し、ステップ99・対話ログ・評価スコアを一元コミットします...");
-        try {
-            // 全書き込み処理を完璧な単一トランザクションスコープへ完全格納（beginTransactionを最先頭へ配置）
-            $this->pdo->beginTransaction();
-
-            // 1. 進捗ステップ99（最終レポートの精錬マージ）の記録（トランザクションの内側へ移動し完全包含）
-            if ($this->reasoningId) {
-                $stmtInsertStep = $this->pdo->prepare("INSERT INTO chat_reasoning_steps (project_id, session_id, original_question, step_number, sub_query, sub_answer, created_at) VALUES (?, ?, ?, 99, '最終レポートの精錬マージ', '完了', NOW())");
-                $stmtInsertStep->execute([$this->projectId, $this->reasoningId, $this->normalizeUtf8($this->originalMessage)]);
-                chatLogger("[DEBUG] chat_reasoning_steps の最終ステップ(99)をトランザクション内で正常に完了記録しました。");
-            }
-            
-            // 2. ユーザー履歴保存
-            $stmtUser = $this->pdo->prepare("INSERT INTO chat_history (project_id, user_id, role, message, created_at) VALUES (?, ?, 'user', ?, NOW())");
-            $stmtUser->execute([$this->projectId, $this->user_id, $this->normalizeUtf8($this->originalMessage)]);
-            
-            // 3. AI履歴保存
-            $stmtAi = $this->pdo->prepare("INSERT INTO chat_history (project_id, user_id, role, message, created_at) VALUES (?, ?, 'assistant', ?, NOW())");
-            $stmtAi->execute([$this->projectId, $this->user_id, $this->normalizeUtf8($this->finalResponse)]);
-            $historyId = $this->pdo->lastInsertId();
-            chatLogger("[DEBUG] chat_history 登録成功。ID: {$historyId}");
-            
-            // 4. チャット履歴IDを推論ステップにバインド
-            if ($this->reasoningId) {
-                $updHist = $this->pdo->prepare("UPDATE chat_reasoning_steps SET chat_history_id = ? WHERE session_id = ?");
-                $updHist->execute([$historyId, $this->reasoningId]);
-            }
-
-            // 5. 品質評価スコア（LLM-as-a-Judge）の保存（JSONキー「answer_relevance」を物理カラム「relevance_score」へ完璧マッピングバインド）
-            if (isset($this->evalResult) && $this->evalResult) {
-                $stmtEval = $this->pdo->prepare("
-                    INSERT INTO chat_evaluations
-                    (chat_id, proactivity_score, faithfulness_score, relevance_score, clarity_score, total_score, feedback, retry_count) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ");
-                $stmtEval->execute([
-                    $historyId,
-                    $this->evalResult['scores']['proactivity'] ?? 0,
-                    $this->evalResult['scores']['faithfulness'] ?? 0,
-                    $this->evalResult['scores']['answer_relevance'] ?? 0, // ★JSONキー「answer_relevance」から等価抽出して :relevance_score 側へ完璧にマッピングバインド
-                    $this->evalResult['scores']['clarity'] ?? 0,
-                    $this->evalResult['total_score'] ?? 0,
-                    $this->normalizeUtf8((string)($this->evalResult['feedback'] ?? '')),
-                    $this->retryCount
-                ]);
-                chatLogger("[DEBUG] chat_evaluations へ品質審査スコアを一元トランザクション内で同期登録しました。");
-            }
-
-            require_once __DIR__ . '/../../src/FaqAutoRegistrar.php';
-            sendSSE('status', [
-                'step' => 6,
-                'message' => '📚 高評価回答のFAQ自動登録条件を確認しています...'
-            ]);
-            $faqRegistrar = new FaqAutoRegistrar($this->pdo);
-            $faqRegistrar->registerIfQualified(
-                (int)$this->projectId,
-                (int)$historyId,
-                (int)$this->user_id,
-                $this->originalMessage,
-                $this->finalResponse,
-                $this->evalResult
-            );
-
-            // すべてのインサート、アップデートが完全に成功したため一括コミットを執行
-            $this->pdo->commit();
-            chatLogger("[DEBUG] DBトランザクションコミット成功。すべての書き込みデータ整合性を完全保護しました。");
-            $this->createReportDocumentIfRequested((int)$historyId);
-        } catch (Exception $e) {
-            // 障害発生時は、ステップ99のINSERTを含めて全てを完全に道連れロールバック
-            if ($this->pdo->inTransaction()) { 
-                $this->pdo->rollBack(); 
-                chatLogger("[WARN] DBトランザクション内で例外エラーを検知したため、一斉ロールバックを執行しました。");
-            }
-            chatLogger("データベースへの履歴永続化エラー: " . $e->getMessage());
-        }
-    }
-
-    private function createReportDocumentIfRequested(int $historyId): void {
-        if (!$this->reportMode || $this->projectId === null) {
-            return;
-        }
-        if (($this->evalResult['verdict'] ?? '') === 'reject') {
-            chatLogger('[REPORT] 品質評価がrejectのため、報告書PDF生成をスキップしました。chat_history_id=' . $historyId);
-            sendSSE('status', [
-                'step' => 6,
-                'message' => '⚠️ 回答が報告書として成立しない判定のため、PDF生成はスキップしました。'
-            ]);
-            return;
-        }
-        try {
-            require_once __DIR__ . '/../../src/ReportGenerator.php';
-            sendSSE('status', [
-                'step' => 6,
-                'message' => '📄 報告書モード: HTML/CSS報告書をPDF化し、資料PDFへ登録しています...'
-            ]);
-            $generator = new ReportGenerator(
-                $this->pdo,
-                realpath(__DIR__ . '/../../') ?: (__DIR__ . '/../..'),
-                $this->ollama_host,
-                $this->createChatLoggerCallback()
-            );
-            $this->reportDocument = $generator->createFromChat(
-                (int)$this->projectId,
-                $historyId,
-                (int)$this->user_id,
-                $this->originalMessage,
-                $this->finalResponse,
-                $this->evalResult,
-                $this->reasoningId
-            );
-            sendSSE('status', [
-                'step' => 6,
-                'message' => '✅ 報告書PDFをPDFタブへ登録し、検索対象化しました。'
-            ]);
-        } catch (Throwable $e) {
-            chatLogger('[REPORT] 報告書PDF登録に失敗: ' . $e->getMessage());
-            sendSSE('status', [
-                'step' => 6,
-                'message' => '⚠️ 報告書PDFの登録に失敗しました。管理者ログを確認してください。'
-            ]);
-        }
+        $finalizeResult = $this->buildRouteFinalizer()->saveHistoryAndEvaluations();
+        $this->reportDocument = $finalizeResult['report_document'] ?? null;
     }
 
     /**
@@ -1817,40 +1218,7 @@ class AdvancedReasoningRouteProcessor {
      * SSEを用いて、成長した最終確定レポートと蓄積されたすべての思考プロセスをフロントエンドへ出荷する着陸回路
      */
     private function sendFinalResult(): void {
-        $stmtSteps = $this->pdo->prepare("SELECT step_number, sub_query, sub_answer FROM chat_reasoning_steps WHERE session_id = ? AND step_number < 99 ORDER BY step_number ASC");
-        $stmtSteps->execute([$this->reasoningId]);
-        $reasoning_steps = $stmtSteps->fetchAll(PDO::FETCH_ASSOC);
-        $source_docs = array_values($this->uniqueSources);
-        $this->logFinalResponseSnapshot('advanced_hybrid', $this->finalResponse);
-
-        sendSSE('result', [
-            'status'          => 'success',
-            'response'        => $this->finalResponse,
-            'sources'         => $source_docs,
-            'reasoning_steps' => $reasoning_steps,
-            'mode_used'       => 'advanced_reasoning_multi_step',
-            'detected_page'   => null,
-            'hit_count'       => count($source_docs),
-            'applied_model'   => $this->synthesisModel,
-            'model_roles'     => ChatModelRolePayload::build($this->mainModel, $this->subModel, $this->embeddingModel, 'main'),
-            'created_at'      => date('Y/m/d H:i'),
-            'report_document' => $this->reportDocument
-        ]);
-        chatLogger("=== [MoA大統合ハブコントローラー] ハイブリッド並列多重推論パイプライン全線開通・処理完了 ===");
-    }
-
-    private function logFinalResponseSnapshot(string $routeName, string $response): void {
-        $normalized = trim((string)$response);
-        $normalized = preg_replace('/\s+/u', ' ', $normalized) ?? $normalized;
-        $limit = 4000;
-        $isTruncated = mb_strlen($normalized) > $limit;
-        $preview = $isTruncated ? mb_substr($normalized, 0, $limit) . '...' : $normalized;
-        $question = trim((string)$this->originalMessage);
-        $question = preg_replace('/\s+/u', ' ', $question) ?? $question;
-
-        chatLogger("[FINAL-ANSWER] route={$routeName} | questionChars=" . mb_strlen($question) . " | responseChars=" . mb_strlen($response) . " | truncated=" . ($isTruncated ? 'yes' : 'no'));
-        chatLogger("[FINAL-ANSWER-QUESTION] {$question}");
-        chatLogger("[FINAL-ANSWER-BODY] " . $preview);
+        $this->buildRouteFinalizer()->sendFinalResult($this->reportDocument);
     }
 
     /**
