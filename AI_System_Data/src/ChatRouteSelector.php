@@ -43,7 +43,16 @@ class ChatRouteSelector
             && !$reportMode
             && $csvSummaryOrAggRoute;
 
-        if ($allowCsvRouteOverride && ($factorizedQuery['route'] ?? null) === 'data_analysis.csv_agg') {
+        if ($projectId === null && $explicitAdvanced) {
+            $this->log("[SMART-ROUTER] 案件未選択のため、フル思考指定よりも汎用・全社横断ルートを優先します。");
+
+        } elseif ($projectId === null && (
+            preg_match($complexPattern, $message) ||
+            mb_strlen($message) >= 50
+        )) {
+            $this->log("[SMART-ROUTER] 案件未選択の汎用質問を検知。ハイブリッド多重推論ではなくグローバルルートを優先します。");
+
+        } elseif ($allowCsvRouteOverride && ($factorizedQuery['route'] ?? null) === 'data_analysis.csv_agg') {
             $isAnalysisMode = true;
             $this->log("[SMART-ROUTER] CSV集計系の質問は軽量分析を優先します。explicit_advanced=" . ($explicitAdvanced ? 'on' : 'off') . " | file=" . ($factorizedQuery['target_file_name'] ?? 'all'));
 
@@ -51,7 +60,7 @@ class ChatRouteSelector
             $isAnalysisMode = true;
             $this->log("[SMART-ROUTER] CSV要約系の質問は軽量分析を優先します。explicit_advanced=" . ($explicitAdvanced ? 'on' : 'off') . " | target=" . ($factorizedQuery['target'] ?? 'unknown'));
 
-        } elseif ($explicitAdvanced) {
+        } elseif ($explicitAdvanced && $projectId !== null) {
             $advancedReasoning = true;
             $isAnalysisMode = false;
             $this->log("[SMART-ROUTER] フル思考モードの明示指定を検知。ハイブリッド多重推論統合ハブをキックします。");
@@ -85,7 +94,7 @@ class ChatRouteSelector
             $preferNormalRag = true;
             $this->log("[SMART-ROUTER] 提案・設計書作成系の質問を検知。通常RAGルートを優先します。");
 
-        } elseif (!$preferNormalRag && (
+        } elseif ($projectId !== null && !$preferNormalRag && (
             preg_match($complexPattern, $message) ||
             mb_strlen($message) >= 50
         )) {

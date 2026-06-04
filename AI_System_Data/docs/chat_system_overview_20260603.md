@@ -14,6 +14,9 @@
   - `2026年4月を抽出して件数` のような質問を、全体分布ではなく exact value count に寄せる
   - 追い質問でも、直前会話から `target_file_name` と `target_column` を補完して軽量ルートへ戻す
 - 第2優先は、全社横断ブリーフィング系質問で、前段ログの表現と最終 route の整合性を高めることです。
+- 特に `project_id = NULL` の汎用質問では、selector 段階から `global_no_project` / `global_cross` を前提に扱い、`advanced_hybrid` を想起させるログを抑える方針です。
+- `chat_global.php` 側の `[FINAL-ANSWER] route=...` も dispatcher から受け取った route 名に合わせ、`global_react` のような内部別名を表に出さない方針です。
+- `chat_global.php` の `result.mode_used` も route 名に合わせ、`global_database_search_react` のような内部別名を返さない方針です。
 
 ## 1. 全体像
 

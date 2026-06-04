@@ -50,7 +50,8 @@ class ChatRouteDispatcher
                 $context['synthesis_model'],
                 $context['prompt_key'],
                 $context['user_id'],
-                $context['role']
+                $context['role'],
+                $routeName
             );
             return $routeName;
         }
@@ -67,7 +68,8 @@ class ChatRouteDispatcher
                 $context['synthesis_model'],
                 $context['prompt_key'],
                 $context['user_id'],
-                $context['role']
+                $context['role'],
+                $routeName
             );
             return $routeName;
         }

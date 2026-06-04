@@ -27,9 +27,9 @@ if (!function_exists('chatLogger')) {
 /**
  * 外部からのエントリーポイント（セキュリティ・DIマウント対応版・Freeze Protocol）
  */
-function runGlobalChatRoute($pdo, $ollama_host, $originalMessage, $reasoningModel, $synthesisModel, $promptKey, $user_id, $role) {
+function runGlobalChatRoute($pdo, $ollama_host, $originalMessage, $reasoningModel, $synthesisModel, $promptKey, $user_id, $role, string $routeName = 'global_no_project') {
     $processor = new GlobalChatRouteProcessor(
-        $pdo, $ollama_host, $originalMessage, $reasoningModel, $synthesisModel, $promptKey, $user_id, $role
+        $pdo, $ollama_host, $originalMessage, $reasoningModel, $synthesisModel, $promptKey, $user_id, $role, $routeName
     );
     $processor->execute();
 }
@@ -47,6 +47,7 @@ class GlobalChatRouteProcessor {
     private $promptKey;
     private $user_id;
     private $role;
+    private $routeName;
 
     // 内部ステート（ReAct調査履歴・ステップ）
     private $observationHistory = "";
@@ -64,7 +65,7 @@ class GlobalChatRouteProcessor {
     /**
      * コンストラクタ (完全DI化への整流)
      */
-    public function __construct($pdo, $ollama_host, $originalMessage, $reasoningModel, $synthesisModel, $promptKey, $user_id, $role) {
+    public function __construct($pdo, $ollama_host, $originalMessage, $reasoningModel, $synthesisModel, $promptKey, $user_id, $role, string $routeName = 'global_no_project') {
         $this->pdo             = $pdo;
         $this->ollama_host     = $ollama_host;
         $this->originalMessage = $originalMessage;
@@ -73,6 +74,7 @@ class GlobalChatRouteProcessor {
         $this->promptKey       = $promptKey;
         $this->user_id         = $user_id;
         $this->role            = $role;
+        $this->routeName       = $routeName;
     }
 
     /**
@@ -90,7 +92,7 @@ class GlobalChatRouteProcessor {
                 'response'        => "⚠️ **【アクセス権限エラー】**\n\n全社データベースの横断串刺し調査機能は、システム管理者（admin）専用の制限機能です。一般メンバーの方は、ご自身の所属する「案件コンテキスト内」でのみチャットアシスタントをご利用ください。",
                 'sources'         => [],
                 'reasoning_steps' => [],
-                'mode_used'       => 'global_database_search_react',
+                'mode_used'       => $this->routeName,
                 'detected_page'   => null,
                 'hit_count'       => 0,
                 'applied_model'   => $this->synthesisModel,
@@ -432,13 +434,13 @@ class GlobalChatRouteProcessor {
      * SSEを用いた最終確定結果のプッシュ送信
      */
     private function sendFinalResult(): void {
-        $this->logFinalResponseSnapshot('global_react', $this->finalResponse);
+        $this->logFinalResponseSnapshot($this->routeName, $this->finalResponse);
         sendSSE('result', [
             'status'          => 'success',
             'response'        => $this->finalResponse,
             'sources'         => [],
             'reasoning_steps' => $this->reasoningSteps,
-            'mode_used'       => 'global_database_search_react',
+            'mode_used'       => $this->routeName,
             'detected_page'   => null,
             'hit_count'       => 0,
             'applied_model'   => $this->synthesisModel,
