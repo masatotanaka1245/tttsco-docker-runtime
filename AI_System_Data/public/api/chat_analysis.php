@@ -379,19 +379,38 @@ class AdvancedReasoningRouteProcessor {
      */
     private function tryCsvStructuredAggregationRoute(): bool {
         $csvAggregationPlanner = $this->getCsvAggregationPlanner();
-        if (!$csvAggregationPlanner->shouldUseStructuredAggregationRoute($this->originalMessage)) {
+        $recentHistory = $this->loadRecentChatHistory();
+        if (!$csvAggregationPlanner->shouldUseStructuredAggregationRoute($this->originalMessage, $recentHistory)) {
             return false;
         }
 
         $routeStart = microtime(true);
-        $plan = $csvAggregationPlanner->buildStructuredAggregationPlan($this->originalMessage);
+        $plan = $csvAggregationPlanner->buildStructuredAggregationPlan($this->originalMessage, $recentHistory);
         $csvAggregationAnswerFormatter = $this->getCsvAggregationAnswerFormatter();
         $targetResolver = $this->getCsvAggregationTargetResolver();
-        chatLogger("[CSV-AGG] 集計プリフライト開始 - scope: {$plan['scope']} | aggregate: {$plan['aggregate_type']} | date_granularity: {$plan['date_granularity']} | target_file: " . ($plan['target_file_name'] ?? 'all'));
+        chatLogger(
+            "[CSV-AGG] 集計プリフライト開始"
+            . " - scope: {$plan['scope']}"
+            . " | aggregate: {$plan['aggregate_type']}"
+            . " | date_granularity: {$plan['date_granularity']}"
+            . " | sort_order: " . ($plan['sort_order'] ?? 'asc')
+            . " | context_source: " . ($plan['context_source'] ?? 'unknown')
+            . " | target_file: " . ($plan['target_file_name'] ?? 'all')
+            . " | target_column: " . ($plan['target_column'] ?? 'none')
+            . " | target_value: " . ($plan['target_value'] ?? 'none')
+        );
 
         switch ((string)($plan['aggregation_mode'] ?? '')) {
             case 'distinct_count':
                 return $this->getCsvValueAggregationRunner()->runDistinctCount(
+                    $plan,
+                    $routeStart,
+                    $targetResolver,
+                    $csvAggregationAnswerFormatter
+                );
+
+            case 'exact_value_count':
+                return $this->getCsvValueAggregationRunner()->runExactValueCount(
                     $plan,
                     $routeStart,
                     $targetResolver,
@@ -441,6 +460,29 @@ class AdvancedReasoningRouteProcessor {
             $csvAggregationAnswerFormatter,
             $this->diagramMode
         );
+    }
+
+    private function loadRecentChatHistory(): array {
+        if ($this->projectId <= 0 || $this->user_id <= 0) {
+            return [];
+        }
+
+        try {
+            $stmt = $this->pdo->prepare(
+                "SELECT role, message
+                   FROM chat_history
+                  WHERE project_id = ?
+                    AND user_id = ?
+               ORDER BY created_at DESC
+                  LIMIT 8"
+            );
+            $stmt->execute([$this->projectId, $this->user_id]);
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            return is_array($rows) ? array_reverse($rows) : [];
+        } catch (Throwable $e) {
+            chatLogger('[CSV-AGG] 直近会話履歴の読み込みに失敗しました: ' . $e->getMessage());
+            return [];
+        }
     }
 
     /**

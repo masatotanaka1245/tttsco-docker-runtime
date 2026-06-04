@@ -296,11 +296,33 @@ class CsvAggregationAnswerFormatter
         return implode("\n", $lines);
     }
 
+    public function buildExactValueCountAnswer(array $plan, array $target, int $matchedCount): string
+    {
+        $fileName = (string)($target['file_name'] ?? ($plan['target_file_name'] ?? '対象CSV'));
+        $column = (string)($plan['target_column'] ?? '');
+        $targetValue = (string)($plan['target_value'] ?? '');
+        $rowCount = (int)($target['row_count'] ?? 0);
+
+        $lines = [];
+        $lines[] = "{$fileName} の {$column} 列から「{$targetValue}」を抽出し、件数を集計しました。";
+        $lines[] = "";
+        $lines[] = "- 対象CSV: {$fileName}";
+        $lines[] = "- 集計列: {$column}";
+        $lines[] = "- 抽出値: {$targetValue}";
+        $lines[] = "- 該当件数: {$matchedCount}件";
+        if ($rowCount > 0) {
+            $lines[] = "- 元レコード数: {$rowCount}件";
+        }
+
+        return implode("\n", $lines);
+    }
+
     public function buildStructuredAggregationAnswer(array $plan, array $aggregatedRows, array $targets, bool $diagramMode = false): string
     {
         $targetFileCount = count(array_unique(array_map(fn($row) => $row['file_name'], $aggregatedRows)));
         $dateColumnCount = count(array_unique(array_map(fn($row) => $row['file_name'] . '|' . $row['date_column'], $aggregatedRows)));
         $totalCount = array_sum(array_map(fn($row) => (int)$row['record_count'], $aggregatedRows));
+        $summaryLines = $this->buildDateAggregationSummaryLines($plan, $aggregatedRows);
 
         $lines = [];
         $lines[] = "日付に関する集計要求として解釈し、CSVサンプルから日付列を判定したうえで構造化集計を行いました。";
@@ -309,12 +331,20 @@ class CsvAggregationAnswerFormatter
         $lines[] = "- 判定した日付列数: {$dateColumnCount}件";
         $lines[] = "- 集計対象レコード数: {$totalCount}件";
         $lines[] = "- 集計粒度: " . $this->granularityLabel((string)($plan['date_granularity'] ?? 'day'));
+        $lines[] = "- 並び順: " . $this->sortOrderLabel((string)($plan['sort_order'] ?? 'asc'));
         $lines[] = "";
         $lines[] = "### 判定した日付列";
         foreach ($targets as $target) {
             $lines[] = "- {$target['file_name']}: " . implode(' / ', $target['date_columns']);
         }
         $lines[] = "";
+        if (!empty($summaryLines)) {
+            $lines[] = "### 集計サマリー";
+            foreach ($summaryLines as $summaryLine) {
+                $lines[] = "- {$summaryLine}";
+            }
+            $lines[] = "";
+        }
         $lines[] = "### 集計結果";
         $lines[] = "| CSVファイル | 日付列 | 日付 | 件数 | 主な項目 |";
         $lines[] = "| --- | --- | --- | ---: | --- |";
@@ -349,6 +379,9 @@ class CsvAggregationAnswerFormatter
 
         $labels = array_values(array_unique(array_map(fn($row) => (string)$row['date'], $aggregatedRows)));
         sort($labels);
+        if ((string)($plan['sort_order'] ?? 'asc') === 'desc') {
+            $labels = array_reverse($labels);
+        }
         if (empty($labels)) {
             return '';
         }
@@ -469,5 +502,74 @@ class CsvAggregationAnswerFormatter
         }
 
         return '日付別';
+    }
+
+    private function sortOrderLabel(string $sortOrder): string
+    {
+        return $sortOrder === 'desc' ? '新しい順 / 降順' : '古い順 / 昇順';
+    }
+
+    private function buildDateAggregationSummaryLines(array $plan, array $aggregatedRows): array
+    {
+        if (empty($aggregatedRows)) {
+            return [];
+        }
+
+        $granularity = (string)($plan['date_granularity'] ?? 'day');
+        $datasetGroups = [];
+        foreach ($aggregatedRows as $row) {
+            $datasetKey = (string)$row['file_name'] . '|' . (string)$row['date_column'];
+            $datasetGroups[$datasetKey][] = $row;
+        }
+
+        if (count($datasetGroups) !== 1) {
+            return [
+                '複数のCSVまたは複数の日付列が含まれるため、件数推移は下表とグラフで比較してください。',
+            ];
+        }
+
+        $rows = array_values(reset($datasetGroups));
+        usort($rows, static function ($a, $b) {
+            return [$a['date'], $a['file_name'], $a['date_column']] <=> [$b['date'], $b['file_name'], $b['date_column']];
+        });
+
+        $firstRow = $rows[0];
+        $lastRow = $rows[count($rows) - 1];
+        $maxRow = $rows[0];
+        $minRow = $rows[0];
+
+        foreach ($rows as $row) {
+            if ((int)$row['record_count'] > (int)$maxRow['record_count']) {
+                $maxRow = $row;
+            }
+            if ((int)$row['record_count'] < (int)$minRow['record_count']) {
+                $minRow = $row;
+            }
+        }
+
+        $label = match ($granularity) {
+            'month' => '月',
+            'year' => '年',
+            default => '日付',
+        };
+
+        $lines = [];
+        $lines[] = "対象列は {$firstRow['file_name']} / {$firstRow['date_column']} です。";
+        $lines[] = "集計{$label}数は " . count($rows) . " 件です。";
+        $lines[] = "最も古い{$label}は {$firstRow['date']} ({$firstRow['record_count']}件)、最も新しい{$label}は {$lastRow['date']} ({$lastRow['record_count']}件) です。";
+        $lines[] = "最大件数の{$label}は {$maxRow['date']} ({$maxRow['record_count']}件)、最小件数の{$label}は {$minRow['date']} ({$minRow['record_count']}件) です。";
+
+        if (count($rows) >= 2) {
+            $delta = (int)$lastRow['record_count'] - (int)$firstRow['record_count'];
+            if ($delta > 0) {
+                $lines[] = "最初と最後を比べると、件数は {$delta} 件増えています。";
+            } elseif ($delta < 0) {
+                $lines[] = "最初と最後を比べると、件数は " . abs($delta) . " 件減っています。";
+            } else {
+                $lines[] = "最初と最後を比べると、件数は同水準です。";
+            }
+        }
+
+        return $lines;
     }
 }

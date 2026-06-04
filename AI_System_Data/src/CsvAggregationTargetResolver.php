@@ -141,6 +141,22 @@ class CsvAggregationTargetResolver
         ];
     }
 
+    public function executeExactValueCountQuery(array $target, string $targetColumn, string $targetValue): array
+    {
+        $csvFileId = (int)$target['csv_file_id'];
+        $sql = $this->queryBuilder->buildExactValueCountSql($csvFileId, $targetColumn, $targetValue);
+
+        $this->log("[CSV-AGG-SQL] file={$target['file_name']} | column={$targetColumn} | target_value={$targetValue} | sql={$sql}");
+
+        $stmt = $this->pdo->query($sql);
+        $row = $stmt ? $stmt->fetch(PDO::FETCH_ASSOC) : false;
+
+        return [
+            'sql' => $sql,
+            'matched_count' => (int)($row['matched_count'] ?? 0),
+        ];
+    }
+
     public function executeFilteredDistributionQuery(array $target, string $sourceColumn, string $targetColumn, array $matchedValues): array
     {
         $csvFileId = (int)$target['csv_file_id'];

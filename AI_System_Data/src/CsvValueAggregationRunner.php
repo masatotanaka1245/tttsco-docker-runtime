@@ -108,6 +108,45 @@ class CsvValueAggregationRunner
         return true;
     }
 
+    public function runExactValueCount(
+        array $plan,
+        float $routeStart,
+        CsvAggregationTargetResolver $targetResolver,
+        CsvAggregationAnswerFormatter $formatter
+    ): bool {
+        $target = $targetResolver->findFileTarget((string)($plan['target_file_name'] ?? ''));
+        $targetColumn = (string)($plan['target_column'] ?? '');
+        $targetValue = (string)($plan['target_value'] ?? '');
+        if ($target === null || $targetColumn === '' || $targetValue === '') {
+            $this->log('[CSV-AGG] exact_value_count の対象ファイル・列・値を解決できませんでした。CSV証拠読解ルートへフォールバックします。');
+            return false;
+        }
+
+        $this->sendStatus(2, '🧭 集計対象のCSV・列・抽出値を特定しています...');
+        ($this->insertReasoningStep)(
+            1,
+            'CSV exact value count プリフライト',
+            "【集計計画】\n" . json_encode($plan, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
+            . "\n\n【対象CSV】\n" . json_encode($target, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
+        );
+
+        $this->sendStatus(3, '📊 指定値に一致する件数を集計しています...');
+        $result = $targetResolver->executeExactValueCountQuery($target, $targetColumn, $targetValue);
+        $matchedCount = (int)($result['matched_count'] ?? 0);
+
+        $finalResponse = $formatter->buildExactValueCountAnswer($plan, $target, $matchedCount);
+        ($this->setFinalResponse)($finalResponse);
+        ($this->appendSubAnswer)($finalResponse);
+        ($this->insertReasoningStep)(
+            90,
+            'CSV exact value count SQL の実行結果',
+            "### {$target['file_name']} / {$targetColumn}\n```sql\n{$result['sql']}\n```\n- target_value: {$targetValue}\n- matched_count: {$matchedCount}"
+        );
+        $this->log("[CSV-AGG] exact_value_count ルート完了 - count: {$matchedCount} | elapsed: " . $this->elapsed($routeStart));
+        ($this->completeRoute)();
+        return true;
+    }
+
     private function sendStatus(int $step, string $message): void
     {
         call_user_func($this->statusSender, 'status', [

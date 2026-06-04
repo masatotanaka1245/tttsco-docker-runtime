@@ -6,6 +6,15 @@
 
 理想仕様ではなく、「いま実装がどう動いているか」を優先して整理しています。
 
+## 0. 直近ログから確定した次着手方針（2026-06-04）
+
+- 第1優先は、CSV の月別・年月系自然文を軽量 `data_analysis.csv_agg` に安定して寄せることです。
+- 具体的には、以下を同じ改善束として扱います。
+  - `月別` / `年月` / `日時は不要` / `若い順` を month 粒度の `date_histogram` として解釈する
+  - `2026年4月を抽出して件数` のような質問を、全体分布ではなく exact value count に寄せる
+  - 追い質問でも、直前会話から `target_file_name` と `target_column` を補完して軽量ルートへ戻す
+- 第2優先は、全社横断ブリーフィング系質問で、前段ログの表現と最終 route の整合性を高めることです。
+
 ## 1. 全体像
 
 チャット系の主要ルートは以下の4本です。
@@ -170,10 +179,18 @@
 
 - `date_histogram`
 - `distinct_count`
+- `exact_value_count`
 - `value_distribution`
 - `semantic_category_summary`
 - `category_filtered_distribution`
 - `column_semantics`
+
+直近ログから見えた弱点:
+
+- `csvのデータを月別で集計してください。` のように CSV 名や列名が省略された自然文は、まだ `advanced_hybrid` に落ちることがある
+- `Datetime` / `年月` を月単位で見たい質問でも、`value_distribution` に誤って倒れることがある
+- `2026年4月を抽出して件数` のような質問に、特定値件数ではなく上位分布一覧を返すことがある
+- 集計系の follow-up は、説明系に比べて文脈補完がまだ弱い
 
 現在の分割状況:
 

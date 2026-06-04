@@ -86,8 +86,10 @@ class CsvDateAggregationRunner
             return false;
         }
 
-        usort($aggregatedRows, function ($a, $b) {
-            return [$a['date'], $a['file_name'], $a['date_column']] <=> [$b['date'], $b['file_name'], $b['date_column']];
+        $sortOrder = (string)($plan['sort_order'] ?? 'asc');
+        usort($aggregatedRows, function ($a, $b) use ($sortOrder) {
+            $comparison = [$a['date'], $a['file_name'], $a['date_column']] <=> [$b['date'], $b['file_name'], $b['date_column']];
+            return $sortOrder === 'desc' ? -$comparison : $comparison;
         });
 
         $finalResponse = $formatter->buildStructuredAggregationAnswer($plan, $aggregatedRows, $targets, $diagramMode);

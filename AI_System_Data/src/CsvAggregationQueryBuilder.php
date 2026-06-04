@@ -37,6 +37,18 @@ class CsvAggregationQueryBuilder
                 ORDER BY record_count DESC, item ASC";
     }
 
+    public function buildExactValueCountSql(int $csvFileId, string $column, string $targetValue): string
+    {
+        $escapedKey = $this->escapeJsonPathKey($column);
+        $escapedValue = str_replace(["\\", "'"], ["\\\\", "\\'"], $targetValue);
+        $jsonExpr = "NULLIF(JSON_UNQUOTE(JSON_EXTRACT(r.row_data, '$.\"{$escapedKey}\"')), '')";
+
+        return "SELECT COUNT(*) AS matched_count
+                FROM project_csv_rows r
+                WHERE r.csv_file_id = {$csvFileId}
+                  AND {$jsonExpr} = '{$escapedValue}'";
+    }
+
     public function buildFilteredDistributionSql(int $csvFileId, string $sourceColumn, string $targetColumn, array $allowedValues): string
     {
         $sourceExpr = "NULLIF(JSON_UNQUOTE(JSON_EXTRACT(r.row_data, '$.\"" . $this->escapeJsonPathKey($sourceColumn) . "\"')), '')";

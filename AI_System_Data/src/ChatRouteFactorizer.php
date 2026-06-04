@@ -28,26 +28,35 @@ class ChatRouteFactorizer
             }
         }
 
-        $hasAggregateIntent = preg_match('/(集計|件数|合計|平均|表に|一覧|推移|時系列|別に|グループ|何種類|ユニーク|distinct|重複なし|分布|分類|カテゴリ)/iu', $message) === 1;
+        $hasAggregateIntent = preg_match('/(集計|件数|合計|平均|表に|一覧|推移|時系列|別に|グループ|何種類|ユニーク|distinct|重複なし|分布|分類|カテゴリ|抽出して件数|抽出して、件数|若い順|古い順|昇順|降順)/iu', $message) === 1;
         $hasSummaryIntent = preg_match('/(要約|まとめ|概要|内容を要約|内容をまとめ|どんな内容|内容を教えて)/u', $message) === 1;
-        $hasDateIntent = preg_match('/(日付|日時|年月日|月別|年別|日別|date|timestamp|時刻)/iu', $message) === 1;
+        $hasDateIntent = preg_match('/(日付|日時|年月日|年月|月別|月ごと|年別|年ごと|日別|date|timestamp|時刻|日時は不要|月単位)/iu', $message) === 1;
         $hasDocReference = preg_match('/(PDF|pdf|資料|図面|仕様書|文書|設計書|報告書)/u', $message) === 1;
         $hasDocActionIntent = preg_match('/(留意点|注意点|確認すべき|確認事項|法規|基準|安全面|設計上|施工前|不明点|見落とし|箇条書きで抽出|箇条書きで|抽出してください)/u', $message) === 1;
         $hasDistinctIntent = preg_match('/(何種類|ユニーク|distinct|重複なし|種類数)/iu', $message) === 1;
         $hasColumnExplainIntent = preg_match('/(どういう|どのような|説明|意味|何を表|どんなイベント|イベント.*説明|イベント.*意味|それぞれ.*説明)/u', $message) === 1;
+        $hasCsvContext = preg_match('/(CSV|csv|ファイル|データ|レコード|行)/u', $message) === 1;
         $targetsAllCsv = preg_match('/(全て|すべて|全部|全件)/u', $message) === 1
-            && preg_match('/(CSV|csv|ファイル|データ|レコード|行)/u', $message) === 1;
+            && $hasCsvContext;
 
         $targetColumn = $mentionedColumnTarget['column_name'] ?? null;
         if ($mentionedCsv === null && !empty($mentionedColumnTarget['file_name'])) {
             $mentionedCsv = (string)$mentionedColumnTarget['file_name'];
         }
 
-        if ($this->csvContextResolver !== null && $mentionedCsv === null && $targetColumn === null && $hasColumnExplainIntent && !empty($recentHistory)) {
+        if ($this->csvContextResolver !== null
+            && ($mentionedCsv === null || $targetColumn === null)
+            && ($hasColumnExplainIntent || ($hasAggregateIntent && ($hasDateIntent || !$hasCsvContext || $targetColumn !== null)))
+            && !empty($recentHistory)
+        ) {
             $recentContext = $this->csvContextResolver->findRecentCsvContext($recentHistory);
             if ($recentContext !== null) {
-                $mentionedCsv = $recentContext['target_file_name'] ?? null;
-                $targetColumn = $recentContext['target_column'] ?? null;
+                if ($mentionedCsv === null) {
+                    $mentionedCsv = $recentContext['target_file_name'] ?? null;
+                }
+                if ($targetColumn === null) {
+                    $targetColumn = $recentContext['target_column'] ?? null;
+                }
                 if ($mentionedCsv !== null || $targetColumn !== null) {
                     $this->log("[SMART-ROUTER] 直前の会話履歴からCSV文脈を補完しました。file=" . ($mentionedCsv ?? 'none') . " | column=" . ($targetColumn ?? 'none'));
                 }
@@ -67,7 +76,16 @@ class ChatRouteFactorizer
             $target = 'single_csv';
             $scope = 'records_with_date';
             $operation = 'count';
-            $timeAxis = preg_match('/(月別|月ごと)/u', $message) === 1
+            $timeAxis = preg_match('/(月別|月ごと|年月|日時は不要|月単位)/u', $message) === 1
+                ? 'month'
+                : (preg_match('/(年別|年ごと)/u', $message) === 1 ? 'year' : 'day');
+            $route = 'data_analysis.csv_agg';
+        } elseif ($hasAggregateIntent && $hasDateIntent && $hasCsvContext) {
+            $intent = 'aggregate';
+            $target = 'all_csv';
+            $scope = 'records_with_date';
+            $operation = 'count';
+            $timeAxis = preg_match('/(月別|月ごと|年月|日時は不要|月単位)/u', $message) === 1
                 ? 'month'
                 : (preg_match('/(年別|年ごと)/u', $message) === 1 ? 'year' : 'day');
             $route = 'data_analysis.csv_agg';
@@ -76,7 +94,7 @@ class ChatRouteFactorizer
             $target = 'all_csv';
             $scope = 'records_with_date';
             $operation = 'count';
-            $timeAxis = preg_match('/(月別|月ごと)/u', $message) === 1
+            $timeAxis = preg_match('/(月別|月ごと|年月|日時は不要|月単位)/u', $message) === 1
                 ? 'month'
                 : (preg_match('/(年別|年ごと)/u', $message) === 1 ? 'year' : 'day');
             $route = 'data_analysis.csv_agg';
