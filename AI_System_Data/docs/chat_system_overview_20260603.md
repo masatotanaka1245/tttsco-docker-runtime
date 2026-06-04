@@ -8,20 +8,14 @@
 
 ## 0. 直近ログから確定した次着手方針（2026-06-04）
 
-- 第1優先は、CSV の月別・年月系自然文を軽量 `data_analysis.csv_agg` に安定して寄せることです。
-- 具体的には、以下を同じ改善束として扱います。
-  - `月別` / `年月` / `日時は不要` / `若い順` を month 粒度の `date_histogram` として解釈する
-  - `2026年4月を抽出して件数` のような質問を、全体分布ではなく exact value count に寄せる
-  - 追い質問でも、直前会話から `target_file_name` と `target_column` を補完して軽量ルートへ戻す
-- あわせて、値集計の意味の取り分けも同じ束で整える。
-  - `ユニーク件数` は distinct count
-  - `全ての値の件数` / `各値の件数` / `各レコード数` は value distribution
-  - `2025年3月の総件数` のような単一値指定は exact value count
-- 次回の実装は、まず planner の判定順と `target_value` 抽出を直し、そのあと formatter / diagram mode の表現差を整える順番で進める。
-- 第2優先は、全社横断ブリーフィング系質問で、前段ログの表現と最終 route の整合性を高めることです。
-- 特に `project_id = NULL` の汎用質問では、selector 段階から `global_no_project` / `global_cross` を前提に扱い、`advanced_hybrid` を想起させるログを抑える方針です。
-- `chat_global.php` 側の `[FINAL-ANSWER] route=...` も dispatcher から受け取った route 名に合わせ、`global_react` のような内部別名を表に出さない方針です。
-- `chat_global.php` の `result.mode_used` も route 名に合わせ、`global_database_search_react` のような内部別名を返さない方針です。
+- 第1優先は、`main / sub / embedding` の 3 層でモデル責務を再設計することです。
+- 目標は以下の整理です。
+  - `main`: 因数分解、最終統合、最終リライト
+  - `sub`: SQL生成、補助分析、分類、画像処理などの中間処理
+  - `embedding`: ベクトル化専用
+- 先に md 上で責務を固定し、そのあとヘッダー設定、セッション値、各 route の受け渡し、`EmbeddingEngine` の設定可否を順に実装します。
+- 第2優先は、CSV の月別・年月系自然文を軽量 `data_analysis.csv_agg` に安定して寄せる改善束の検証です。
+- 第3優先は、全社横断ブリーフィング系質問で、前段ログの表現と最終 route の整合性を高めることです。
 
 ## 1. 全体像
 
@@ -65,6 +59,48 @@
 - `diagram_mode`
 - モデル情報
 - プロンプトキー
+
+現状のモデル運用は、概ね次の通りです。
+
+- `chat.php` では `ModelRoleResolver` が
+  - `main_model`
+  - `sub_model`
+  - `embedding_model`
+  を解決する
+- そのうえで、既存 route 互換のために当面は
+  - `reasoning_model = main_model`
+  - `synthesis_model = sub_model`
+  のエイリアスを維持している
+- `normal_rag` は main only
+- `data_analysis` は deterministic な集計を main 側の PHP/SQL で維持しつつ、AI を使う補助処理から段階的に `sub` へ寄せ始めている
+- `advanced_hybrid` は route 内で
+  - `main`: 最初の因数分解、最終統合、最終リライト、品質評価
+  - `sub`: SQL生成、補助分析、追加抽出キーワード生成などの中間処理
+  へ寄せ始めている
+- `global_cross / global_no_project` も route 内で
+  - `main`: 最終レポート生成
+  - `sub`: ReAct ループと中間調査
+  へ寄せ始めている
+- embedding は設定画面に入力欄を追加し始めており、チャット入口・通常RAG・アップロード系では resolver 経由の設定へ寄せ始めている
+- 設定保存時は `Ollama /api/tags` を確認し、`main / sub / embedding` のモデル名が実在しない場合は保存しない
+- `data_analysis` は次段で以下のように分ける
+  - `main`: 因数分解、最終統合、品質評価、最終リライト
+  - `sub`: SQL生成と再生成、CSV証拠読解のバッチ分析、semantic 系の補助推定
+  - deterministic な `CSV-AGG` は PHP / SQL 主体のまま維持する
+- 2026-06-04 の第一段として、`data_analysis` はすでに
+  - CSV証拠読解
+  - semantic 系 runner
+  - Text-to-SQL 生成と再生成
+  から `sub` を使う形へ寄せ始めている
+- 2026-06-04 の追加調整として、`CsvEvidenceReader` は
+  - `sub`: バッチ読解
+  - `main`: 保存済み読解結果の最終統合
+  に分離した
+- `CsvSemanticAggregationRunner` は semantic/category 系の補助推定を `sub` で実行し、プリフライトと実行ログにも補助推定モデルを出す
+- `history_summary` / `normal_rag` / `advanced_hybrid` / `global` / `data_analysis` の `result` payload には `model_roles` を含め、最終回答が `main` で着地したことを後から確認できるようにした
+- `ChatRouteDispatcher` は route 決定時に `[MODEL-ROLES]` ログを出し、入口段階でも `main / sub / embedding` の実効値を追えるようにした
+
+次段の改修では、この状態を `data_analysis` とモデル存在チェックまで含めて `main / sub / embedding` の責務分担に揃える。
 
 ## 3. 入力ガード
 

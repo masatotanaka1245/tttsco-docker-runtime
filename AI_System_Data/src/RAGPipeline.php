@@ -1,6 +1,8 @@
 <?php
 require_once __DIR__ . '/EmbeddingEngine.php';
 require_once __DIR__ . '/VectorSearch.php';
+require_once __DIR__ . '/ModelRoleResolver.php';
+require_once __DIR__ . '/OllamaChatHelper.php';
 
 /**
  * RAG (Retrieval-Augmented Generation) パイプライン
@@ -25,14 +27,18 @@ class RAGPipeline {
         }
         
         // 引数がなければセッションから、セッションにもなければデフォルト値を使用
-        $this->ollamaHost = rtrim($ollamaHost ?? $_SESSION['ollama_host'] ?? 'http://127.0.0.1:11434', '/');
-        $this->chatModel  = $chatModel ?? $_SESSION['default_model'] ?? 'gemma4:e4b';
+        $resolvedModels = ModelRoleResolver::resolveUserSettings($_SESSION, [
+            'ollama_host' => $ollamaHost,
+            'default_model' => $chatModel,
+        ]);
+        $this->ollamaHost = $resolvedModels['ollama_host'];
+        $this->chatModel  = $resolvedModels['main_model'];
         
         // セッションロックの解放
         session_write_close();
 
         // 動的に取得したホストURLをEmbeddingEngineに渡す
-        $this->embeddingEngine = new EmbeddingEngine($this->ollamaHost);
+        $this->embeddingEngine = new EmbeddingEngine($this->ollamaHost, $resolvedModels['embedding_model']);
         $this->vectorSearch = new VectorSearch($pdo);
     }
 
@@ -95,30 +101,21 @@ class RAGPipeline {
      * Ollama Chat API を呼び出す（GPUフル活用・安定化版）
      */
     private function callOllamaChat(string $system, string $user): string {
-        // Gemma 4 系などの推論モデルが設定されている場合、思考トリガーを自動付与
-        if (strpos(strtolower($this->chatModel), 'gemma') !== false) {
-            if (strpos($system, '<|think|>') !== 0) {
-                $system = "<|think|>\n" . $system;
-            }
-        }
-
         $curl = curl_init($this->ollamaHost . '/api/chat');
         curl_setopt($curl, CURLOPT_POST, true);
         curl_setopt($curl, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
-        
-        $payload = [
-            'model' => $this->chatModel,
-            'messages' => [
-                ['role' => 'system', 'content' => $system],
-                ['role' => 'user', 'content' => $user]
-            ],
-            'stream' => false,
-            'options' => [
+
+        $payload = OllamaChatHelper::buildChatPayload(
+            (string)$this->chatModel,
+            $system,
+            $user,
+            null,
+            [
                 'num_ctx' => 8192, // 長い要約データを扱うためにコンテキスト長を確保
                 'temperature' => 0.4,
                 'num_gpu' => 999   // ★追加: 可能な限り全レイヤーをGPUにオフロードさせる
             ]
-        ];
+        );
         
         curl_setopt($curl, CURLOPT_POSTFIELDS, json_encode($payload));
         curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
@@ -132,14 +129,10 @@ class RAGPipeline {
         }
         
         curl_close($curl);
-        
+
         $data = json_decode($res, true);
         $content = $data['message']['content'] ?? '回答の生成に失敗しました。';
-        
-        // 思考タグのクレンジング
-        $content = preg_replace('/<\|channel>thought.*?<channel\|>/s', '', $content);
-        $content = preg_replace('/<think>.*?<\/think>/s', '', $content);
-        
-        return trim($content);
+
+        return OllamaChatHelper::extractVisibleContent((string)$content);
     }
 }

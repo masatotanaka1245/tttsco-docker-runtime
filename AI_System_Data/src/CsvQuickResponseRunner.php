@@ -5,6 +5,7 @@ class CsvQuickResponseRunner
     private $statusSender;
     private $logger;
     private $setFinalResponse;
+    private $appendSubAnswer;
     private $insertReasoningStep;
     private $completeRoute;
     private $elapsedFormatter;
@@ -12,6 +13,7 @@ class CsvQuickResponseRunner
     public function __construct(
         callable $statusSender,
         callable $setFinalResponse,
+        callable $appendSubAnswer,
         callable $insertReasoningStep,
         callable $completeRoute,
         callable $elapsedFormatter,
@@ -19,6 +21,7 @@ class CsvQuickResponseRunner
     ) {
         $this->statusSender = $statusSender;
         $this->setFinalResponse = $setFinalResponse;
+        $this->appendSubAnswer = $appendSubAnswer;
         $this->insertReasoningStep = $insertReasoningStep;
         $this->completeRoute = $completeRoute;
         $this->elapsedFormatter = $elapsedFormatter;
@@ -32,7 +35,8 @@ class CsvQuickResponseRunner
         array $searchResult,
         CsvQuestionRouter $questionRouter,
         CsvEvidenceReader $evidenceReader,
-        CsvSummaryFormatter $summaryFormatter
+        CsvSummaryFormatter $summaryFormatter,
+        bool $diagramMode
     ): bool {
         if (!$questionRouter->shouldUseSmallSummaryRoute($originalMessage, count($rows))) {
             return false;
@@ -42,12 +46,16 @@ class CsvQuickResponseRunner
         $this->sendStatus(2, '📊 CSVの内容をデータベースレコードから直接要約しています...');
 
         $summaryStart = microtime(true);
-        $finalResponse = $summaryFormatter->buildSmallSummaryAnswer($rows, $searchResult);
+        $includeChart = $diagramMode || $this->hasChartIntent($originalMessage);
+        $finalResponse = $summaryFormatter->buildSmallSummaryAnswer($rows, $searchResult, $includeChart);
         ($this->setFinalResponse)($finalResponse);
         $this->log("[CSV-SUMMARY] PHPサマリー生成完了 - responseChars: " . mb_strlen($finalResponse) . " | elapsed: " . $this->elapsed($summaryStart));
 
-        ($this->insertReasoningStep)(1, 'CSVレコードの検索収集', $evidenceReader->buildCollectionSummary($rows, $searchResult));
+        $collectionSummary = $evidenceReader->buildCollectionSummary($rows, $searchResult);
+        ($this->insertReasoningStep)(1, 'CSVレコードの検索収集', $collectionSummary);
         ($this->insertReasoningStep)(90, '小規模CSVサマリー即時生成', $finalResponse);
+        call_user_func($this->appendSubAnswer, $collectionSummary);
+        call_user_func($this->appendSubAnswer, $finalResponse);
 
         $this->log("[CSV-SUMMARY] 履歴保存開始 - totalElapsed: " . $this->elapsed($routeStart));
         ($this->completeRoute)();
@@ -68,12 +76,15 @@ class CsvQuickResponseRunner
 
         $finalResponse = $evidenceReader->buildLargeOverviewAnswer($files, $sampleRows, $totalRows, $diagramMode);
         ($this->setFinalResponse)($finalResponse);
-        ($this->insertReasoningStep)(1, 'CSV広域探索', $evidenceReader->buildCollectionSummary($sampleRows, [
+        $collectionSummary = $evidenceReader->buildCollectionSummary($sampleRows, [
             'terms' => [],
             'hit_count' => $totalRows,
             'limited' => true,
             'mode' => 'broad_overview',
-        ]));
+        ]);
+        ($this->insertReasoningStep)(1, 'CSV広域探索', $collectionSummary);
+        call_user_func($this->appendSubAnswer, $collectionSummary);
+        call_user_func($this->appendSubAnswer, $finalResponse);
         ($this->completeRoute)();
         $this->log("[CSV-OVERVIEW] 大規模CSV概況ルートが完了しました。totalElapsed: " . $this->elapsed($routeStart));
         return true;
@@ -97,5 +108,10 @@ class CsvQuickResponseRunner
         if ($this->logger !== null) {
             call_user_func($this->logger, $message);
         }
+    }
+
+    private function hasChartIntent(string $message): bool
+    {
+        return preg_match('/(グラフ|チャート|chart|可視化|図にして)/iu', $message) === 1;
     }
 }

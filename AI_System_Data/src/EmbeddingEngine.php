@@ -5,6 +5,8 @@
  * タイムアウト設定を延長し、大容量のテキスト処理に対応させています。
  * ★[改善] ユーザー設定からのAIサーバーURL動的取得機能、および num_gpu=999 強制オフロードを実装
  */
+require_once __DIR__ . '/ModelRoleResolver.php';
+
 class EmbeddingEngine {
     private $ollamaUrl;
     private $model;
@@ -13,7 +15,7 @@ class EmbeddingEngine {
      * コンストラクタ
      * 引数でホストが明示的に渡されない場合は、ユーザーのセッション（設定）から動的に取得します。
      */
-    public function __construct(?string $ollamaHost = null, string $model = 'mxbai-embed-large') {
+    public function __construct(?string $ollamaHost = null, string $model = ModelRoleResolver::DEFAULT_EMBEDDING_MODEL) {
         // ホストが指定されていない場合はセッションから取得
         if ($ollamaHost === null) {
             if (session_status() === PHP_SESSION_NONE) {

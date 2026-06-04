@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/EmbeddingEngine.php';
+require_once __DIR__ . '/ModelRoleResolver.php';
 
 class ReportGenerator
 {
@@ -10,7 +11,7 @@ class ReportGenerator
     private string $embedModel;
     private $logger;
 
-    public function __construct(PDO $pdo, string $basePath, string $ollamaHost, ?callable $logger = null, string $embedModel = 'mxbai-embed-large')
+    public function __construct(PDO $pdo, string $basePath, string $ollamaHost, ?callable $logger = null, string $embedModel = ModelRoleResolver::DEFAULT_EMBEDDING_MODEL)
     {
         $this->pdo = $pdo;
         $this->basePath = rtrim($basePath, DIRECTORY_SEPARATOR);

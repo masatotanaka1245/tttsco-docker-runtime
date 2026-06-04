@@ -40,6 +40,7 @@ header('Content-Encoding: none'); // ✨追加：Apacheのmod_deflateによる�
 // ログ出力先を定数として定義（global キーワードの依存を排除）
 define('CHAT_DEBUG_LOG', __DIR__ . '/../../logs/chat_debug.log');
 require_once __DIR__ . '/../../src/AppLogger.php';
+require_once __DIR__ . '/../../src/OllamaChatHelper.php';
 
 // =========================================================================
 // 1. 共通ヘルパー関数・出力制御 の 定義
@@ -104,29 +105,39 @@ if (!function_exists('callOllamaChat')) {
         $default_options = ["num_ctx" => 4096, "temperature" => 0.1];
         $final_options = array_merge($default_options, $options);
 
-        if (strpos(strtolower($model), 'gemma') !== false) {
-            if (strpos($system, '<|think|确') !== 0) {
-                $system = "<|think|>\n" . $system;
-            }
-        }
-
         $ch = curl_init("{$ollamaHost}/api/chat");
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_POST, true);
 
-        $payload = [
-            "model" => $model,
-            "messages" => [
-                ["role" => "system", "content" => $system],
-                ["role" => "user", "content" => $user]
-            ],
-            "stream" => false,
-            "options" => $final_options
-        ];
+        $payload = OllamaChatHelper::buildChatPayload(
+            (string)$model,
+            (string)$system,
+            (string)$user,
+            $format === 'json' ? 'json' : null,
+            $final_options
+        );
 
-        if ($format === 'json') {
-            $payload['format'] = 'json';
+        $preparedSystem = (string)($payload['messages'][0]['content'] ?? '');
+        $originalHasThinkToken = OllamaChatHelper::hasThinkToken((string)$system);
+        $preparedHasThinkToken = OllamaChatHelper::hasThinkToken($preparedSystem);
+        $isGemmaModel = OllamaChatHelper::isGemmaModel((string)$model);
+        $thinkMode = 'standard';
+        if ($isGemmaModel) {
+            if ($originalHasThinkToken) {
+                $thinkMode = 'gemma_token_preserved';
+            } elseif ($preparedHasThinkToken) {
+                $thinkMode = 'gemma_token_auto';
+            } else {
+                $thinkMode = 'gemma_token_off';
+            }
         }
+        chatLogger(
+            "[OLLAMA-PAYLOAD] model={$model} | think_mode={$thinkMode}"
+            . " | think_token_sent=" . ($preparedHasThinkToken ? 'yes' : 'no')
+            . " | format=" . ($format === 'json' ? 'json' : 'text')
+            . " | num_ctx=" . (string)($final_options['num_ctx'] ?? 'default')
+            . " | temperature=" . (string)($final_options['temperature'] ?? 'default')
+        );
 
         curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
         curl_setopt($ch, CURLOPT_TIMEOUT, 180);
@@ -142,20 +153,22 @@ if (!function_exists('callOllamaChat')) {
 
         $json = json_decode($res, true);
         $content = $json['message']['content'] ?? '';
+        $thinkingField = trim((string)($json['message']['thinking'] ?? ''));
 
-        $thoughtProcess = "";
-
-        if (preg_match('/<\|channel>thought(.*?)<channel\|>/s', $content, $matches)) {
-            $thoughtProcess .= trim($matches[1]) . "\n";
-            $content = preg_replace('/<\|channel>thought.*?<channel\|>/s', '', $content);
-        }
-        if (preg_match('/<think>(.*?)<\/think>/s', $content, $matches)) {
-            $thoughtProcess .= trim($matches[1]) . "\n";
-            $content = preg_replace('/<think>.*?<\/think>/s', '', $content);
+        $thoughtProcess = '';
+        $visibleContent = OllamaChatHelper::extractVisibleContent((string)$content, $thoughtProcess);
+        if ($thinkingField !== '') {
+            $thoughtProcess = trim($thinkingField . "\n" . $thoughtProcess);
         }
 
-        $thoughtProcess = trim($thoughtProcess);
-        return trim($content);
+        chatLogger(
+            "[OLLAMA-THINK] model={$model} | think_mode={$thinkMode}"
+            . " | thinking_field=" . ($thinkingField !== '' ? 'yes' : 'no')
+            . " | thought_trace=" . ($thoughtProcess !== '' ? 'yes' : 'no')
+            . " | thought_chars=" . (string)mb_strlen((string)$thoughtProcess)
+        );
+
+        return $visibleContent;
     }
 }
 
@@ -250,6 +263,8 @@ require_once __DIR__ . '/../../src/ChatHistoryContextResolver.php';
 require_once __DIR__ . '/../../src/ChatRouteFactorizer.php';
 require_once __DIR__ . '/../../src/ChatRouteSelector.php';
 require_once __DIR__ . '/../../src/ChatRouteDispatcher.php';
+require_once __DIR__ . '/../../src/ModelRoleResolver.php';
+require_once __DIR__ . '/../../src/ChatModelRolePayload.php';
 
 // 認証チェック
 $auth = new Auth($pdo);
@@ -264,9 +279,6 @@ if (!$auth->isLoggedIn()) {
 $user_id       = $_SESSION['user_id'];
 $username      = $_SESSION['username'] ?? 'ゲスト';
 $role          = $_SESSION['role'] ?? 'member';
-$ollama_host   = rtrim($_SESSION['ollama_host'] ?? 'http://127.0.0.1:11434', '/');
-$default_model = $_SESSION['default_model'] ?? 'gemma4:e4b';
-$sub_model     = $_SESSION['sub_model'] ?? 'gpt-oss:20b';
 $session_csrf  = $_SESSION['csrf_token'] ?? '';
 
 // 安全な照合
@@ -294,7 +306,12 @@ try {
         throw new Exception('Bad Request: メッセージが空です。');
     }
 
-    $selected_model = $input['model'] ?? $default_model;
+    $resolvedModels = ModelRoleResolver::resolveChatModels($_SESSION, $input);
+    $ollama_host = $resolvedModels['ollama_host'];
+    $main_model = $resolvedModels['main_model'];
+    $selected_model = $main_model;
+    $sub_model = $resolvedModels['sub_model'];
+    $embedding_model = $resolvedModels['embedding_model'];
     $prompt_key     = $input['prompt_mode'] ?? 'construction_consultant';
     $reasoning_id   = $input['reasoning_id'] ?? ($input['advanced_reasoning_id'] ?? null);
     $report_mode    = (isset($input['report_mode']) && $input['report_mode'] === true);
@@ -328,6 +345,7 @@ try {
             'hit_count' => 0,
             'reasoning_steps' => [],
             'applied_model' => $selected_model,
+            'model_roles' => ChatModelRolePayload::build($main_model, $sub_model, $embedding_model, 'main'),
             'created_at' => date('Y/m/d H:i'),
             'report_document' => null
         ]);
@@ -365,6 +383,7 @@ try {
                 'hit_count' => 0,
                 'reasoning_steps' => [],
                 'applied_model' => $selected_model,
+                'model_roles' => ChatModelRolePayload::build($main_model, $sub_model, $embedding_model, 'main'),
                 'created_at' => date('Y/m/d H:i')
             ]);
             exit;
@@ -374,13 +393,13 @@ try {
         'started_at' => date('c'),
         'user_id' => $user_id,
         'project_id' => $project_id,
-        'model' => $selected_model,
+        'model' => $main_model,
         'message_preview' => mb_substr($message, 0, 120)
     ], JSON_UNESCAPED_UNICODE));
     $dedupeLocked = true;
 
-    $reasoning_model = $selected_model;
-    $synthesis_model = $sub_model;
+    $reasoning_model = $resolvedModels['reasoning_model'];
+    $synthesis_model = $resolvedModels['synthesis_model'];
 
     // 📁 案件コンテキストの構築
     $project_context = "";
@@ -456,7 +475,7 @@ try {
         chatLogger("[SMART-ROUTER] 自律生成推論セッションID: {$reasoning_id}");
     }
     if ($advanced_reasoning) {
-        $selected_model = "{$reasoning_model}(分析) + {$synthesis_model}(統合)";
+        $selected_model = "{$main_model}(因数分解・最終統合) + {$sub_model}(中間処理)";
     }
 
     $routeStart = microtime(true);
@@ -470,6 +489,9 @@ try {
         'reasoning_id' => $reasoning_id,
         'reasoning_model' => $reasoning_model,
         'synthesis_model' => $synthesis_model,
+        'main_model' => $main_model,
+        'sub_model' => $sub_model,
+        'embedding_model' => $embedding_model,
         'prompt_key' => $prompt_key,
         'project_context' => $project_context,
         'history_summary_text' => $history_summary_text,

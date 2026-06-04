@@ -21,6 +21,7 @@ require_once __DIR__ . '/../../config/session.php';
 require_once __DIR__ . '/../../src/Auth.php';
 require_once __DIR__ . '/../../src/ProjectAccess.php';
 require_once __DIR__ . '/../../src/AppLogger.php';
+require_once __DIR__ . '/../../src/ModelRoleResolver.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -52,7 +53,8 @@ if (!$auth->isLoggedIn()) {
 $sessionId   = session_id();
 $user_id     = $_SESSION['user_id'];
 $role        = $_SESSION['role'] ?? 'user';
-$ollama_host = rtrim($_SESSION['ollama_host'] ?? (getenv('OLLAMA_HOST') ?: 'http://127.0.0.1:11434'), '/');
+$resolvedModels = ModelRoleResolver::resolveUserSettings($_SESSION);
+$ollama_host = $resolvedModels['ollama_host'];
 
 // ここでセッションロックを完全に解除。以降の重いベクトル生成ループ中も、
 // フロントエンドからの進捗監視ポーリングAPI（get_upload_status.php）が完全にブロッキングされず非同期で動き続けます。
@@ -274,7 +276,7 @@ try {
     $column_headers_json = json_encode($headers, JSON_UNESCAPED_UNICODE);
     logger("抽出された列名ヘッダー: " . $column_headers_json);
 
-    $embed_model = "mxbai-embed-large";
+    $embed_model = $resolvedModels['embedding_model'];
     $is_large_csv = $total_rows > 1000;
 
     // =========================================================================

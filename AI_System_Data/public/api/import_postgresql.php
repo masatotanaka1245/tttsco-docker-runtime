@@ -14,6 +14,7 @@ require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../config/session.php';
 require_once __DIR__ . '/../../src/Auth.php';
 require_once __DIR__ . '/../../src/EmbeddingEngine.php';
+require_once __DIR__ . '/../../src/ModelRoleResolver.php';
 require_once __DIR__ . '/../../src/VectorSearch.php';
 require_once __DIR__ . '/../../src/ProjectAccess.php';
 require_once __DIR__ . '/../../src/AppLogger.php';
@@ -171,11 +172,12 @@ try {
     // ★改善: ハードコード撤廃。セッションからOllamaのURLを動的に取得する
     // =========================================================================
     @session_start();
-    $ollama_host = rtrim($_SESSION['ollama_host'] ?? 'http://127.0.0.1:11434', '/');
+    $resolvedModels = ModelRoleResolver::resolveUserSettings($_SESSION);
+    $ollama_host = $resolvedModels['ollama_host'];
     session_write_close();
 
     // Ollamaベクトル化エンジンの初期化（num_gpu最適化済みのエンジンを利用）
-    $engine = new EmbeddingEngine($ollama_host, "mxbai-embed-large");
+    $engine = new EmbeddingEngine($ollama_host, $resolvedModels['embedding_model']);
 
     // 指数バックオフ付きEmbeddingヘルパー
     $embedWithRetry = function($text, $row_idx) use ($engine) {

@@ -6,10 +6,13 @@
  * ★[品質評価（LLM-as-a-Judge）一元トランザクション保護 ＆ 13引数インターフェース拡張版]
  */
 
-function runNormalStreamingRoute($pdo, $ollama_host, $projectId, $originalMessage, $searchQuery, $model, $promptKey, $projectContext, $historySummaryText, $vectorSearch, $engine, $user_id, $role, bool $reportMode = false, bool $diagramMode = false) {
+require_once __DIR__ . '/../../src/ProjectContextMemory.php';
+require_once __DIR__ . '/../../src/ChatModelRolePayload.php';
+
+function runNormalStreamingRoute($pdo, $ollama_host, $projectId, $originalMessage, $searchQuery, $model, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $vectorSearch, $engine, $user_id, $role, bool $reportMode = false, bool $diagramMode = false) {
     $processor = new NormalStreamingRouteProcessor(
         $pdo, $ollama_host, $projectId, $originalMessage, $searchQuery,
-        $model, $promptKey, $projectContext, $historySummaryText,
+        $model, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText,
         $vectorSearch, $engine, $user_id, $role, $reportMode, $diagramMode
     );
     $processor->execute();
@@ -22,6 +25,8 @@ class NormalStreamingRouteProcessor {
     private $originalMessage;
     private $searchQuery;
     private $model;
+    private $subModel;
+    private $embeddingModel;
     private $promptKey;
     private $projectContext;
     private $historySummaryText;
@@ -40,19 +45,22 @@ class NormalStreamingRouteProcessor {
     private $fullResponse = "";
     private $evalResult = null;
     private $retryCount = 0;
+    private $projectOperatingMemoryPrompt = "";
 
     private $tokenCount = 0;
     private $lastLoggedLength = 0;
     private $buffer = "";
     private $ollamaErrorMsg = "";
 
-    public function __construct($pdo, $ollama_host, $projectId, $originalMessage, $searchQuery, $model, $promptKey, $projectContext, $historySummaryText, $vectorSearch, $engine, $user_id, $role, bool $reportMode = false, bool $diagramMode = false) {
+    public function __construct($pdo, $ollama_host, $projectId, $originalMessage, $searchQuery, $model, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $vectorSearch, $engine, $user_id, $role, bool $reportMode = false, bool $diagramMode = false) {
         $this->pdo                = $pdo;
         $this->ollama_host        = $ollama_host;
         $this->projectId          = $projectId;
         $this->originalMessage    = $this->normalizeUtf8((string)$originalMessage);
         $this->searchQuery        = $this->normalizeUtf8((string)$searchQuery);
         $this->model              = $model;
+        $this->subModel           = $subModel;
+        $this->embeddingModel     = $embeddingModel;
         $this->promptKey          = $promptKey;
         $this->projectContext     = $this->normalizeUtf8((string)$projectContext);
         $this->historySummaryText = $this->normalizeUtf8((string)$historySummaryText);
@@ -266,8 +274,10 @@ class NormalStreamingRouteProcessor {
     }
 
     private function buildSystemPrompt(): string {
-        $system_prompt = PromptManager::getBasePrompt($this->promptKey) . "\n" 
-                       . PromptManager::getCommonInstructions() . "\n" 
+        $this->loadProjectOperatingMemoryPrompt();
+        $system_prompt = PromptManager::getBasePrompt($this->promptKey) . "\n"
+                       . $this->projectOperatingMemoryPrompt . "\n"
+                       . PromptManager::getCommonInstructions() . "\n"
                        . PromptManager::getDashboardLinkInstruction($this->projectId ?? 0);
         if ($this->targetPage !== null) {
             $system_prompt .= "\n【超重要】ユーザーは明示的に「{$this->targetPage}ページ」を指定して質問しています。必ず提供された参考資料のうち「P.{$this->targetPage}」と書かれたブロックの情報のみを根拠として回答してください。関係のない他のページの情報を混ぜて答えてはなりません。";
@@ -281,6 +291,18 @@ class NormalStreamingRouteProcessor {
             $system_prompt .= "\n【報告書モード】回答は後続処理でPDF報告書化されます。結論、分析対象、根拠、留意点、推奨アクション、出典の順に、報告書として読みやすい見出し構成で作成してください。";
         }
         return $system_prompt;
+    }
+
+    private function loadProjectOperatingMemoryPrompt(): void
+    {
+        if ((int)$this->projectId <= 0 || $this->projectOperatingMemoryPrompt !== '') {
+            return;
+        }
+
+        require_once __DIR__ . '/../../src/PromptManager.php';
+        $projectMemoryDocs = ProjectContextMemory::load($this->pdo, (int)$this->projectId);
+        $this->projectOperatingMemoryPrompt = PromptManager::getProjectOperatingMemoryInstruction($projectMemoryDocs);
+        chatLogger("[PROJECT-MEMORY] route=normal | loaded=" . (empty(ProjectContextMemory::loadedTypes($projectMemoryDocs)) ? 'none' : implode(',', ProjectContextMemory::loadedTypes($projectMemoryDocs))) . " | chars=" . ProjectContextMemory::totalChars($projectMemoryDocs));
     }
 
     private function streamOllamaGeneration(): bool {
@@ -490,6 +512,7 @@ class NormalStreamingRouteProcessor {
             'hit_count'       => count($this->sourceDocs),
             'reasoning_steps' => [],
             'applied_model'   => $this->model,
+            'model_roles'     => ChatModelRolePayload::build($this->model, $this->subModel, $this->embeddingModel, 'main'),
             'created_at'      => date('Y/m/d H:i'),
             'report_document' => $this->reportDocument
         ]);

@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/ModelRoleResolver.php';
+
 class ChatRouteDispatcher
 {
     private $logger;
@@ -21,15 +23,23 @@ class ChatRouteDispatcher
 
         $globalCrossPattern = '/(全社|横断|データベース全体|すべての(案件|プロジェクト)|全体を見渡して|全システム|システム全体)/u';
 
+        $mainModel = (string)($context['main_model'] ?? $context['reasoning_model'] ?? ModelRoleResolver::DEFAULT_MAIN_MODEL);
+        $subModel = (string)($context['sub_model'] ?? $context['synthesis_model'] ?? ModelRoleResolver::DEFAULT_SUB_MODEL);
+        $embeddingModel = (string)($context['embedding_model'] ?? ModelRoleResolver::DEFAULT_EMBEDDING_MODEL);
+
         if ($isHistorySummaryMode) {
             $routeName = 'history_summary';
             $this->log("[SMART-ROUTER] 最終ルート決定: {$routeName}");
+            $this->logModelRoles($routeName, $mainModel, $subModel, $embeddingModel);
             require_once $this->apiBasePath . '/chat_history_summary.php';
             runHistorySummaryRoute(
                 $context['pdo'],
+                $context['ollama_host'],
                 $projectId,
                 $message,
-                $context['reasoning_model'],
+                $mainModel,
+                $subModel,
+                $embeddingModel,
                 $context['prompt_key'],
                 $context['user_id'],
                 $context['role']
@@ -41,13 +51,15 @@ class ChatRouteDispatcher
             $routeName = 'global_cross';
             $this->log("[SMART-ROUTER] 明示的な全社横断キーワードを検出。強制的に「グローバル調査エージェント(ReAct)」をキックします。");
             $this->log("[SMART-ROUTER] 最終ルート決定: {$routeName}");
+            $this->logModelRoles($routeName, $mainModel, $subModel, $embeddingModel);
             require_once $this->apiBasePath . '/chat_global.php';
             runGlobalChatRoute(
                 $context['pdo'],
                 $context['ollama_host'],
                 $message,
-                $context['reasoning_model'],
-                $context['synthesis_model'],
+                $mainModel,
+                $subModel,
+                $embeddingModel,
                 $context['prompt_key'],
                 $context['user_id'],
                 $context['role'],
@@ -59,13 +71,15 @@ class ChatRouteDispatcher
         if ($projectId === null) {
             $routeName = 'global_no_project';
             $this->log("[SMART-ROUTER] 最終ルート決定: {$routeName}");
+            $this->logModelRoles($routeName, $mainModel, $subModel, $embeddingModel);
             require_once $this->apiBasePath . '/chat_global.php';
             runGlobalChatRoute(
                 $context['pdo'],
                 $context['ollama_host'],
                 $message,
-                $context['reasoning_model'],
-                $context['synthesis_model'],
+                $mainModel,
+                $subModel,
+                $embeddingModel,
                 $context['prompt_key'],
                 $context['user_id'],
                 $context['role'],
@@ -77,13 +91,16 @@ class ChatRouteDispatcher
         if ($isAnalysisMode && !$advancedReasoning) {
             $routeName = 'data_analysis';
             $this->log("[SMART-ROUTER] 最終ルート決定: {$routeName}");
+            $this->logModelRoles($routeName, $mainModel, $subModel, $embeddingModel);
             require_once $this->apiBasePath . '/chat_analysis.php';
             runAdvancedReasoningRoute(
                 $context['pdo'],
                 $context['ollama_host'],
                 $projectId,
                 $message,
-                $context['reasoning_model'],
+                $mainModel,
+                $subModel,
+                $embeddingModel,
                 $context['prompt_key'],
                 $context['project_context'],
                 $context['history_summary_text'],
@@ -98,6 +115,7 @@ class ChatRouteDispatcher
         if ($advancedReasoning) {
             $routeName = 'advanced_hybrid';
             $this->log("[SMART-ROUTER] 最終ルート決定: {$routeName}");
+            $this->logModelRoles($routeName, $mainModel, $subModel, $embeddingModel);
             require_once $this->apiBasePath . '/chat_advanced.php';
             runAdvancedReasoningRoute(
                 $context['pdo'],
@@ -106,8 +124,9 @@ class ChatRouteDispatcher
                 $message,
                 $context['search_query'],
                 $context['reasoning_id'],
-                $context['reasoning_model'],
-                $context['synthesis_model'],
+                $mainModel,
+                $subModel,
+                $embeddingModel,
                 $context['prompt_key'],
                 $context['project_context'],
                 $context['history_summary_text'],
@@ -121,9 +140,10 @@ class ChatRouteDispatcher
 
         $routeName = 'normal_rag';
         $this->log("[SMART-ROUTER] 最終ルート決定: {$routeName}");
+        $this->logModelRoles($routeName, $mainModel, $subModel, $embeddingModel);
         require_once $this->apiBasePath . '/chat_normal.php';
 
-        $engine = new EmbeddingEngine($context['ollama_host'], 'mxbai-embed-large');
+        $engine = new EmbeddingEngine($context['ollama_host'], $embeddingModel);
         $vectorSearch = new VectorSearch($context['pdo']);
 
         runNormalStreamingRoute(
@@ -132,7 +152,9 @@ class ChatRouteDispatcher
             $projectId,
             $message,
             $context['search_query'],
-            $context['reasoning_model'],
+            $mainModel,
+            $subModel,
+            $embeddingModel,
             $context['prompt_key'],
             $context['project_context'],
             $context['history_summary_text'],
@@ -152,5 +174,10 @@ class ChatRouteDispatcher
         if ($this->logger !== null) {
             call_user_func($this->logger, $message);
         }
+    }
+
+    private function logModelRoles(string $routeName, string $mainModel, string $subModel, string $embeddingModel): void
+    {
+        $this->log("[MODEL-ROLES] route={$routeName} | main_model={$mainModel} | sub_model={$subModel} | embedding_model={$embeddingModel}");
     }
 }

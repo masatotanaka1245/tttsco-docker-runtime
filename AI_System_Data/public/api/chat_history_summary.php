@@ -6,28 +6,38 @@
  * chat_history の実データから即時に要約して返す。
  */
 
-function runHistorySummaryRoute($pdo, $projectId, $originalMessage, $model, $promptKey, $user_id, $role): void {
-    $processor = new HistorySummaryRouteProcessor($pdo, $projectId, $originalMessage, $model, $promptKey, $user_id, $role);
+require_once __DIR__ . '/../../src/ChatModelRolePayload.php';
+
+function runHistorySummaryRoute($pdo, $ollamaHost, $projectId, $originalMessage, $model, $subModel, $embeddingModel, $promptKey, $user_id, $role): void {
+    $processor = new HistorySummaryRouteProcessor($pdo, $ollamaHost, $projectId, $originalMessage, $model, $subModel, $embeddingModel, $promptKey, $user_id, $role);
     $processor->execute();
 }
 
 class HistorySummaryRouteProcessor {
     private PDO $pdo;
+    private string $ollamaHost;
     private ?int $projectId;
     private string $originalMessage;
     private string $model;
+    private string $subModel;
+    private string $embeddingModel;
     private string $promptKey;
     private int $user_id;
     private string $role;
     private string $sessionId;
     private string $finalResponse = '';
+    private ?array $evalResult = null;
+    private string $guardContext = '';
     private array $reasoningSteps = [];
 
-    public function __construct(PDO $pdo, ?int $projectId, string $originalMessage, string $model, string $promptKey, int $user_id, string $role) {
+    public function __construct(PDO $pdo, string $ollamaHost, ?int $projectId, string $originalMessage, string $model, string $subModel, string $embeddingModel, string $promptKey, int $user_id, string $role) {
         $this->pdo = $pdo;
+        $this->ollamaHost = rtrim($ollamaHost, '/');
         $this->projectId = $projectId;
         $this->originalMessage = $originalMessage;
         $this->model = $model;
+        $this->subModel = $subModel;
+        $this->embeddingModel = $embeddingModel;
         $this->promptKey = $promptKey;
         $this->user_id = $user_id;
         $this->role = $role;
@@ -45,9 +55,11 @@ class HistorySummaryRouteProcessor {
         $history = $this->loadHistory();
         chatLogger("[HISTORY-SUMMARY] 履歴取得完了 - rows: " . count($history) . " | elapsed: " . $this->elapsedSeconds($startedAt));
 
+        $this->guardContext = $this->buildCollectionSummary($history);
         $this->finalResponse = $this->buildSummary($history);
-        $this->insertReasoningStep(1, '会話履歴の取得', $this->buildCollectionSummary($history));
+        $this->insertReasoningStep(1, '会話履歴の取得', $this->guardContext);
         $this->insertReasoningStep(90, '会話履歴の軽量要約', $this->finalResponse);
+        $this->runLightweightFinalAnswerGuard();
         $this->insertReasoningStep(99, '最終回答の確定', '完了');
 
         $historyId = $this->saveHistory();
@@ -209,6 +221,35 @@ class HistorySummaryRouteProcessor {
             $stmtAi->execute([$this->projectId, $this->user_id, $this->finalResponse]);
             $historyId = (int)$this->pdo->lastInsertId();
 
+            if ($this->evalResult) {
+                $stmtEval = $this->pdo->prepare("
+                    INSERT INTO chat_evaluations
+                    (chat_id, proactivity_score, faithfulness_score, relevance_score, clarity_score, total_score, feedback, retry_count)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ");
+                $stmtEval->execute([
+                    $historyId,
+                    $this->evalResult['scores']['proactivity'] ?? 0,
+                    $this->evalResult['scores']['faithfulness'] ?? 0,
+                    $this->evalResult['scores']['answer_relevance'] ?? 0,
+                    $this->evalResult['scores']['clarity'] ?? 0,
+                    $this->evalResult['total_score'] ?? 0,
+                    $this->evalResult['feedback'] ?? '',
+                    0
+                ]);
+            }
+
+            require_once __DIR__ . '/../../src/FaqAutoRegistrar.php';
+            $faqRegistrar = new FaqAutoRegistrar($this->pdo);
+            $faqRegistrar->registerIfQualified(
+                $this->projectId,
+                $historyId,
+                $this->user_id,
+                $this->originalMessage,
+                $this->finalResponse,
+                $this->evalResult
+            );
+
             $this->pdo->commit();
             chatLogger("[HISTORY-SUMMARY] chat_history 保存成功。ID: {$historyId}");
             return $historyId;
@@ -261,6 +302,7 @@ class HistorySummaryRouteProcessor {
             'hit_count' => count($this->reasoningSteps),
             'reasoning_steps' => $this->reasoningSteps,
             'applied_model' => 'DB summary (no Ollama)',
+            'model_roles' => ChatModelRolePayload::build($this->model, $this->subModel, $this->embeddingModel, 'main'),
             'created_at' => date('Y/m/d H:i')
         ]);
     }
@@ -289,5 +331,26 @@ class HistorySummaryRouteProcessor {
 
     private function elapsedSeconds(float $start): string {
         return number_format(microtime(true) - $start, 2) . '秒';
+    }
+
+    private function runLightweightFinalAnswerGuard(): void {
+        require_once __DIR__ . '/../../src/LightweightFinalAnswerGuard.php';
+        $guard = new LightweightFinalAnswerGuard($this->ollamaHost);
+
+        sendSSE('status', [
+            'step' => 1,
+            'message' => '⚖️ 履歴サマリーの最終回答を確認しています...'
+        ]);
+
+        $guardResult = $guard->review(
+            $this->originalMessage,
+            $this->guardContext,
+            $this->finalResponse,
+            $this->model,
+            'history_summary'
+        );
+
+        $this->finalResponse = (string)($guardResult['response'] ?? $this->finalResponse);
+        $this->evalResult = $guardResult['eval_result'] ?? $this->evalResult;
     }
 }

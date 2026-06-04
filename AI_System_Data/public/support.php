@@ -176,6 +176,73 @@ if (!function_exists('h')) {
                         </table>
                     </div>
                 </div>
+
+                <div class="bg-white border border-slate-200/80 rounded-2xl overflow-hidden shadow-sm transition-all duration-300 hover:shadow-md">
+                    <div class="bg-slate-50/70 p-3.5 px-5 font-bold text-slate-700 flex justify-between items-center text-xs border-b border-slate-100">
+                        <span class="font-extrabold tracking-wide text-slate-600">案件運用メモ</span>
+                        <span class="text-[10px] text-slate-400 font-bold uppercase tracking-wider">AGENTS / README / TODO</span>
+                    </div>
+                    <div class="p-5 space-y-4">
+                        <?php if ($memory_flash === '1'): ?>
+                            <div class="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">案件運用メモを更新しました。</div>
+                        <?php elseif ($memory_flash === 'error'): ?>
+                            <div class="text-[11px] font-bold text-red-700 bg-red-50 border border-red-200 rounded-xl px-4 py-3">案件運用メモの保存に失敗しました。</div>
+                        <?php elseif ($memory_flash === 'csrf_error' || $memory_flash === 'forbidden'): ?>
+                            <div class="text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">案件運用メモを更新する権限がありません。</div>
+                        <?php endif; ?>
+
+                        <p class="text-[11px] text-slate-500 leading-relaxed">
+                            この案件に特有の回答方針、背景、既知の論点をメモとして保持し、AIが回答を組み立てる前に参照します。
+                        </p>
+
+                        <?php if ($can_manage_project_memory): ?>
+                            <form method="post" class="space-y-4">
+                                <input type="hidden" name="action" value="save_project_memory">
+                                <input type="hidden" name="csrf_token" value="<?= h($csrfToken) ?>">
+                                <input type="hidden" name="project_id" value="<?= h((string)$selected_project_id) ?>">
+
+                                <div class="space-y-1.5">
+                                    <label for="memory-agents" class="block text-[10px] font-black text-slate-400 uppercase tracking-wider">AGENTS</label>
+                                    <textarea id="memory-agents" name="memory_agents" rows="6" class="w-full border border-slate-200 rounded-xl p-3 text-xs bg-slate-50/50 focus:bg-white focus:border-indigo-400/80 transition-all duration-200 resize-y font-medium text-slate-700 outline-none" placeholder="回答方針、禁止事項、優先ルールなど"><?= h((string)($project_memory_docs['agents']['content'] ?? '')) ?></textarea>
+                                </div>
+
+                                <div class="space-y-1.5">
+                                    <label for="memory-readme" class="block text-[10px] font-black text-slate-400 uppercase tracking-wider">README</label>
+                                    <textarea id="memory-readme" name="memory_readme" rows="6" class="w-full border border-slate-200 rounded-xl p-3 text-xs bg-slate-50/50 focus:bg-white focus:border-indigo-400/80 transition-all duration-200 resize-y font-medium text-slate-700 outline-none" placeholder="案件の背景、用語、前提、構成など"><?= h((string)($project_memory_docs['readme']['content'] ?? '')) ?></textarea>
+                                </div>
+
+                                <div class="space-y-1.5">
+                                    <label for="memory-todo" class="block text-[10px] font-black text-slate-400 uppercase tracking-wider">TODO</label>
+                                    <textarea id="memory-todo" name="memory_todo" rows="6" class="w-full border border-slate-200 rounded-xl p-3 text-xs bg-slate-50/50 focus:bg-white focus:border-indigo-400/80 transition-all duration-200 resize-y font-medium text-slate-700 outline-none" placeholder="既知の課題、次に見るべき点、現在の運用メモなど"><?= h((string)($project_memory_docs['todo']['content'] ?? '')) ?></textarea>
+                                </div>
+
+                                <div class="flex justify-end">
+                                    <button type="submit" class="text-[11px] bg-[#4F5D95] text-white border border-[#4F5D95] px-4 py-2 rounded-xl font-bold shadow-sm hover:bg-[#3f4a7a] transition-all duration-200 ease-in-out transform active:scale-95">メモを保存</button>
+                                </div>
+                            </form>
+                        <?php else: ?>
+                            <div class="space-y-4">
+                                <?php foreach (['agents', 'readme', 'todo'] as $memoryType): ?>
+                                    <?php $memoryContent = trim((string)($project_memory_docs[$memoryType]['content'] ?? '')); ?>
+                                    <?php if ($memoryContent === '') continue; ?>
+                                    <div class="border border-slate-200 rounded-xl overflow-hidden">
+                                        <div class="px-4 py-2 bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-wider"><?= h((string)($project_memory_docs[$memoryType]['label'] ?? strtoupper($memoryType))) ?></div>
+                                        <div class="px-4 py-3 text-xs text-slate-600 leading-relaxed whitespace-pre-wrap"><?= h($memoryContent) ?></div>
+                                    </div>
+                                <?php endforeach; ?>
+                                <?php if (
+                                    trim((string)($project_memory_docs['agents']['content'] ?? '')) === '' &&
+                                    trim((string)($project_memory_docs['readme']['content'] ?? '')) === '' &&
+                                    trim((string)($project_memory_docs['todo']['content'] ?? '')) === ''
+                                ): ?>
+                                    <div class="text-center py-10 bg-slate-50/60 rounded-xl border border-dashed border-slate-200">
+                                        <p class="text-xs text-slate-400 font-medium italic">案件運用メモはまだ登録されていません。</p>
+                                    </div>
+                                <?php endif; ?>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                </div>
             </div>
 
             <div id="tab-pdf" role="tabpanel" class="tab-content <?= $active_tab === 'pdf' ? 'active' : '' ?> h-full overflow-y-auto p-6 space-y-6">

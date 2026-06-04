@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/OllamaChatHelper.php';
+
 /**
  * src/ChatEvaluator.php
  * LLM-as-a-Judge による自律型評価と自己修正（Self-Correction）を担うクラス
@@ -105,19 +107,16 @@ EOT;
 EOT;
 
         // Ollama APIのリクエストデータ構築
-        $data = [
-            'model' => $model,
-            'messages' => [
-                ['role' => 'system', 'content' => $systemPrompt],
-                ['role' => 'user', 'content' => $userPrompt]
-            ],
-            'format' => 'json', // OllamaにJSON出力を強制させ、プログラムでのパースを安定化
-            'stream' => false,
-            'options' => [
+        $data = OllamaChatHelper::buildChatPayload(
+            (string)$model,
+            $systemPrompt,
+            $userPrompt,
+            'json',
+            [
                 'temperature' => 0.0, // 評価基準のブレ（遊び）を完全に排除するため0.0に超決定論化
                 'top_p' => 0.1
             ]
-        ];
+        );
 
         // API通信の実行
         $ch = curl_init("{$this->ollama_host}/api/chat");
@@ -136,8 +135,8 @@ EOT;
         }
 
         $responseData = json_decode($response, true);
-        $replyContent = $responseData['message']['content'] ?? '';
-        
+        $replyContent = OllamaChatHelper::extractVisibleContent((string)($responseData['message']['content'] ?? ''));
+
         $evalResult = json_decode($replyContent, true);
 
         if (!$evalResult || !is_array($evalResult)) {
@@ -185,19 +184,17 @@ EOT;
 上記だけを根拠に、ユーザーへ提示する最終回答のみを書いてください。
 EOT;
 
-        $data = [
-            'model' => $model,
-            'messages' => [
-                ['role' => 'system', 'content' => $systemPrompt],
-                ['role' => 'user', 'content' => $userPrompt]
-            ],
-            'stream' => false,
-            'options' => [
+        $data = OllamaChatHelper::buildChatPayload(
+            (string)$model,
+            $systemPrompt,
+            $userPrompt,
+            null,
+            [
                 'temperature' => 0.0,
                 'top_p' => 0.1,
                 'num_ctx' => 4096
             ]
-        ];
+        );
 
         $ch = curl_init("{$this->ollama_host}/api/chat");
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -218,7 +215,7 @@ EOT;
         }
 
         $responseData = json_decode($response, true);
-        $replyContent = trim((string)($responseData['message']['content'] ?? ''));
+        $replyContent = OllamaChatHelper::extractVisibleContent((string)($responseData['message']['content'] ?? ''));
 
         return $replyContent !== '' ? $replyContent : trim((string)$draft_answer);
     }

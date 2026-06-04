@@ -26,6 +26,8 @@
  */
 
 require_once __DIR__ . '/../../src/AppLogger.php';
+require_once __DIR__ . '/../../src/ProjectContextMemory.php';
+require_once __DIR__ . '/../../src/ChatModelRolePayload.php';
 
 if (!function_exists('chatLogger')) {
     function chatLogger($msg) {
@@ -40,10 +42,10 @@ if (!function_exists('chatLogger')) {
 /**
  * 外部からのエントリーポイント（他ファイルと一元規格統一のため、最後尾に $role を追記した13引数拡張版・Freeze Protocol）
  */
-function runAdvancedReasoningRoute($pdo, $ollama_host, $projectId, $originalMessage, $searchQuery, $reasoningId, $reasoningModel, $synthesisModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, bool $reportMode = false, bool $diagramMode = false) {
+function runAdvancedReasoningRoute($pdo, $ollama_host, $projectId, $originalMessage, $searchQuery, $reasoningId, $mainModel, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, bool $reportMode = false, bool $diagramMode = false) {
     $processor = new AdvancedReasoningRouteProcessor(
         $pdo, $ollama_host, $projectId, $originalMessage, $searchQuery,
-        $reasoningId, $reasoningModel, $synthesisModel, $promptKey,
+        $reasoningId, $mainModel, $subModel, $embeddingModel, $promptKey,
         $projectContext, $historySummaryText, $user_id, $role, $reportMode, $diagramMode
     );
     $processor->execute();
@@ -61,6 +63,9 @@ class AdvancedReasoningRouteProcessor {
     private $originalMessage;
     private $searchQuery;
     private $reasoningId;
+    private $mainModel;
+    private $subModel;
+    private $embeddingModel;
     private $reasoningModel;
     private $synthesisModel;
     private $promptKey;
@@ -73,6 +78,7 @@ class AdvancedReasoningRouteProcessor {
     private $diagramMode = false;
     private $reportDocument = null;
     private $databaseMemoryPrompt = ""; // フェーズ3：DB事前記憶プロンプト保持用
+    private $projectOperatingMemoryPrompt = "";
 
     // 内部ステート管理（CSV集計用・資料RAG用すべてのステートを統合）
     private $schemaInfo = "";
@@ -91,21 +97,24 @@ class AdvancedReasoningRouteProcessor {
     public $lastLoggedLen = 0;
     public $ollamaErrorMsg = "";
 
-    public function __construct($pdo, $ollama_host, $projectId, $originalMessage, $searchQuery, $reasoningId, $reasoningModel, $synthesisModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, bool $reportMode = false, bool $diagramMode = false) {
+    public function __construct($pdo, $ollama_host, $projectId, $originalMessage, $searchQuery, $reasoningId, $mainModel, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, bool $reportMode = false, bool $diagramMode = false) {
         $this->pdo = $pdo;
         $this->ollama_host = $ollama_host;
         $this->projectId = (int)$projectId;
         $this->originalMessage = $this->normalizeUtf8((string)$originalMessage);
         $this->searchQuery = $this->normalizeUtf8((string)$searchQuery);
         $this->reasoningId = (string)$reasoningId;
-        $this->reasoningModel = (string)$reasoningModel;
-        $this->synthesisModel = (string)$synthesisModel;
+        $this->mainModel = (string)$mainModel;
+        $this->subModel = (string)$subModel;
+        $this->embeddingModel = (string)$embeddingModel;
+        $this->reasoningModel = $this->subModel;
+        $this->synthesisModel = $this->mainModel;
         $this->promptKey = (string)$promptKey;
         $this->projectContext = $this->normalizeUtf8((string)$projectContext);
         $this->historySummaryText = $this->normalizeUtf8((string)$historySummaryText);
         $this->user_id = (int)$user_id;
         $this->role = (string)$role;
-        $this->model = (string)$reasoningModel;
+        $this->model = $this->subModel;
         $this->reportMode = $reportMode;
         $this->diagramMode = $diagramMode;
     }
@@ -119,6 +128,11 @@ class AdvancedReasoningRouteProcessor {
             $instructions .= "\n【報告書モード】回答は後続処理でHTML/CSSからPDF報告書化され、資料PDFとして保存されます。結論、分析対象、根拠、留意点、推奨アクション、出典の順に、報告書として読みやすい見出し構成で作成してください。";
         }
         return $instructions;
+    }
+
+    private function composeMemoryAwarePrompt(string $prompt): string
+    {
+        return trim($this->projectOperatingMemoryPrompt . "\n" . $this->databaseMemoryPrompt . "\n" . $prompt);
     }
 
     private function hasExtendedOutputMode(): bool {
@@ -179,7 +193,7 @@ class AdvancedReasoningRouteProcessor {
         'project_csv_files' => "テーブル名: project_csv_files\n物理カラム:\n- id (INT, PK)\n- project_id (INT)\n- file_name (VARCHAR: CSV名)\n- column_headers (TEXT: JSON型ヘッダー名一覧)\n- row_count (INT)\n- created_at (DATETIME)",
         'project_csv_rows' => "テーブル名: project_csv_rows\n物理カラム:\n- id (INT, PK)\n- csv_file_id (INT)\n- row_index (INT: 行番号)\n- row_data (JSON: CSVの行データが入ったオブジェクト。値の抽出時は JSON_UNQUOTE(JSON_EXTRACT(row_data, '$.\"カラム名\"')) を使用してください)\n- created_at (DATETIME)\n★注意: このテーブルには row_count カラムはありません。行数は COUNT(id) で集計してください。",
         'project_faqs' => "テーブル名: project_faqs\n物理カラム:\n- id (INT, PK)\n- project_id (INT)\n- chat_history_id (INT: チャット履歴への参照外部キー)\n- question_summary (TEXT: 質問 of 要約・概要)\n- answer_summary (TEXT: 回答 of 要約・概要)\n- created_by (INT: 作成者ユーザーID)\n- created_at (DATETIME)",
-        'users' => "テーブル名: users\n物理カラム:\n- id (INT, PK)\n- username (VARCHAR: ユーザー名)\n- department (VARCHAR: 所属部署)\n- role (VARCHAR: 権限。'admin' または 'member')\n- default_prompt (TEXT)\n- default_lang (VARCHAR)\n- default_model (VARCHAR)\n- sub_model (VARCHAR)\n- ollama_host (VARCHAR)\n- created_at (DATETIME)\n- updated_at (DATETIME)"
+        'users' => "テーブル名: users\n物理カラム:\n- id (INT, PK)\n- username (VARCHAR: ユーザー名)\n- department (VARCHAR: 所属部署)\n- role (VARCHAR: 権限。'admin' または 'member')\n- default_prompt (TEXT)\n- default_lang (VARCHAR)\n- default_model (VARCHAR)\n- sub_model (VARCHAR)\n- embedding_model (VARCHAR)\n- ollama_host (VARCHAR)\n- created_at (DATETIME)\n- updated_at (DATETIME)"
     ];
 
     /**
@@ -190,7 +204,7 @@ class AdvancedReasoningRouteProcessor {
         $this->model = $this->reasoningModel; // ステートバインド同期維持
 
         chatLogger(">>> [MoAハイブリッド多重推論要塞] 統合ハブコントローラーを起動します");
-        chatLogger("[DEBUG] 引数情報 - Host: {$this->ollama_host} | Model: {$this->model} | UserID: {$this->user_id} | Role: {$this->role}");
+        chatLogger("[DEBUG] 引数情報 - Host: {$this->ollama_host} | MainModel: {$this->mainModel} | SubModel: {$this->subModel} | UserID: {$this->user_id} | Role: {$this->role}");
 
         // 0. BOLA脆弱性防止・アサイン権限チェック（最下部 of 実体を安全にキック）
         $phaseStart = microtime(true);
@@ -233,6 +247,9 @@ class AdvancedReasoningRouteProcessor {
             // PromptManagerを読み込み、記憶をAI用制約プロンプトにコンパイルしてプロパティに格納
             require_once __DIR__ . '/../../src/PromptManager.php';
             $this->databaseMemoryPrompt = PromptManager::getDatabaseMemoryInstruction($jsonStr);
+            $projectMemoryDocs = ProjectContextMemory::load($this->pdo, (int)$this->projectId);
+            $this->projectOperatingMemoryPrompt = PromptManager::getProjectOperatingMemoryInstruction($projectMemoryDocs);
+            chatLogger("[PROJECT-MEMORY] loaded=" . (empty(ProjectContextMemory::loadedTypes($projectMemoryDocs)) ? 'none' : implode(',', ProjectContextMemory::loadedTypes($projectMemoryDocs))) . " | chars=" . ProjectContextMemory::totalChars($projectMemoryDocs));
         }
         chatLogger("[ADV-TIMING] DB記憶ロード完了 | promptChars: " . mb_strlen($this->databaseMemoryPrompt) . " | elapsed: " . $this->elapsedSeconds($phaseStart));
 
@@ -303,6 +320,10 @@ class AdvancedReasoningRouteProcessor {
                       . "■ ユーザーの要求が「データ（CSV）の集計」「アップロード資料の分析」を指している場合は、勝手にシステム管理テーブル（ `chat_evaluations` のAI評価スコアや `logs` など）をターゲットにしたサブタスクをでっち上げてはならない（厳禁）。\n"
                       . "■ ユーザーの質問がアバウトな挨拶や準備の段階（例：データ集計しようと思います、等）である場合は、勝手に死に物狂いで関係のない内部評価スコアの集計手順を組み立てるな。文脈から推測される本質的な一般データテーブル（ `project_csv_rows` など）の基礎的なカウントや概要把握のみに絞って手順を分解せよ。\n"
                       . "■ ユーザーから「AIの評価スコアを集計して」「 chat_evaluations を分析して」と【明示的・直接的にシステムデータの集計を指定された場合のみ】、システムテーブルを対象に含めてよい。\n\n"
+                      . "【資料PDF質問の専用ルール】\n"
+                      . "■ ユーザーが資料PDF・図面・仕様書・報告書から「留意点」「要点」「主要な内容」「根拠」を抽出してほしい場合、最初のサブクエリを metadata_lookup にして documents の一覧確認だけで終わらせてはならない。\n"
+                      . "■ その場合は operation_type を semantic_extract にし、target_tables は必ず doc_chunks を含めること。documents だけを単独ターゲットにしてはいけない。\n"
+                      . "■ 資料名確認が必要でも、本文抽出が主目的なら documents は補助であり、主役は doc_chunks である。\n\n"
                       . "必ず以下のJSON配列形式のみで出力してください。挨拶やMarkdownの説明は一切不要です。\n"
                       . "operation_type は metadata_lookup / simple_aggregate / record_search / semantic_extract のいずれかにしてください。\n"
                       . "[{\"query\": \"ユーザーの最初の質問の枠内から絶対に脱線しない具体的な調査目的\", \"operation_type\": \"semantic_extract\", \"target_tables\": [\"doc_chunks\"], \"answer_goal\": \"このサブクエリで生成すべき小回答の目的\"}]\n\n"
@@ -315,9 +336,9 @@ class AdvancedReasoningRouteProcessor {
         
         // 引数を整流：第3引数にシステムプロンプト、第4引数に構築したユーザープロンプトを正確に引き渡す
         $decomp_res = callOllamaChat(
-            $this->ollama_host, 
-            $this->reasoningModel, 
-            $this->databaseMemoryPrompt . "\n" . $decompPrompt, 
+            $this->ollama_host,
+            $this->mainModel,
+            $this->composeMemoryAwarePrompt($decompPrompt),
             $userContextPrompt, 
             'json', 
             ["temperature" => 0.0, "top_p" => 0.1, "num_ctx" => 8192] // スキーマ長に対応するためnum_ctxを8192へ超拡張
@@ -346,8 +367,8 @@ class AdvancedReasoningRouteProcessor {
             chatLogger("[WARN] サブクエリのパースに失敗しました。フォールバックとして元メッセージ全体を単一クエリとしてセットします。");
             $this->subQueries = [[
                 "query" => "要求全体に関連する実データを抽出し、回答に必要な根拠を整理する",
-                "operation_type" => $this->inferOperationType($this->searchQuery),
-                "target_tables" => $this->inferTargetTables($this->searchQuery),
+                "operation_type" => $this->shouldForceDocSemanticExtractByQuestion() ? 'semantic_extract' : $this->inferOperationType($this->searchQuery),
+                "target_tables" => $this->shouldForceDocSemanticExtractByQuestion() ? ['documents', 'doc_chunks'] : $this->inferTargetTables($this->searchQuery),
                 "answer_goal" => "ユーザーの質問に直接答えるための中間回答を作る"
             ]];
         } else {
@@ -424,7 +445,7 @@ class AdvancedReasoningRouteProcessor {
                         . '{"sql": "SELECT ..."}';
 
         // 記憶プロンプトを最先頭へマウント
-        $sql_sys_prompt = $this->databaseMemoryPrompt . "\n" . $sql_sys_prompt;
+        $sql_sys_prompt = $this->composeMemoryAwarePrompt($sql_sys_prompt);
         $sql_user_prompt = $this->schemaInfo
             . "\n\n【サブクエリ】\n" . $subQ
             . "\n\n【operation_type】\n" . $operationType
@@ -542,7 +563,7 @@ class AdvancedReasoningRouteProcessor {
                               . "SELECT '説明文' のような実テーブルを読まないダミーSQLは禁止です。必ずFROM句で実在テーブルを参照してください。\n"
                               . '{"sql": "SELECT ..."}';
 
-            $debug_sys_prompt = $this->databaseMemoryPrompt . "\n" . $debug_sys_prompt;
+            $debug_sys_prompt = $this->composeMemoryAwarePrompt($debug_sys_prompt);
             $debug_user_context = "【動的INFORMATION_SCHEMA構成】\n" . $this->schemaInfo . "\n\n"
                                 . "【この分析タスクの本来の目的】\n" . $subQ . "\n\n"
                                 . "❌ 【前回失敗した不正なSQL】\n" . $generated_sql . "\n\n"
@@ -637,7 +658,7 @@ class AdvancedReasoningRouteProcessor {
                    . "この指示に完全に従い、不足しているデータを新たに抽出するための「追加の分析観点（SQLで集計・検索する具体的な目的）」を1つだけ、簡潔な文字列として出力してください。\n"
                    . "【絶対ルール】\n出力はJSONではなく、純粋なテキストのみにしてください。挨拶や説明プロースは一切禁止します。";
 
-        $sysPrompt = $this->databaseMemoryPrompt . "\n" . $sysPrompt;
+        $sysPrompt = $this->composeMemoryAwarePrompt($sysPrompt);
         $userPrompt = "【ユーザーの元の質問】\n{$this->originalMessage}\n\n追加の分析観点:";
         $thoughtDummy = "";
         
@@ -672,7 +693,7 @@ class AdvancedReasoningRouteProcessor {
                    . $briefText;
 
         // PromptManager由来の記憶プロンプトを最先頭へインジェクト
-        $sysPrompt = $this->databaseMemoryPrompt . "\n" . $sysPrompt;
+        $sysPrompt = $this->composeMemoryAwarePrompt($sysPrompt);
         $userPrompt = "【ユーザーの質問】\n{$this->searchQuery}";
         $thought = "";
 
@@ -807,7 +828,7 @@ class AdvancedReasoningRouteProcessor {
                           . '{"sql": "SELECT ..."}';
 
             // 個別SQL生成システムプロンプトの最先頭へ記憶プロンプトをインジェクト
-            $sqlSysPrompt = $this->databaseMemoryPrompt . "\n" . $sqlSysPrompt;
+            $sqlSysPrompt = $this->composeMemoryAwarePrompt($sqlSysPrompt);
 
             // 🔄 [エスケープ補助] プロンプト内のドル記号の直後に予期せず入った半角スペースを削除し、構文を完全正常化
             $sqlSysPrompt = str_replace('$ ', '$', $sqlSysPrompt);
@@ -1014,12 +1035,59 @@ class AdvancedReasoningRouteProcessor {
         $targetTables = $item['target_tables'] ?? [];
         $targetTables = $this->normalizeTargetTables($targetTables, $contextText);
 
+        if ($this->shouldForceDocSemanticExtract($query, $operationType, $targetTables)) {
+            $operationType = 'semantic_extract';
+            if (!in_array('doc_chunks', $targetTables, true)) {
+                $targetTables[] = 'doc_chunks';
+            }
+            if (!in_array('documents', $targetTables, true)) {
+                $targetTables[] = 'documents';
+            }
+            $targetTables = array_values(array_unique($targetTables));
+            chatLogger("[DOC-DECOMP-FORCE] 資料抽出質問のため semantic_extract + doc_chunks/documents に矯正しました。query=" . $query);
+        }
+
         return [
             'query' => $query,
             'operation_type' => $operationType,
             'target_tables' => $targetTables,
             'answer_goal' => trim((string)($item['answer_goal'] ?? 'このサブクエリの取得結果から、ユーザー質問に必要な要点を短く回答する'))
         ];
+    }
+
+    private function shouldForceDocSemanticExtractByQuestion(): bool {
+        return $this->isDocExtractiveQuestion($this->searchQuery);
+    }
+
+    private function shouldForceDocSemanticExtract(string $query, string $operationType, array $targetTables): bool {
+        if (!$this->shouldForceDocSemanticExtractByQuestion()) {
+            return false;
+        }
+
+        $docTables = ['documents', 'doc_chunks'];
+        $hasDocTable = false;
+        foreach ($targetTables as $table) {
+            if (in_array($table, $docTables, true)) {
+                $hasDocTable = true;
+                break;
+            }
+        }
+
+        if (!$hasDocTable && preg_match('/(PDF|pdf|資料|図面|仕様書|報告書|文書|ページ|本文|根拠)/u', $query) !== 1) {
+            return false;
+        }
+
+        if ($operationType === 'semantic_extract' && in_array('doc_chunks', $targetTables, true)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private function isDocExtractiveQuestion(string $text): bool {
+        $hasDocReference = preg_match('/(PDF|pdf|資料|図面|仕様書|報告書|文書)/u', $text) === 1;
+        $hasExtractiveIntent = preg_match('/(留意点|注意点|要点|主要|重要|根拠|本文|箇条書き|抽出|整理|確認事項|見落とし)/u', $text) === 1;
+        return $hasDocReference && $hasExtractiveIntent;
     }
 
     private function inferOperationType(string $text): string {
@@ -1166,10 +1234,20 @@ class AdvancedReasoningRouteProcessor {
         return $this->shouldSkipSqlSequenceForDocOnlySubQueries();
     }
 
-    private function buildLightweightDocFinalAnswer(string $currentDraft): string {
+    private function buildLightweightDocFinalAnswer(string $currentDraft, array $stepResults = []): string {
+        $deterministicAnswer = $this->buildDeterministicDocLightweightAnswer();
+        if ($deterministicAnswer !== '') {
+            return $deterministicAnswer;
+        }
+
         $reasoningText = implode("\n\n", $this->subAnswers);
         if (mb_strlen($reasoningText) > 5000) {
             $reasoningText = mb_substr($reasoningText, 0, 5000) . "\n...[制限超過による省略]";
+        }
+
+        $groundingPacket = $this->buildDocLightweightEvidencePacket();
+        if ($groundingPacket === '') {
+            $groundingPacket = $this->buildEvidenceDraft($stepResults);
         }
 
         $systemPrompt = "あなたは資料読解に強い業務支援AIです。"
@@ -1179,25 +1257,155 @@ class AdvancedReasoningRouteProcessor {
             . "資料全体の一般説明よりも、質問で求められた確認事項・留意点・注意点・根拠を優先してください。"
             . "質問の依頼形式（箇条書き、件数指定、観点指定）がある場合は必ず従ってください。"
             . "「概要」「主な構成要素」といった資料紹介中心の答え方は避け、質問に対する直接の答えから始めてください。"
-            . "留意点は3〜5個までに絞り、各項目には可能な限り資料名やページ番号を自然に添えてください。"
+            . "留意点は3〜5個までに絞り、各項目は必ず `- [資料名 / P.xx]` または `- [資料名]` で始めてください。"
             . "根拠に書かれていない資料名・建物名・用途・結論を推測で補わないでください。"
+            . "根拠断片に含まれない法規名、設備名、構造種別、一般論を追加してはいけません。"
+            . "各留意点は、根拠断片に含まれる表現に寄せて1〜2文で書いてください。"
             . "明示的な留意点が見つからない場合は、その旨を短く明示し、代わりに確認が必要な記述断片を挙げてください。";
 
         $userPrompt = "【ユーザーの質問】\n{$this->originalMessage}\n\n"
+            . "【最優先で使う根拠断片】\n{$groundingPacket}\n\n"
             . "【利用可能な根拠・中間考察】\n{$reasoningText}\n\n"
             . "【内部ドラフト】\n{$currentDraft}\n\n"
+            . "【出力ルール】\n"
+            . "1. 冒頭1〜2文で結論を書く。\n"
+            . "2. その後に `## 留意点` を置き、留意点を箇条書きで3〜5件示す。\n"
+            . "3. 各箇条書きは必ず資料名とページ番号を含める。\n"
+            . "4. 最後に `## 根拠` を置き、使った根拠断片を短く列挙する。\n"
+            . "5. 根拠断片にない内容は書かない。\n\n"
             . "上記だけを根拠に、ユーザーへ提示する最終回答のみを日本語Markdownで出力してください。";
 
         $response = callOllamaChat(
             $this->ollama_host,
             $this->synthesisModel,
-            $systemPrompt,
+            $this->composeMemoryAwarePrompt($systemPrompt),
             $userPrompt,
             null,
             ["temperature" => 0.0, "top_p" => 0.1, "num_ctx" => 4096]
         );
 
         return trim($response);
+    }
+
+    private function buildDeterministicDocLightweightAnswer(): string {
+        $blocks = $this->extractDocEvidenceBlocks();
+        if (empty($blocks)) {
+            return '';
+        }
+
+        $strictEvidenceOnly = preg_match('/(根拠だけ|推測は入れない|推測しない|資料にあることだけ|根拠のみ)/u', $this->originalMessage) === 1;
+        $requestedLimit = $this->extractRequestedDocItemLimit();
+        $limit = $requestedLimit ?? 3;
+        $limit = max(1, min($limit, 5));
+        $selectedBlocks = $this->selectDocEvidenceBlocks($blocks, $limit);
+
+        $lines = [];
+        $lines[] = $strictEvidenceOnly
+            ? '資料PDFから確認できた記述だけを抜き出します。'
+            : '資料PDFから確認できた主要な留意点を整理します。';
+        $lines[] = '';
+        $lines[] = '## 留意点';
+        foreach ($selectedBlocks as $block) {
+            $lines[] = $this->formatDocEvidenceBullet($block, $strictEvidenceOnly);
+        }
+        $lines[] = '';
+        $lines[] = '## 根拠';
+        foreach ($selectedBlocks as $block) {
+            $lines[] = $this->formatDocEvidenceSource($block);
+        }
+
+        return trim(implode("\n", $lines));
+    }
+
+    private function buildDocLightweightEvidencePacket(): string {
+        $blocks = $this->extractDocEvidenceBlocks();
+        if (empty($blocks)) {
+            return '';
+        }
+
+        $blocks = $this->selectDocEvidenceBlocks($blocks, min(count($blocks), 6));
+
+        $packetLines = [];
+        $maxBlocks = count($blocks);
+        for ($i = 0; $i < $maxBlocks; $i++) {
+            $block = $blocks[$i];
+            $title = trim((string)($block['title'] ?? '資料名不明'));
+            $page = (int)($block['page'] ?? 0);
+            $header = ($i + 1) . '. ' . $title;
+            if ($page > 0) {
+                $header .= " / P.{$page}";
+            }
+            $packetLines[] = $header;
+
+            if (trim((string)($block['chunk'] ?? '')) !== '') {
+                $packetLines[] = "   - 本文: " . $this->compactEvidenceText((string)$block['chunk'], 180);
+            }
+            if (trim((string)($block['image'] ?? '')) !== '') {
+                $packetLines[] = "   - 図表: " . $this->compactEvidenceText((string)$block['image'], 120);
+            }
+        }
+
+        if (count($blocks) > $maxBlocks) {
+            $packetLines[] = '- ほか ' . (count($blocks) - $maxBlocks) . ' 件の資料断片あり';
+        }
+
+        return implode("\n", $packetLines);
+    }
+
+    private function extractDocEvidenceBlocks(): array {
+        $raw = implode("\n", array_map(static fn($answer) => (string)$answer, $this->subAnswers));
+        if (trim($raw) === '') {
+            return [];
+        }
+
+        $lines = preg_split('/\R/u', $raw) ?: [];
+        $blocks = [];
+        $current = null;
+
+        $flushCurrent = static function (?array $block) use (&$blocks): void {
+            if ($block === null) {
+                return;
+            }
+            $hasEvidence = trim((string)($block['chunk'] ?? '')) !== '' || trim((string)($block['image'] ?? '')) !== '';
+            if ($hasEvidence) {
+                $blocks[] = $block;
+            }
+        };
+
+        foreach ($lines as $line) {
+            $trimmed = trim((string)$line);
+            if ($trimmed === '') {
+                continue;
+            }
+
+            if (preg_match('/^- 資料:\s*(.+?)(?:\s*\/\s*ページ:\s*([0-9]+))?$/u', $trimmed, $matches)) {
+                $flushCurrent($current);
+                $current = [
+                    'title' => trim((string)$matches[1]),
+                    'page' => isset($matches[2]) ? (int)$matches[2] : 0,
+                    'chunk' => '',
+                    'image' => '',
+                ];
+                continue;
+            }
+
+            if ($current === null) {
+                continue;
+            }
+
+            if (preg_match('/^-?\s*本文抜粋:\s*(.+)$/u', $trimmed, $matches)) {
+                $current['chunk'] = trim((string)$matches[1]);
+                continue;
+            }
+
+            if (preg_match('/^-?\s*図表説明:\s*(.+)$/u', $trimmed, $matches)) {
+                $current['image'] = trim((string)$matches[1]);
+            }
+        }
+
+        $flushCurrent($current);
+
+        return $blocks;
     }
 
     private function applyReportModeFinalPolish(string $currentDraft): string {
@@ -1228,7 +1436,7 @@ class AdvancedReasoningRouteProcessor {
         $response = callOllamaChat(
             $this->ollama_host,
             $this->synthesisModel,
-            $systemPrompt,
+            $this->composeMemoryAwarePrompt($systemPrompt),
             $userPrompt,
             null,
             ["temperature" => 0.0, "top_p" => 0.1, "num_ctx" => 4096]
@@ -1247,13 +1455,15 @@ class AdvancedReasoningRouteProcessor {
             return $this->scoreDocChunkEvidenceRow($b) <=> $this->scoreDocChunkEvidenceRow($a);
         });
 
+        $rows = $this->selectDiversifiedDocChunkRows($rows, min(count($rows), 8));
+
         $lines = [];
-        $maxRows = min(count($rows), 8);
+        $maxRows = count($rows);
         for ($i = 0; $i < $maxRows; $i++) {
             $row = $rows[$i];
             $title = trim((string)($row['title'] ?? $row['file_path'] ?? '資料名不明'));
             $page = (int)($row['page_number'] ?? 0);
-            $chunkText = $this->compactEvidenceText((string)($row['chunk_text'] ?? ''), 220);
+            $chunkText = $this->summarizeDocEvidenceText((string)($row['chunk_text'] ?? ''), 180);
             $imageDescription = $this->compactEvidenceText((string)($row['image_description'] ?? ''), 140);
 
             $header = "- 資料: {$title}";
@@ -1283,6 +1493,7 @@ class AdvancedReasoningRouteProcessor {
             (string)($row['chunk_text'] ?? ''),
             (string)($row['image_description'] ?? ''),
         ]));
+        $text = $this->normalizeDocEvidenceText($text);
 
         if ($text === '') {
             return -100;
@@ -1296,8 +1507,12 @@ class AdvancedReasoningRouteProcessor {
             }
         }
 
-        if (preg_match('/(留意|注意|確認|必要|遵守|禁止|検証|点検|対策|非常用|防火|避難|有効幅員|階段|進入口|仕様|法規|基準|設備|構造|仕上げ)/u', $text)) {
-            $score += 6;
+        if (preg_match('/(留意|注意|確認|必要|遵守|禁止|検証|点検|対策|非常用|防火|避難|有効幅員|階段|進入口|開錠|幅員|仕様|法規|基準|設備|構造|仕上げ)/u', $text)) {
+            $score += 8;
+        }
+
+        if (preg_match('/(非常用進入口|有効幅員|踊り場|開錠できる|避難経路|防火区画)/u', $text)) {
+            $score += 10;
         }
 
         if (preg_match('/(建築基準法|消防法|第[0-9]+条|m\b|mm\b|有効幅|高さ|縮尺)/u', $text)) {
@@ -1309,7 +1524,23 @@ class AdvancedReasoningRouteProcessor {
         }
 
         if (preg_match('/(図面リスト|確認申請図面リスト|通し番号|図面番号|縮尺|建築図)/u', $text)) {
-            $score -= 4;
+            $score -= 6;
+        }
+
+        if (preg_match('/(\|\s*[0-9]{1,3}\s*\|.*\|\s*[A-Z][0-9]{3,}\s*\||室内仕上げ表|配置図|平面図-?[0-9]*|立面図|断面図|矩計図)/u', $text)) {
+            $score -= 14;
+        }
+
+        if (preg_match('/(面積表|面積求積|容積対象外|容積対象|昇降路の部分|エレベーターの昇降路|階容積対象面積|容積対象外面積|㎡|BIMソフト|Archicad|設計一級建築士登録|登録第\*+号|登録第[0-9＊*]+号)/iu', $text)) {
+            $score -= 16;
+        }
+
+        if ($this->isWeakDocEvidenceText($text)) {
+            $score -= 10;
+        }
+
+        if ($this->isVeryWeakDocEvidenceText($text)) {
+            $score -= 18;
         }
 
         if (mb_strlen($text) < 40) {
@@ -1367,6 +1598,337 @@ class AdvancedReasoningRouteProcessor {
         }
 
         return mb_substr($text, 0, $limit) . '...';
+    }
+
+    private function extractRequestedDocItemLimit(): ?int {
+        if (preg_match('/([0-9]+)\s*(点|件|項目)だけ/u', $this->originalMessage, $matches)) {
+            return (int)$matches[1];
+        }
+
+        return null;
+    }
+
+    private function formatDocEvidenceBullet(array $block, bool $strictEvidenceOnly): string {
+        $reference = $this->buildDocEvidenceReference($block);
+        $evidence = trim((string)($block['chunk'] ?? '')) !== ''
+            ? $this->summarizeDocEvidenceText((string)$block['chunk'], $strictEvidenceOnly ? 150 : 120)
+            : $this->compactEvidenceText((string)($block['image'] ?? ''), 120);
+
+        if ($evidence === '') {
+            $evidence = '該当箇所の記載内容を要確認。';
+        }
+
+        return "- {$reference} {$evidence}";
+    }
+
+    private function formatDocEvidenceSource(array $block): string {
+        $reference = $this->buildDocEvidenceReference($block);
+        $source = trim((string)($block['chunk'] ?? '')) !== ''
+            ? $this->summarizeDocEvidenceText((string)$block['chunk'], 90)
+            : $this->compactEvidenceText((string)($block['image'] ?? ''), 90);
+
+        if ($source === '') {
+            $source = '本文抜粋なし';
+        }
+
+        return "- {$reference} {$source}";
+    }
+
+    private function buildDocEvidenceReference(array $block): string {
+        $title = trim((string)($block['title'] ?? '資料名不明'));
+        $page = (int)($block['page'] ?? 0);
+        return $page > 0 ? "[{$title} / P.{$page}]" : "[{$title}]";
+    }
+
+    private function selectDiversifiedDocChunkRows(array $rows, int $limit): array {
+        $selected = [];
+        $usedPageKeys = [];
+        $deferred = [];
+        $strongCount = 0;
+        $candidateLogs = [];
+
+        foreach ($rows as $row) {
+            $title = trim((string)($row['title'] ?? $row['file_path'] ?? '資料名不明'));
+            $page = (int)($row['page_number'] ?? 0);
+            $pageKey = mb_strtolower($title, 'UTF-8') . '#' . $page;
+            $text = $this->normalizeDocEvidenceText((string)($row['chunk_text'] ?? ''));
+            $classification = $this->classifyDocEvidenceText($text);
+
+            $candidateLogs[] = "row|{$classification}|{$title}|P{$page}|"
+                . $this->scoreDocChunkEvidenceRow($row)
+                . '|'
+                . $this->compactEvidenceText($text, 90);
+
+            if ($classification === 'very_weak') {
+                continue;
+            }
+
+            if ($classification === 'weak') {
+                $deferred[] = $row;
+                continue;
+            }
+
+            if (!isset($usedPageKeys[$pageKey])) {
+                $selected[] = $row;
+                $usedPageKeys[$pageKey] = true;
+                $strongCount++;
+            } else {
+                $deferred[] = $row;
+            }
+
+            if (count($selected) >= $limit) {
+                $this->logDocEvidenceCandidates('rows', $candidateLogs, count($selected), count($deferred));
+                return $selected;
+            }
+        }
+
+        $this->logDocEvidenceCandidates('rows', $candidateLogs, count($selected), count($deferred));
+
+        if ($strongCount > 0) {
+            return $selected;
+        }
+
+        foreach ($deferred as $row) {
+            $selected[] = $row;
+            if (count($selected) >= $limit) {
+                break;
+            }
+        }
+
+        return $selected;
+    }
+
+    private function selectDocEvidenceBlocks(array $blocks, int $limit): array {
+        $selected = [];
+        $usedPageKeys = [];
+        $deferred = [];
+        $strongCount = 0;
+        $candidateLogs = [];
+
+        foreach ($blocks as $block) {
+            $title = trim((string)($block['title'] ?? '資料名不明'));
+            $page = (int)($block['page'] ?? 0);
+            $pageKey = mb_strtolower($title, 'UTF-8') . '#' . $page;
+            $text = trim((string)($block['chunk'] ?? '')) !== ''
+                ? (string)$block['chunk']
+                : (string)($block['image'] ?? '');
+            $normalized = $this->normalizeDocEvidenceText($text);
+
+            if ($normalized === '') {
+                continue;
+            }
+
+            $classification = $this->classifyDocEvidenceText($normalized);
+            $candidateLogs[] = "block|{$classification}|{$title}|P{$page}|"
+                . $this->compactEvidenceText($normalized, 90);
+
+            if ($classification === 'very_weak') {
+                continue;
+            }
+
+            if ($classification === 'weak') {
+                $deferred[] = $block;
+                continue;
+            }
+
+            if (!isset($usedPageKeys[$pageKey])) {
+                $selected[] = $block;
+                $usedPageKeys[$pageKey] = true;
+                $strongCount++;
+            } else {
+                $deferred[] = $block;
+            }
+
+            if (count($selected) >= $limit) {
+                $this->logDocEvidenceCandidates('blocks', $candidateLogs, count($selected), count($deferred));
+                return $selected;
+            }
+        }
+
+        $this->logDocEvidenceCandidates('blocks', $candidateLogs, count($selected), count($deferred));
+
+        if ($strongCount > 0) {
+            return $selected;
+        }
+
+        foreach ($deferred as $block) {
+            $selected[] = $block;
+            if (count($selected) >= $limit) {
+                break;
+            }
+        }
+
+        return $selected;
+    }
+
+    private function summarizeDocEvidenceText(string $text, int $limit): string {
+        $text = $this->normalizeDocEvidenceText($text);
+        if ($text === '') {
+            return '';
+        }
+
+        $preferred = $this->extractPreferredDocEvidenceSnippet($text);
+        if ($preferred !== '') {
+            return $this->compactEvidenceText($preferred, $limit);
+        }
+
+        $segments = preg_split('/(?:。|！|!|？|\?|：|:|  +|(?<=\])\s+)/u', $text) ?: [];
+        foreach ($segments as $segment) {
+            $segment = trim((string)$segment);
+            if ($segment === '' || $this->isWeakDocEvidenceText($segment)) {
+                continue;
+            }
+            if (preg_match('/(留意|注意|確認|必要|遵守|禁止|非常用|防火|避難|有効幅員|階段|進入口|開錠|幅員)/u', $segment)) {
+                return $this->compactEvidenceText($segment, $limit);
+            }
+        }
+
+        return $this->compactEvidenceText($text, $limit);
+    }
+
+    private function extractPreferredDocEvidenceSnippet(string $text): string {
+        $patterns = [
+            '/(非常用進入口[^。]{0,90})/u',
+            '/(廊下の有効幅員[^。]{0,90})/u',
+            '/(階段[^。]{0,90}踊り場[^。]{0,60})/u',
+            '/(避難[^。]{0,90})/u',
+            '/(防火[^。]{0,90})/u',
+            '/(開錠できる[^。]{0,80})/u',
+            '/(有効幅員[^。]{0,80})/u',
+            '/(特例の適用の有無[^。]{0,80})/u',
+            '/((?:留意|注意|確認|必要|遵守|禁止)[^。]{0,90})/u',
+        ];
+
+        foreach ($patterns as $pattern) {
+            if (preg_match($pattern, $text, $matches)) {
+                return trim((string)$matches[1]);
+            }
+        }
+
+        return '';
+    }
+
+    private function normalizeDocEvidenceText(string $text): string {
+        $text = trim((string)$text);
+        if ($text === '') {
+            return '';
+        }
+
+        if (class_exists('Normalizer')) {
+            $normalized = \Normalizer::normalize($text, \Normalizer::FORM_KC);
+            if (is_string($normalized) && $normalized !== '') {
+                $text = $normalized;
+            }
+        }
+
+        $text = strtr($text, [
+            '⾯' => '面',
+            '⼊' => '入',
+            '⽕' => '火',
+            '⽤' => '用',
+            '⾼' => '高',
+            '⼨' => '寸',
+            '⾃' => '自',
+            '⾏' => '行',
+        ]);
+
+        $text = preg_replace('/\s+/u', ' ', $text) ?? $text;
+        $text = preg_replace('/(?<=[\p{Han}\p{Hiragana}\p{Katakana}])\s+(?=[\p{Han}\p{Hiragana}\p{Katakana}])/u', '', $text) ?? $text;
+        $text = preg_replace('/\s*([,.:;\/\]\[()])\s*/u', '$1', $text) ?? $text;
+        $text = preg_replace('/\|\s*:?-{2,}\s*/u', '| ', $text) ?? $text;
+        $text = preg_replace('/\[\s*省略\s*\]/u', '[省略]', $text) ?? $text;
+
+        return trim($text);
+    }
+
+    private function isWeakDocEvidenceText(string $text): bool {
+        $text = $this->normalizeDocEvidenceText($text);
+        if ($text === '') {
+            return true;
+        }
+
+        return preg_match('/(主要用途|駐車台数|建築物の数|申請に係る建築物の数|最高の高さ|主体構造|地上[0-9]+階|天井高|主なスパン|軒裏|敷地測量図|縮尺|図面リスト|通し番号|室内仕上げ表|配置図|平面図-?[0-9]*|立面図|断面図|矩計図)/u', $text) === 1;
+    }
+
+    private function isVeryWeakDocEvidenceText(string $text): bool {
+        $text = $this->normalizeDocEvidenceText($text);
+        if ($text === '') {
+            return true;
+        }
+
+        if (preg_match('/\|\s*:?-{2,}\s*\|/u', $text)) {
+            return true;
+        }
+
+        if (preg_match('/^\|\s*[0-9]{1,3}\s*\|/u', $text)) {
+            return true;
+        }
+
+        if (preg_match('/(\|\s*[0-9]{1,3}\s*\|.*\|\s*[A-Z][0-9]{3,}\s*\||\|\s*説[0-9]+\s*\||室内仕上げ表|配置図|平面図-?[0-9]*|立面図|断面図|矩計図|面積表|面積求積|容積対象外面積|容積対象面積|階容積対象面積|容積対象外|容積対象|昇降路の部分|エレベーターの昇降路|㎡|BIMソフト|Archicad|設計一級建築士登録|登録第\*+号|登録第[0-9＊*]+号)/iu', $text)) {
+            return true;
+        }
+
+        if (preg_match('/(確認申請図面リスト|図面番号区分|電子テキスト本文|画像内には、文字|画像内には文字|表データ、ラベル|2x2 タイル詳細|archsyncトレーニング|archsync training)/iu', $text)) {
+            return true;
+        }
+
+        if (preg_match('/^.{0,12}\.\.\.\[省略\]$/u', $text)) {
+            return true;
+        }
+
+        if (preg_match('/^(必要|概要|一覧|図面|資料名不明).{0,10}\[省略\]$/u', $text)) {
+            return true;
+        }
+
+        if ($this->hasExcessiveNumericDensity($text)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private function classifyDocEvidenceText(string $text): string {
+        $text = $this->normalizeDocEvidenceText($text);
+        if ($text === '' || $this->isVeryWeakDocEvidenceText($text)) {
+            return 'very_weak';
+        }
+        if ($this->isWeakDocEvidenceText($text)) {
+            return 'weak';
+        }
+        return 'strong';
+    }
+
+    private function logDocEvidenceCandidates(string $kind, array $candidateLogs, int $selectedCount, int $deferredCount): void {
+        if (empty($candidateLogs)) {
+            chatLogger("[DOC-CANDIDATES] {$kind}=0 | selected={$selectedCount} | deferred={$deferredCount}");
+            return;
+        }
+
+        $preview = array_slice($candidateLogs, 0, 6);
+        chatLogger("[DOC-CANDIDATES] {$kind}=" . count($candidateLogs)
+            . " | selected={$selectedCount} | deferred={$deferredCount}"
+            . " | " . implode(' || ', $preview));
+    }
+
+    private function hasExcessiveNumericDensity(string $text): bool {
+        $text = $this->normalizeDocEvidenceText($text);
+        if ($text === '') {
+            return false;
+        }
+
+        $digits = preg_match_all('/[0-9]/u', $text);
+        $numberRuns = preg_match_all('/[0-9][0-9,.\-]*/u', $text);
+        $length = max(1, mb_strlen($text));
+
+        if ($digits >= 20 && $digits / $length >= 0.28) {
+            return true;
+        }
+
+        if ($numberRuns >= 8 && preg_match('/(Y[0-9]+|X[0-9]+|A\s*[0-9]{2,}|[0-9]{1,3},[0-9]{3})/u', $text)) {
+            return true;
+        }
+
+        return false;
     }
 
     private function buildEvidenceDraft(array $stepResults): string {
@@ -1547,7 +2109,7 @@ class AdvancedReasoningRouteProcessor {
             ]);
 
             try {
-                $lightweightResponse = $this->buildLightweightDocFinalAnswer($currentDraft);
+                $lightweightResponse = $this->buildLightweightDocFinalAnswer($currentDraft, $stepResults);
                 if ($lightweightResponse !== '') {
                     $currentDraft = $lightweightResponse;
                     if ($this->reportMode) {
@@ -1560,29 +2122,22 @@ class AdvancedReasoningRouteProcessor {
                     }
                     $this->finalResponse = $currentDraft;
                     $this->retryCount = 0;
-                    $this->evalResult = [
-                        'question_type' => 'doc_semantic_extract',
-                        'verdict' => 'pass',
-                        'evaluation_mode' => 'synthetic',
-                        'evaluation_source' => 'lightweight_doc_final',
-                        'scores' => [
-                            'proactivity' => 90,
-                            'faithfulness' => 100,
-                            'answer_relevance' => 95,
-                            'clarity' => 90,
-                        ],
-                        'total_score' => 95,
-                        'feedback' => '資料PDF向け軽量最終回答ルートを適用しました。',
-                        'next_action' => '',
-                        'sql_hint' => '',
-                        'must_fix' => [],
-                        'forbidden_actions' => [],
-                        'needs_revision' => false,
-                    ];
-                    chatLogger("[EVAL-SYNTHETIC] 軽量最終回答ルートの擬似評価を記録します。source=lightweight_doc_final | verdict=pass | score=95 | relevance=95 | faithfulness=100");
+
+                    require_once __DIR__ . '/../../src/LightweightFinalAnswerGuard.php';
+                    $guard = new LightweightFinalAnswerGuard((string)$this->ollama_host);
+                    $guardResult = $guard->review(
+                        $this->originalMessage,
+                        $this->buildEvidenceDraft($stepResults),
+                        $this->finalResponse,
+                        (string)$this->model,
+                        'advanced_lightweight_doc_final'
+                    );
+                    $this->finalResponse = (string)($guardResult['response'] ?? $this->finalResponse);
+                    $this->evalResult = $guardResult['eval_result'] ?? $this->evalResult;
+
                     sendSSE('status', [
                         'step'    => 6,
-                        'message' => "✅ 品質監査を省略し、軽量最終回答を送出します。"
+                        'message' => "✅ 軽量最終回答の確認が完了しました。"
                     ]);
                     return;
                 }
@@ -1661,7 +2216,7 @@ class AdvancedReasoningRouteProcessor {
             ]);
             
             // 門番（スパルタデータ監査官）による採点執行
-            $this->evalResult = $evaluator->evaluateDraft($this->originalMessage, $mergedReasoningText, $currentDraft, $this->reasoningModel);
+            $this->evalResult = $evaluator->evaluateDraft($this->originalMessage, $mergedReasoningText, $currentDraft, $this->mainModel);
             $evaluationMode = (string)($this->evalResult['evaluation_mode'] ?? 'unknown');
             $evaluationSource = (string)($this->evalResult['evaluation_source'] ?? 'unknown');
             $verdict = (string)($this->evalResult['verdict'] ?? 'unknown');
@@ -2019,14 +2574,15 @@ class AdvancedReasoningRouteProcessor {
             
             // SSEでエラーパケットを出荷
             sendSSE('result', [
-                'status'          => 'error', 
-                'response'        => "⚠️ 閲覧権限エラー：この案件に対するアクセス権限がありません。", 
-                'sources'         => [], 
-                'mode_used'       => $this->promptKey, 
-                'detected_page'   => null, 
-                'hit_count'       => 0, 
+                'status'          => 'error',
+                'response'        => "⚠️ 閲覧権限エラー：この案件に対するアクセス権限がありません。",
+                'sources'         => [],
+                'mode_used'       => $this->promptKey,
+                'detected_page'   => null,
+                'hit_count'       => 0,
                 'reasoning_steps' => [],
-                'applied_model'   => $this->synthesisModel, 
+                'applied_model'   => $this->synthesisModel,
+                'model_roles'     => ChatModelRolePayload::build($this->mainModel, $this->subModel, $this->embeddingModel, 'main'),
                 'created_at'      => date('Y/m/d H:i')
             ]);
             return false;
@@ -2054,6 +2610,7 @@ class AdvancedReasoningRouteProcessor {
             'detected_page'   => null,
             'hit_count'       => count($source_docs),
             'applied_model'   => $this->synthesisModel,
+            'model_roles'     => ChatModelRolePayload::build($this->mainModel, $this->subModel, $this->embeddingModel, 'main'),
             'created_at'      => date('Y/m/d H:i'),
             'report_document' => $this->reportDocument
         ]);

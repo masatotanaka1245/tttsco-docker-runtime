@@ -39,8 +39,13 @@ class CsvQuestionRouter
 
         $mentionsCsvFile = $this->findMentionedCsvFileName($question) !== null;
         $hasSummaryIntent = preg_match('/(内容|概要|まとめ|要約|どんな内容|内容を教えて|説明して)/u', $question) === 1;
+        $hasChartIntent = preg_match('/(グラフ|チャート|chart)/iu', $question) === 1;
 
         if ($mentionsCsvFile && $hasSummaryIntent) {
+            return true;
+        }
+
+        if ($hasChartIntent) {
             return true;
         }
 
@@ -50,7 +55,7 @@ class CsvQuestionRouter
     public function shouldUseEvidenceRoute(string $question): bool
     {
         $mentionsCsvFile = $this->findMentionedCsvFileName($question) !== null;
-        if (!$mentionsCsvFile && !preg_match('/(CSV|csv|データ|レコード|行|列|カラム|項目|内容|概要|傾向|まとめ|集計)/u', $question)) {
+        if (!$mentionsCsvFile && !preg_match('/(CSV|csv|データ|レコード|行|列|カラム|項目|内容|概要|傾向|まとめ|集計|グラフ|チャート|chart)/iu', $question)) {
             return false;
         }
 

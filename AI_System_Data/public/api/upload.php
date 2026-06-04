@@ -33,6 +33,7 @@ require_once __DIR__ . '/../../config/session.php';
 require_once __DIR__ . '/../../src/Auth.php';
 require_once __DIR__ . '/../../src/ProjectAccess.php';
 require_once __DIR__ . '/../../src/AppLogger.php';
+require_once __DIR__ . '/../../src/ModelRoleResolver.php';
 
 // 認証チェック
 $auth = new Auth($pdo);
@@ -399,12 +400,13 @@ try {
     // =========================================================================
     @session_start();
     $ollamaHost = rtrim($_SESSION['ollama_host'] ?? (getenv('OLLAMA_HOST') ?: 'http://127.0.0.1:11434'), '/');
-    $vlmModel   = $_SESSION['default_model'] ?? (getenv('OLLAMA_CHAT_MODEL') ?: 'gemma4:e4b'); 
-    $textModel  = $_SESSION['sub_model'] ?? (getenv('OLLAMA_CHAT_MODEL') ?: 'gemma4:e4b'); // 重複排除と要約用
+    $resolvedModels = ModelRoleResolver::resolveUserSettings($_SESSION);
+    $vlmModel   = $resolvedModels['main_model'];
+    $textModel  = $resolvedModels['sub_model']; // 重複排除と要約用
     session_write_close();
 
     // ★GPUフル活用のため、EmbeddingEngineを使わずにここで直接cURLを用いて num_gpu=999 を強制指定
-    $embed_model = getenv('OLLAMA_EMBED_MODEL') ?: "mxbai-embed-large";
+    $embed_model = $resolvedModels['embedding_model'];
     $embedWithRetry = function($text, $logTag) use ($ollamaHost, $embed_model) {
         $max_retries = 5;
         $delay = 1; // 秒

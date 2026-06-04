@@ -4,6 +4,8 @@
  * 権限に基づいたナビゲーション制御および個人設定モーダルを含む
  */
 require_once __DIR__ . '/../../config/database.php';
+require_once __DIR__ . '/../../src/ModelRoleResolver.php';
+require_once __DIR__ . '/../../src/UserSettingsSchema.php';
 
 $current_page = basename($_SERVER['PHP_SELF']);
 $username = $_SESSION['username'] ?? 'ゲスト';
@@ -12,17 +14,24 @@ $role = $_SESSION['role'] ?? 'user';
 $userId = $_SESSION['user_id'] ?? 0;
 
 // ユーザー設定の取得 (DBから最新の状態を反映、未設定時のデフォルト値も定義)
+$modelDefaults = ModelRoleResolver::defaults();
 $userSettings = [
     'default_prompt' => 'construction_consultant',
     'default_lang'   => 'ja',
-    'default_model'  => 'gemma4:e4b',
-    'sub_model'      => 'gemma4:e4b',
-    'ollama_host'    => 'http://tsc25dtp116:11434'
+    'default_model'  => $modelDefaults['main_model'],
+    'sub_model'      => $modelDefaults['sub_model'],
+    'embedding_model' => $modelDefaults['embedding_model'],
+    'ollama_host'    => $_SESSION['ollama_host'] ?? $modelDefaults['ollama_host']
 ];
+$hasEmbeddingModelColumn = UserSettingsSchema::hasEmbeddingModelColumn($pdo);
 
 if ($userId) {
     try {
-        $stmtSet = $pdo->prepare("SELECT default_prompt, default_lang, default_model, sub_model, ollama_host FROM users WHERE id = ?");
+        $selectColumns = 'default_prompt, default_lang, default_model, sub_model, ollama_host';
+        if ($hasEmbeddingModelColumn) {
+            $selectColumns .= ', embedding_model';
+        }
+        $stmtSet = $pdo->prepare("SELECT {$selectColumns} FROM users WHERE id = ?");
         $stmtSet->execute([$userId]);
         $dbSettings = $stmtSet->fetch(PDO::FETCH_ASSOC);
         if ($dbSettings) {
@@ -33,6 +42,7 @@ if ($userId) {
             $_SESSION['default_lang']   = $userSettings['default_lang'];
             $_SESSION['default_model']  = $userSettings['default_model'];
             $_SESSION['sub_model']      = $userSettings['sub_model'];
+            $_SESSION['embedding_model'] = $userSettings['embedding_model'];
             $_SESSION['ollama_host']    = $userSettings['ollama_host'];
         }
     } catch (PDOException $e) {
@@ -139,21 +149,32 @@ if (!function_exists('isActive')) {
                     <p class="text-[9px] text-gray-400 mt-1">※ AI推論エンジン（GPUサーバー）のIPアドレス・ポートを指定してください。</p>
                 </div>
 
-                <div class="grid grid-cols-2 gap-4">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
                         <label class="block font-bold text-[#00758F] mb-1.5 tracking-tighter">メイン使用モデル <span class="text-red-500">*</span></label>
-                        <input type="text" name="default_model" class="w-full border-gray-300 border rounded-lg px-3 py-2 font-mono bg-blue-50/30 focus:ring-2 focus:ring-[#00758F]/20 outline-none" 
+                        <input type="text" name="default_model" class="w-full border-gray-300 border rounded-lg px-3 py-2 font-mono bg-blue-50/30 focus:ring-2 focus:ring-[#00758F]/20 outline-none"
                                value="<?= htmlspecialchars($userSettings['default_model']) ?>" required placeholder="gemma4:e4b">
-                        <p class="text-[9px] text-gray-400 mt-1">※ 通常推論およびRAG検索時の抽出に使用します。</p>
+                        <p class="text-[9px] text-gray-400 mt-1">※ 因数分解と最終回答の統合に使います。</p>
                     </div>
 
                     <div>
-                        <label class="block font-bold text-[#00758F] mb-1.5 tracking-tighter">サブモデル (統合用) <span class="text-red-500">*</span></label>
-                        <input type="text" name="sub_model" class="w-full border-gray-300 border rounded-lg px-3 py-2 font-mono bg-blue-50/30 focus:ring-2 focus:ring-[#00758F]/20 outline-none" 
+                        <label class="block font-bold text-[#00758F] mb-1.5 tracking-tighter">サブモデル (中間処理用) <span class="text-red-500">*</span></label>
+                        <input type="text" name="sub_model" class="w-full border-gray-300 border rounded-lg px-3 py-2 font-mono bg-blue-50/30 focus:ring-2 focus:ring-[#00758F]/20 outline-none"
                                value="<?= htmlspecialchars($userSettings['sub_model']) ?>" required placeholder="gpt-oss:20b">
-                        <p class="text-[9px] text-gray-400 mt-1">※ フル思考時のマージなど、重厚な推論に使用します。</p>
+                        <p class="text-[9px] text-gray-400 mt-1">※ SQL生成や補助分析などの中間処理に使います。</p>
+                    </div>
+
+                    <div>
+                        <label class="block font-bold text-[#00758F] mb-1.5 tracking-tighter">Embeddingモデル <span class="text-red-500">*</span></label>
+                        <input type="text" name="embedding_model" class="w-full border-gray-300 border rounded-lg px-3 py-2 font-mono bg-blue-50/30 focus:ring-2 focus:ring-[#00758F]/20 outline-none"
+                               value="<?= htmlspecialchars($userSettings['embedding_model']) ?>" required placeholder="mxbai-embed-large">
+                        <p class="text-[9px] text-gray-400 mt-1">※ ベクトル化と類似検索の埋め込み生成に使います。</p>
                     </div>
                 </div>
+                <?php if (!$hasEmbeddingModelColumn): ?>
+                    <p class="text-[10px] text-amber-600">※ 現在のDBでは `embedding_model` 列が未作成のため、この値はセッション上の暫定設定として扱われます。</p>
+                <?php endif; ?>
+                <p class="text-[10px] text-slate-500">※ 保存時に `Ollama /api/tags` を確認し、入力したモデル名が実在しない場合は保存しません。</p>
             </div>
 
             <div class="flex justify-end gap-2 mt-8 pt-4 border-t">

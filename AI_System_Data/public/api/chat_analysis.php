@@ -30,6 +30,8 @@
  */
 
 require_once __DIR__ . '/../../src/AppLogger.php';
+require_once __DIR__ . '/../../src/ProjectContextMemory.php';
+require_once __DIR__ . '/../../src/ChatModelRolePayload.php';
 
 if (!function_exists('chatLogger')) {
     function chatLogger($msg) {
@@ -45,9 +47,9 @@ if (!function_exists('chatLogger')) {
  * 外部からのエントリーポイント（インターフェース引数100%完全同期維持版・Freeze Protocol）
  * ✨【関数名シンクロ統合】：名前を chat.php 側の呼び出し名 「runAdvancedReasoningRoute」 へ完全同期！
  */
-function runAdvancedReasoningRoute($pdo, $ollama_host, $projectId, $originalMessage, $model, $promptKey, $projectContext, $historySummaryText, $user_id, $role, bool $reportMode = false, bool $diagramMode = false) {
+function runAdvancedReasoningRoute($pdo, $ollama_host, $projectId, $originalMessage, $mainModel, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, bool $reportMode = false, bool $diagramMode = false) {
     $processor = new AdvancedReasoningRouteProcessor(
-        $pdo, $ollama_host, $projectId, $originalMessage, $model, $promptKey, $projectContext, $historySummaryText, $user_id, $role, $reportMode, $diagramMode
+        $pdo, $ollama_host, $projectId, $originalMessage, $mainModel, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, $reportMode, $diagramMode
     );
     $processor->execute();
 }
@@ -62,6 +64,8 @@ class AdvancedReasoningRouteProcessor {
     private $projectId;
     private $originalMessage;
     private $model;
+    private $subModel;
+    private $embeddingModel;
     private $promptKey;
     private $projectContext;
     private $historySummaryText;
@@ -87,6 +91,7 @@ class AdvancedReasoningRouteProcessor {
     private $csvValueAggregationRunner = null;
     private $csvSemanticAggregationRunner = null;
     private $csvAggregationTargetResolver = null;
+    private $lightweightFinalAnswerGuard = null;
 
     // 内部ステート管理
     private $reasoningId;
@@ -98,6 +103,7 @@ class AdvancedReasoningRouteProcessor {
     private $evalResult = null;
     private $retryCount = 0;
     private $databaseMemoryPrompt = ""; // フェーズ3：DB事前記憶プロンプト保持用
+    private $projectOperatingMemoryPrompt = "";
     
     // ファイルID配列を動的に保持・蓄積するためのプライベートプロパティ宣言
     private $availableCsvFileIds = [];
@@ -111,12 +117,14 @@ class AdvancedReasoningRouteProcessor {
     /**
      * コンストラクタ (完全DI化)
      */
-    public function __construct($pdo, $ollama_host, $projectId, $originalMessage, $model, $promptKey, $projectContext, $historySummaryText, $user_id, $role, bool $reportMode = false, bool $diagramMode = false) {
+    public function __construct($pdo, $ollama_host, $projectId, $originalMessage, $mainModel, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, bool $reportMode = false, bool $diagramMode = false) {
         $this->pdo                = $pdo;
         $this->ollama_host        = $ollama_host;
         $this->projectId          = $projectId;
         $this->originalMessage    = $originalMessage;
-        $this->model              = $model;
+        $this->model              = $mainModel;
+        $this->subModel           = $subModel;
+        $this->embeddingModel     = $embeddingModel;
         $this->promptKey          = $promptKey;
         $this->projectContext     = $projectContext;
         $this->historySummaryText = $historySummaryText;
@@ -138,6 +146,11 @@ class AdvancedReasoningRouteProcessor {
         return $instructions;
     }
 
+    private function composeMemoryAwarePrompt(string $prompt): string
+    {
+        return trim($this->projectOperatingMemoryPrompt . "\n" . $this->databaseMemoryPrompt . "\n" . $prompt);
+    }
+
     private function maxSqlRepairRetries(): int {
         return ($this->reportMode || $this->diagramMode) ? 2 : 1;
     }
@@ -153,7 +166,7 @@ class AdvancedReasoningRouteProcessor {
         $this->model = $this->model; // ステートバインド同期維持
 
         chatLogger(">>> [データ分析ルート] 動的スキーマ監査型 多段階集計エージェントを起動します");
-        chatLogger("[DEBUG] 引数情報 - Host: {$this->ollama_host} | Model: {$this->model} | UserID: {$this->user_id} | Role: {$this->role}");
+        chatLogger("[DEBUG] 引数情報 - Host: {$this->ollama_host} | MainModel: {$this->model} | SubModel: {$this->subModel} | UserID: {$this->user_id} | Role: {$this->role}");
 
         // 0. BOLA脆弱性防止・アサイン権限チェック
         if (!$this->checkAuthority()) {
@@ -194,6 +207,9 @@ class AdvancedReasoningRouteProcessor {
             // PromptManagerを読み込み、記憶をAI用制約プロンプトにコンパイルしてプロパティに格納
             require_once __DIR__ . '/../../src/PromptManager.php';
             $this->databaseMemoryPrompt = PromptManager::getDatabaseMemoryInstruction($jsonStr);
+            $projectMemoryDocs = ProjectContextMemory::load($this->pdo, (int)$this->projectId);
+            $this->projectOperatingMemoryPrompt = PromptManager::getProjectOperatingMemoryInstruction($projectMemoryDocs);
+            chatLogger("[PROJECT-MEMORY] loaded=" . (empty(ProjectContextMemory::loadedTypes($projectMemoryDocs)) ? 'none' : implode(',', ProjectContextMemory::loadedTypes($projectMemoryDocs))) . " | chars=" . ProjectContextMemory::totalChars($projectMemoryDocs));
         }
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -357,14 +373,15 @@ class AdvancedReasoningRouteProcessor {
         if ($stmtCheck->fetchColumn() == 0) {
             chatLogger("[SECURITY WARN] ユーザーID: {$this->user_id} が権限のない案件ID: {$this->projectId} のデータ分析APIをコールしました。処理を拒否します。");
             sendSSE('result', [
-                'status'          => 'error', 
-                'response'        => "⚠️ 閲覧権限エラー：この案件に対するアクセス権限がありません。", 
-                'sources'         => [], 
-                'mode_used'       => $this->promptKey, 
-                'detected_page'   => null, 
-                'hit_count'       => 0, 
+                'status'          => 'error',
+                'response'        => "⚠️ 閲覧権限エラー：この案件に対するアクセス権限がありません。",
+                'sources'         => [],
+                'mode_used'       => $this->promptKey,
+                'detected_page'   => null,
+                'hit_count'       => 0,
                 'reasoning_steps' => [],
-                'applied_model'   => $this->model, 
+                'applied_model'   => $this->model,
+                'model_roles'     => ChatModelRolePayload::build($this->model, $this->subModel, $this->embeddingModel, 'main'),
                 'created_at'      => date('Y/m/d H:i')
             ]);
             return false;
@@ -520,7 +537,8 @@ class AdvancedReasoningRouteProcessor {
             $searchResult,
             $this->getCsvQuestionRouter(),
             $this->getCsvEvidenceReader(),
-            $this->getCsvSummaryFormatter()
+            $this->getCsvSummaryFormatter(),
+            $this->diagramMode
         );
     }
 
@@ -635,6 +653,7 @@ class AdvancedReasoningRouteProcessor {
     }
 
     private function completeCsvRoute(): void {
+        $this->runLightweightFinalAnswerGuard('data_analysis_lightweight');
         $this->insertReasoningStep(99, '最終報告書・グラフの統合生成', '完了');
         $this->saveHistoryAndEvaluations();
         $this->sendFinalResult();
@@ -666,7 +685,11 @@ class AdvancedReasoningRouteProcessor {
 
     private function createSubAnswerAppender(): callable {
         return function (string $response): void {
-            $this->subAnswers[] = $response;
+            $trimmed = trim($response);
+            if ($trimmed === '') {
+                return;
+            }
+            $this->subAnswers[] = $trimmed;
         };
     }
 
@@ -719,6 +742,7 @@ class AdvancedReasoningRouteProcessor {
             (int)$this->projectId,
             $this->originalMessage,
             $this->ollama_host,
+            $this->subModel,
             $this->model,
             $this->promptKey,
             $this->projectContext,
@@ -768,6 +792,7 @@ class AdvancedReasoningRouteProcessor {
         $this->csvQuickResponseRunner = new CsvQuickResponseRunner(
             'sendSSE',
             $this->createFinalResponseSetter(),
+            $this->createSubAnswerAppender(),
             $this->createReasoningStepCallback(),
             $this->createCompleteCsvRouteCallback(),
             $this->createElapsedFormatterCallback(),
@@ -869,7 +894,7 @@ class AdvancedReasoningRouteProcessor {
             $this->createCompleteCsvRouteCallback(),
             $this->createElapsedFormatterCallback(),
             $this->ollama_host,
-            $this->model,
+            $this->subModel,
             $this->createChatLoggerCallback()
         );
 
@@ -892,6 +917,42 @@ class AdvancedReasoningRouteProcessor {
         );
 
         return $this->csvAggregationTargetResolver;
+    }
+
+    private function getLightweightFinalAnswerGuard(): LightweightFinalAnswerGuard {
+        if ($this->lightweightFinalAnswerGuard instanceof LightweightFinalAnswerGuard) {
+            return $this->lightweightFinalAnswerGuard;
+        }
+
+        require_once __DIR__ . '/../../src/LightweightFinalAnswerGuard.php';
+        $this->lightweightFinalAnswerGuard = new LightweightFinalAnswerGuard((string)$this->ollama_host);
+        return $this->lightweightFinalAnswerGuard;
+    }
+
+    private function runLightweightFinalAnswerGuard(string $routeLabel): void {
+        $context = trim(implode("\n\n", array_filter($this->subAnswers, static function ($item): bool {
+            return trim((string)$item) !== '';
+        })));
+
+        if ($context === '') {
+            $context = $this->finalResponse;
+        }
+
+        sendSSE('status', [
+            'step' => 4,
+            'message' => '⚖️ 軽量ルートの最終回答を確認しています...'
+        ]);
+
+        $guardResult = $this->getLightweightFinalAnswerGuard()->review(
+            $this->originalMessage,
+            $context,
+            $this->finalResponse,
+            (string)$this->model,
+            $routeLabel
+        );
+
+        $this->finalResponse = (string)($guardResult['response'] ?? $this->finalResponse);
+        $this->evalResult = $guardResult['eval_result'] ?? $this->evalResult;
     }
 
     private function getCsvMetadataCatalog(): CsvMetadataCatalog {
@@ -1052,7 +1113,7 @@ class AdvancedReasoningRouteProcessor {
                       . "分析観点リスト(JSON):";
         
         chatLogger("[DEBUG] Ollama因数分解API呼び出し送信前...");
-        $decomp_res = callOllamaChat($this->ollama_host, $this->model, $decompPrompt, "", 'json', ["temperature" => 0.0, "top_p" => 0.1, "num_ctx" => 4096]);
+        $decomp_res = callOllamaChat($this->ollama_host, $this->model, $this->composeMemoryAwarePrompt($decompPrompt), "", 'json', ["temperature" => 0.0, "top_p" => 0.1, "num_ctx" => 4096]);
         chatLogger("[DEBUG] Ollama因数分解API応答受信 raw: " . $decomp_res);
         
         $fence = str_repeat("\x60", 3);
@@ -1136,10 +1197,10 @@ class AdvancedReasoningRouteProcessor {
                         . '{"sql": "SELECT ..."}';
 
         // ✨【フェーズ4】初回SQL生成システムプロンプトの最先頭へ記憶プロンプトをインジェクト
-        $sql_sys_prompt = $this->databaseMemoryPrompt . "\n" . $sql_sys_prompt;
+        $sql_sys_prompt = $this->composeMemoryAwarePrompt($sql_sys_prompt);
 
         $sql_user_prompt = $this->schemaInfo . "\n\n【ユーザーの分析観点】\n" . $subQ;
-        $sql_model = $this->model;
+        $sql_model = $this->subModel;
         
         // 初回SQL生成オプション引き締め維持
         $sql_json_str = callOllamaChat($this->ollama_host, $sql_model, $sql_sys_prompt, $sql_user_prompt, 'json', ["temperature" => 0.0, "top_p" => 0.1, "num_ctx" => 4096]);
@@ -1183,12 +1244,12 @@ class AdvancedReasoningRouteProcessor {
                    . "【絶対ルール】\n出力はJSONではなく、純粋なテキストのみにしてください。挨拶や説明プロースは一切禁止します。";
 
         // 記憶プロンプトをインジェクトして実在のスキーマをカンニングさせる
-        $sysPrompt = $this->databaseMemoryPrompt . "\n" . $sysPrompt;
+        $sysPrompt = $this->composeMemoryAwarePrompt($sysPrompt);
 
         $userPrompt = "【ユーザーの元の質問】\n{$this->originalMessage}\n\n追加の分析観点:";
         $thoughtDummy = "";
         
-        $newSubQ = callOllamaChat($this->ollama_host, $this->model, $sysPrompt, $userPrompt, null, ["temperature" => 0.0, "top_p" => 0.1, "num_ctx" => 2048], $thoughtDummy);
+        $newSubQ = callOllamaChat($this->ollama_host, $this->subModel, $sysPrompt, $userPrompt, null, ["temperature" => 0.0, "top_p" => 0.1, "num_ctx" => 2048], $thoughtDummy);
         
         return trim($newSubQ);
     }
@@ -1297,7 +1358,7 @@ class AdvancedReasoningRouteProcessor {
                               . '{"sql": "SELECT ..."}';
 
             // ✨【フェーズ4】自律修復（デバッグ）システムプロンプトの最先頭へ記憶プロンプトをインジェクト
-            $debug_sys_prompt = $this->databaseMemoryPrompt . "\n" . $debug_sys_prompt;
+            $debug_sys_prompt = $this->composeMemoryAwarePrompt($debug_sys_prompt);
 
             $debug_user_context = "【動的INFORMATION_SCHEMA構成】\n" . $this->schemaInfo . "\n\n"
                                 . "【この分析タスクの本来の目的】\n" . $subQ . "\n\n"
@@ -1308,7 +1369,7 @@ class AdvancedReasoningRouteProcessor {
             // 📢 [超詳細ログ5] 次の周回リトライに向けて、AIの脳みそへ叩き込む「反省用インジェクションデータ」をすべてダンプ
             chatLogger("[OLLAMA-REFLECT-INPUT] (次の一手: 試行 {$retry_count}/{$max_retries}) AIへ送り届ける自己反省材料:\n" . $debug_user_context);
 
-            $sql_model = $this->model;
+            $sql_model = $this->subModel;
             chatLogger("[OLLAMA-DEBUG] 自律修正リクエストを送信します...");
             
             $retry_json_str = callOllamaChat($this->ollama_host, $sql_model, $debug_sys_prompt, $debug_user_context, 'json', ["temperature" => 0.0, "top_p" => 0.1, "num_ctx" => 4096]);
@@ -1371,7 +1432,7 @@ class AdvancedReasoningRouteProcessor {
             $sub_analysis_user = "【分析観点】\n{$subQ}\n\n【実行クエリ】\n{$generated_sql}\n\n【今回データバッチ】\n{$batch_json}";
             
             $analysisThought = "";
-            $analysisRes = callOllamaChat($this->ollama_host, $this->model, $sub_analysis_sys, $sub_analysis_user, null, ["temperature" => 0.0, "top_p" => 0.1, "num_ctx" => 4096], $analysisThought);
+            $analysisRes = callOllamaChat($this->ollama_host, $this->subModel, $sub_analysis_sys, $sub_analysis_user, null, ["temperature" => 0.0, "top_p" => 0.1, "num_ctx" => 4096], $analysisThought);
             
             if (!empty($analysisThought)) {
                 $analysisRes = "🤔 **[データ考察プロセス (Batch {$batch_num})]**\n<details><summary>分析過程を展開</summary>\n\n" . $analysisThought . "\n\n</details>\n\n---\n\n" . $analysisRes;
@@ -1433,7 +1494,7 @@ class AdvancedReasoningRouteProcessor {
         }
 
         // ✨【フェーズ4】最終マージプロンプトのベースプロンプト直後に記憶プロンプトをインジェクト
-        $system_prompt = PromptManager::getBasePrompt($this->promptKey) . "\n" . $this->databaseMemoryPrompt . "\n" . PromptManager::getCommonInstructions() . "\n" . PromptManager::getDashboardLinkInstruction($this->projectId) . $this->getOutputModeInstructions();
+        $system_prompt = PromptManager::getBasePrompt($this->promptKey) . "\n" . $this->projectOperatingMemoryPrompt . "\n" . $this->databaseMemoryPrompt . "\n" . PromptManager::getCommonInstructions() . "\n" . PromptManager::getDashboardLinkInstruction($this->projectId) . $this->getOutputModeInstructions();
         
         // 生コード内のバッククォート3連記号のハードコードを完全排除
         $fence = str_repeat("\x60", 3);
@@ -1566,7 +1627,7 @@ class AdvancedReasoningRouteProcessor {
         }
 
         require_once __DIR__ . '/../../src/PromptManager.php';
-        $system_prompt = PromptManager::getBasePrompt($this->promptKey) . "\n" . $this->databaseMemoryPrompt . "\n" . PromptManager::getCommonInstructions() . "\n" . PromptManager::getDashboardLinkInstruction($this->projectId) . $this->getOutputModeInstructions();
+        $system_prompt = PromptManager::getBasePrompt($this->promptKey) . "\n" . $this->projectOperatingMemoryPrompt . "\n" . $this->databaseMemoryPrompt . "\n" . PromptManager::getCommonInstructions() . "\n" . PromptManager::getDashboardLinkInstruction($this->projectId) . $this->getOutputModeInstructions();
         
         $fence = str_repeat("\x60", 3);
         $system_prompt .= "\n\n// ── UIモジュールから仕入れた関数群を support.php へ正確に再出荷 ──【データ分析・報告指示（Chart.js完全準拠版）】\n"
@@ -1740,6 +1801,7 @@ class AdvancedReasoningRouteProcessor {
             'detected_page'   => null,
             'hit_count'       => 0,
             'applied_model'   => $this->model,
+            'model_roles'     => ChatModelRolePayload::build($this->model, $this->subModel, $this->embeddingModel, 'main'),
             'created_at'      => date('Y/m/d H:i'),
             'report_document' => $this->reportDocument
         ]);

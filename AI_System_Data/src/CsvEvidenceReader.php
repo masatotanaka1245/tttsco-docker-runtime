@@ -6,7 +6,8 @@ class CsvEvidenceReader
     private $projectId;
     private $originalMessage;
     private $ollamaHost;
-    private $model;
+    private $workerModel;
+    private $integrationModel;
     private $promptKey;
     private $projectContext;
     private $metadataCatalog;
@@ -18,7 +19,8 @@ class CsvEvidenceReader
         int $projectId,
         string $originalMessage,
         string $ollamaHost,
-        string $model,
+        string $workerModel,
+        string $integrationModel,
         string $promptKey,
         string $projectContext,
         CsvMetadataCatalog $metadataCatalog,
@@ -29,7 +31,8 @@ class CsvEvidenceReader
         $this->projectId = $projectId;
         $this->originalMessage = $originalMessage;
         $this->ollamaHost = $ollamaHost;
-        $this->model = $model;
+        $this->workerModel = $workerModel;
+        $this->integrationModel = $integrationModel;
         $this->promptKey = $promptKey;
         $this->projectContext = $projectContext;
         $this->metadataCatalog = $metadataCatalog;
@@ -363,8 +366,8 @@ class CsvEvidenceReader
 
         try {
             $thought = "";
-            chatLogger("[CSV-EVIDENCE] Ollamaバッチ読解API送信 - batch: {$batchNo}/{$totalBatches} | systemChars: " . mb_strlen($system) . " | userChars: " . mb_strlen($user));
-            $res = callOllamaChat($this->ollamaHost, $this->model, $system, $user, 'json', ['temperature' => 0.0, 'top_p' => 0.1, 'num_ctx' => 8192], $thought);
+            chatLogger("[CSV-EVIDENCE] Ollamaバッチ読解API送信 - model: {$this->workerModel} | batch: {$batchNo}/{$totalBatches} | systemChars: " . mb_strlen($system) . " | userChars: " . mb_strlen($user));
+            $res = callOllamaChat($this->ollamaHost, $this->workerModel, $system, $user, 'json', ['temperature' => 0.0, 'top_p' => 0.1, 'num_ctx' => 8192], $thought);
             chatLogger("[CSV-EVIDENCE] Ollamaバッチ読解API受信 - batch: {$batchNo}/{$totalBatches} | rawChars: " . mb_strlen($res) . " | elapsed: " . $this->elapsedSeconds($callStart));
             $decoded = json_decode($res, true);
             if (is_array($decoded)) {
@@ -401,8 +404,8 @@ class CsvEvidenceReader
 
         try {
             $thought = "";
-            chatLogger("[CSV-EVIDENCE] Ollama統合回答API送信 - systemChars: " . mb_strlen($system) . " | userChars: " . mb_strlen($user));
-            $answer = callOllamaChat($this->ollamaHost, $this->model, $system, $user, null, ['temperature' => 0.0, 'top_p' => 0.1, 'num_ctx' => 8192], $thought);
+            chatLogger("[CSV-EVIDENCE] Ollama統合回答API送信 - model: {$this->integrationModel} | systemChars: " . mb_strlen($system) . " | userChars: " . mb_strlen($user));
+            $answer = callOllamaChat($this->ollamaHost, $this->integrationModel, $system, $user, null, ['temperature' => 0.0, 'top_p' => 0.1, 'num_ctx' => 8192], $thought);
             chatLogger("[CSV-EVIDENCE] Ollama統合回答API受信 - responseChars: " . mb_strlen($answer) . " | elapsed: " . $this->elapsedSeconds($callStart));
             return trim($answer) ?: "CSVデータ {$this->projectId} の対象レコード " . count($rows) . "件を確認しましたが、回答文を生成できませんでした。";
         } catch (Exception $e) {

@@ -10,7 +10,7 @@ class CsvSemanticAggregationRunner
     private $completeRoute;
     private $elapsedFormatter;
     private $ollamaHost;
-    private $model;
+    private $workerModel;
 
     public function __construct(
         callable $statusSender,
@@ -20,7 +20,7 @@ class CsvSemanticAggregationRunner
         callable $completeRoute,
         callable $elapsedFormatter,
         string $ollamaHost,
-        string $model,
+        string $workerModel,
         ?callable $logger = null
     ) {
         $this->statusSender = $statusSender;
@@ -30,7 +30,7 @@ class CsvSemanticAggregationRunner
         $this->completeRoute = $completeRoute;
         $this->elapsedFormatter = $elapsedFormatter;
         $this->ollamaHost = $ollamaHost;
-        $this->model = $model;
+        $this->workerModel = $workerModel;
         $this->logger = $logger;
     }
 
@@ -54,6 +54,7 @@ class CsvSemanticAggregationRunner
             'CSV column semantics プリフライト',
             "【集計計画】\n" . json_encode($plan, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
             . "\n\n【対象CSV】\n" . json_encode($target, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
+            . "\n\n【補助推定モデル】\n{$this->workerModel}"
         );
 
         $this->sendStatus(3, '📊 対象列の主要な値を集計し、意味を整理しています...');
@@ -105,6 +106,7 @@ class CsvSemanticAggregationRunner
             'CSV semantic category プリフライト',
             "【集計計画】\n" . json_encode($plan, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
             . "\n\n【対象CSV】\n" . json_encode($target, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
+            . "\n\n【補助推定モデル】\n{$this->workerModel}"
         );
 
         $this->sendStatus(3, '📊 対象列の値分布をカテゴリ別に整理しています...');
@@ -225,9 +227,10 @@ class CsvSemanticAggregationRunner
             . "\n}";
 
         try {
+            $this->log("[CSV-AGG] semantic_category_summary のAIカテゴリ分析を実行します - model: {$this->workerModel} | items: " . count($items));
             $res = callOllamaChat(
                 $this->ollamaHost,
-                $this->model,
+                $this->workerModel,
                 $systemPrompt,
                 $userPrompt,
                 'json',
@@ -278,9 +281,10 @@ class CsvSemanticAggregationRunner
             . "\n}";
 
         try {
+            $this->log("[CSV-AGG] column_semantics のAI説明生成を実行します - model: {$this->workerModel} | items: " . count($items));
             $res = callOllamaChat(
                 $this->ollamaHost,
-                $this->model,
+                $this->workerModel,
                 $systemPrompt,
                 $userPrompt,
                 'json',
@@ -330,9 +334,10 @@ class CsvSemanticAggregationRunner
             . "\n}";
 
         try {
+            $this->log("[CSV-AGG] category_filtered_distribution のカテゴリ判定を実行します - model: {$this->workerModel} | category: {$categoryLabel} | items: " . count($items));
             $res = callOllamaChat(
                 $this->ollamaHost,
-                $this->model,
+                $this->workerModel,
                 $systemPrompt,
                 $userPrompt,
                 'json',

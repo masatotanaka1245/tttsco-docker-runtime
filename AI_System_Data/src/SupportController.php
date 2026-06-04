@@ -20,6 +20,8 @@ require_once __DIR__ . '/../config/session.php';
 require_once __DIR__ . '/../src/Auth.php';
 require_once __DIR__ . '/../src/Parsedown.php';
 require_once __DIR__ . '/../src/ProjectAccess.php';
+require_once __DIR__ . '/../src/ModelRoleResolver.php';
+require_once __DIR__ . '/../src/ProjectContextMemory.php';
 
 $parsedown = new Parsedown();
 $parsedown->setBreaksEnabled(true);
@@ -52,13 +54,15 @@ if (!function_exists('makeClickableLinks')) {
 $user_id = (int)$_SESSION['user_id'];
 $role = $_SESSION['role'] ?? 'user';
 
+$resolvedModels = ModelRoleResolver::resolveUserSettings($_SESSION);
+
 // =========================================================================
 // セッションからOllamaのURLとモデルを動的に取得
 // =========================================================================
 $default_prompt_mode = $_SESSION['default_prompt'] ?? 'construction_consultant';
-$default_chat_model  = $_SESSION['default_model'] ?? 'gemma4:e4b';
-$ollama_host         = rtrim($_SESSION['ollama_host'] ?? (getenv('OLLAMA_HOST') ?: $URL_OLLAMA_HOST), '/');
-$default_model       = 'gemma4:e4b';
+$default_chat_model  = $resolvedModels['main_model'];
+$ollama_host         = $resolvedModels['ollama_host'] ?: rtrim($URL_OLLAMA_HOST, '/');
+$default_model       = ModelRoleResolver::DEFAULT_MAIN_MODEL;
 
 $installed_models = [];
 
@@ -83,6 +87,41 @@ if (!in_array($active_model, $installed_models)) { array_unshift($installed_mode
 
 $selected_project_id = filter_input(INPUT_GET, 'project_id', FILTER_VALIDATE_INT);
 $active_tab = filter_input(INPUT_GET, 'tab', FILTER_SANITIZE_SPECIAL_CHARS) ?: 'overview';
+$memory_flash = filter_input(INPUT_GET, 'memory_saved', FILTER_SANITIZE_SPECIAL_CHARS) ?: '';
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && (string)($_POST['action'] ?? '') === 'save_project_memory') {
+    $token = (string)($_POST['csrf_token'] ?? '');
+    $proj_id = filter_input(INPUT_POST, 'project_id', FILTER_VALIDATE_INT);
+
+    if (empty($token) || !isset($_SESSION['csrf_token']) || $token !== $_SESSION['csrf_token']) {
+        header('Location: support.php?project_id=' . urlencode((string)$proj_id) . '&tab=overview&memory_saved=csrf_error');
+        exit;
+    }
+
+    if (!$proj_id || !canAccessProject($pdo, (int)$proj_id, $user_id, $role)) {
+        header('Location: support.php?project_id=' . urlencode((string)$proj_id) . '&tab=overview&memory_saved=forbidden');
+        exit;
+    }
+
+    if ($role !== 'admin') {
+        header('Location: support.php?project_id=' . urlencode((string)$proj_id) . '&tab=overview&memory_saved=forbidden');
+        exit;
+    }
+
+    try {
+        ProjectContextMemory::save($pdo, (int)$proj_id, [
+            'agents' => (string)($_POST['memory_agents'] ?? ''),
+            'readme' => (string)($_POST['memory_readme'] ?? ''),
+            'todo' => (string)($_POST['memory_todo'] ?? ''),
+        ]);
+        header('Location: support.php?project_id=' . urlencode((string)$proj_id) . '&tab=overview&memory_saved=1');
+        exit;
+    } catch (Throwable $e) {
+        error_log('SupportController Memory Save Error: ' . $e->getMessage());
+        header('Location: support.php?project_id=' . urlencode((string)$proj_id) . '&tab=overview&memory_saved=error');
+        exit;
+    }
+}
 
 // =========================================================================
 // 【非同期（Ajax）コメント追加リクエストのエンドポイント処理】
@@ -174,7 +213,9 @@ $chat_reasoning_steps_by_chat_id = [];
 $comments = [];
 $faqs = [];
 $members = [];
-$csv_files = []; 
+$csv_files = [];
+$project_memory_docs = [];
+$can_manage_project_memory = ($role === 'admin');
 
 if ($selected_project_id) {
     try {
@@ -237,6 +278,8 @@ if ($selected_project_id) {
                 $stmtCsv = $pdo->prepare("SELECT * FROM project_csv_files WHERE project_id = :project_id ORDER BY created_at DESC");
                 $stmtCsv->execute(['project_id' => $selected_project_id]);
                 $csv_files = $stmtCsv->fetchAll(PDO::FETCH_ASSOC);
+
+                $project_memory_docs = ProjectContextMemory::load($pdo, (int)$selected_project_id);
             }
         }
     } catch (PDOException $e) {

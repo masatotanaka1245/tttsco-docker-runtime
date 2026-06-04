@@ -129,4 +129,39 @@ class PromptManager {
         // ✨ どの分岐を通っても必ず string 型が返却される「一本道構造」
         return $instruction;
     }
+
+    /**
+     * 案件ごとに人手で管理する AGENTS / README / TODO 相当メモを、
+     * 回答生成時の補助コンテキストとして整形する。
+     *
+     * @param array<string, array{label?: string, content?: string}> $memoryDocs
+     */
+    public static function getProjectOperatingMemoryInstruction(array $memoryDocs): string
+    {
+        $sections = [];
+        foreach (['agents', 'readme', 'todo'] as $type) {
+            $content = trim((string)($memoryDocs[$type]['content'] ?? ''));
+            if ($content === '') {
+                continue;
+            }
+
+            $label = (string)($memoryDocs[$type]['label'] ?? strtoupper($type));
+            if (mb_strlen($content) > 3000) {
+                $content = mb_substr($content, 0, 3000) . "\n...[後半省略]";
+            }
+            $sections[] = "### {$label}\n{$content}";
+        }
+
+        if (empty($sections)) {
+            return '';
+        }
+
+        return "\n【案件運用メモ】\n"
+             . "以下は、この案件に対して人手で管理されている補助メモです。\n"
+             . "1. AGENTS は回答方針・禁止事項・優先ルールとして扱ってください。\n"
+             . "2. README は案件やシステムの前提知識として扱ってください。\n"
+             . "3. TODO は現在の課題や優先論点として扱ってください。ただし、TODO の内容を根拠資料の代わりに断定してはいけません。\n"
+             . "4. 資料本文・DB実データ・FAQ・コメントと矛盾する場合は、実データと資料本文を優先してください。\n\n"
+             . implode("\n\n", $sections) . "\n";
+    }
 }

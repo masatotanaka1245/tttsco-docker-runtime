@@ -18,6 +18,7 @@
 - 新しい教訓やルールが見つかったら、すぐに `AGENTS.md` を更新する
 - `README_01.md` にない独自仕様や架空のカラムを勝手に作らない
 - 仕様の正本は `README_01.md`、運用と教訓の正本は `AGENTS.md` として使い分ける
+- 案件固有の回答方針や背景メモは、ローカル md に閉じず、必要に応じて `project_meta` の `ai_project_agents_md` / `ai_project_readme_md` / `ai_project_todo_md` へ反映して、アプリ側の回答でも参照できる状態に保つ
 - 教訓を追記するときは、可能なら以下の3点を短く残す
   - 背景
   - やってはいけないこと
@@ -105,6 +106,16 @@
 - ただし、ログインセッションやブラウザ状態が必要な確認は、無理に自動化しない
 - ブラウザ実動作確認が必要な場合は、確認観点をユーザーへ明示する
 
+### 3.3.1 案件運用メモの扱い
+
+- `AGENTS / README / TODO` 相当の案件メモは、回答生成の補助コンテキストとして使う
+- ただし、資料本文やDB実データより優先して断定の根拠にしてはいけない
+- `TODO` は特に、作業中メモや仮説を含み得るため、事実ソースとして引用しない
+- 案件メモを追加した場合は、少なくとも以下を確認する
+  - `support.php` から保存・再表示できること
+  - `chat_debug.log` に `[PROJECT-MEMORY]` が出ること
+  - 対象 route の回答でメモの方針が反映されても、資料根拠やDB実データを上書きしていないこと
+
 ### 3.4 質問因数分解の扱い
 
 - チャット受信時の質問解釈は、自由文のまま分岐させず、できるだけ構造化して扱う
@@ -138,15 +149,57 @@
 - 背景
   - `「年月」カラムのユニークな値27件の各レコード数を集計` のような質問で、`distinct_count` が選ばれ、`value_distribution` へ行かなかった。
   - `2025年3月の総件数` のような質問で、裸の自然文値が `target_value` として取れず、`exact_value_count` ではなく全体分布を返した。
-  - `diagram_mode=on` でも、`distinct_count` / `value_distribution` は prose のみで chart を返さない実装差が確認された。
+  - `diagram_mode=on` でも、軽量CSV概要 (`CSV-SUMMARY`) は route によって chart を返したり返さなかったりする揺れがあった。
 - やってはいけないこと
   - `ユニーク` という単語だけを見て、`各値の件数` や `全ての値の件数` を distinct count に倒すこと
   - 特定月や特定カテゴリの値を、引用符で囲まれていないからという理由だけで `target_value` として拾わないこと
   - 図解モードの有無を、集計結果の表現差として無視したまま運用判断すること
+  - `登録済みCSVの概要` のような広域要約を、`recent_history` だけで `CSV-AGG` に誤進入させること
 - 推奨対応
   - `ユニーク件数` と `各値の件数分布` を planner で明示的に分ける
   - `2025年3月` のような裸の自然文値も exact count 候補として抽出する
-  - `diagram_mode=on` の分布系回答は、chart を返すか prose のみでよいかを仕様として先に決めてから実装する
+  - `diagram_mode=on` の軽量CSV概要は deterministic に `json:chart` を返し、route ごとの差を残さない
+  - `登録済みCSVの概要` のような広域要約では、`recent_history` だけで `CSV-AGG` へ誤進入させない
+  - `これまでの会話内容を要約` のような履歴要約は、`report_mode` より intent を優先して `history_summary` に寄せる
+
+### 3.7 モデル責務の教訓（2026-06-04）
+
+- 背景
+  - ヘッダーでは `メイン使用モデル`、`サブモデル(中間処理用)`、`Embeddingモデル` を設定できるようになり、route 側も `main / sub / embedding` の責務へ寄せ始めている。
+  - ただし本番ログでの最終確認はまだこれからで、`data_analysis` は第一段の責務分担まで実装済みという状態である。
+- やってはいけないこと
+  - `main` / `sub` / `embedding` の責務を決めないまま、場当たり的に route ごとの使用モデルを増やすこと
+  - ヘッダーの説明文と実際の使用箇所がズレたまま運用すること
+  - モデル名の保存可否だけを実装し、どの工程でどのモデルが責任を持つかを md に残さないこと
+- 推奨対応
+  - `main` は因数分解・最終統合・最終リライトを担うモデルとして定義する
+  - `sub` は SQL生成、補助分析、分類、画像処理などの中間処理を担うモデルとして定義する
+  - `embedding` はベクトル化専用として独立させ、少なくとも設定可能性を検討する
+  - `reasoning_model` / `synthesis_model` の互換別名を残す場合でも、route 内の実責務は `main = 因数分解・最終統合`, `sub = 中間処理` に寄せて読めるようにする
+  - `data_analysis` では、deterministic な SQL 集計まで無理に `sub` へ寄せず、AIを使う補助工程だけを `sub` に分ける
+  - 実装前に `README_01.md` と俯瞰メモへ責務分担を書き、`TODO.md` の進行中を 1 件に絞ってから着手する
+  - 既定値や session からの実効値解決は、route ごとにバラバラに書かず `ModelRoleResolver` に寄せる
+  - DB列の追加を伴う設定項目は、先に UI と保存APIへ入れる場合でも、`UserSettingsSchema` のような存在確認で本番互換を壊さない
+  - モデル名の保存時は `Ollama /api/tags` などで存在確認を行い、typo や未取得モデルをセッションやDBへそのまま保存しない
+  - `mxbai-embed-large` と `mxbai-embed-large:latest` のような tag 差は、保存時に Ollama の実在モデル名へ正規化して吸収する
+  - 本番検証では、ログだけでなく `result.model_roles` も見て、`main_model` / `sub_model` / `applied_role` が設計どおり返っているかを確認する
+
+### 3.8 軽量ルート最終回答の教訓（2026-06-04）
+
+- 背景
+  - `CSV-SUMMARY` や `history_summary` のような単発・軽量ルートでは、回答生成後に `evaluation_mode=none` のまま出荷される経路があった。
+  - `advanced_hybrid.doc_extract` の軽量最終回答では、根拠断片があるのに一般論へ流れるケースが出た。
+- やってはいけないこと
+  - 軽量ルートだからという理由で、最終回答の質問適合性チェックを完全に省略すること
+  - 軽量回答の最終審査で、毎回 LLM judge と text-only rewrite を走らせて軽量ルートを重くすること
+  - 資料根拠がある質問で、根拠にない法規名や一般論を最終回答へ混ぜること
+  - `json:chart` や Mermaid の deterministic 出力を、最終審査の rewrite で別形式の JSON や別件数へ壊すこと
+- 推奨対応
+  - 軽量ルートの最終回答ガードは rule-first にし、低リスク経路では LLM judge を常時起動しない
+  - `json:chart` や Mermaid を含む回答は rewrite 禁止とし、deterministic な payload をそのまま保存・出荷する
+  - ログには `[FINAL-GUARD]` を残しつつ、rewrite は本当に必要な高リスク時だけに絞る
+  - `doc_chunks` 根拠を使う軽量最終回答では、資料名・ページ・本文抜粋に寄せた決定論寄りの整形を優先し、一般論を足さない
+  - Gemma 系モデルの Ollama 呼び出しでは、`[OLLAMA-PAYLOAD]` / `[OLLAMA-THINK]` ログで `<|think|>` 付与有無と思考トレース有無を確認できるようにする
 
 ## 4. 主要ファイルの責務
 

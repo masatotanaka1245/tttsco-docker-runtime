@@ -44,7 +44,7 @@ class CsvSummaryFormatter
         return implode("\n", $lines);
     }
 
-    public function buildSmallSummaryAnswer(array $rows, array $searchResult = []): string
+    public function buildSmallSummaryAnswer(array $rows, array $searchResult = [], bool $diagramMode = false): string
     {
         $files = $this->summarizeRows($rows);
         $totalRows = count($rows);
@@ -98,6 +98,15 @@ class CsvSummaryFormatter
             $lines[] = "現時点では検索条件に該当した {$totalRows} 件を対象に確認しており、質問意図に近いCSVレコードを優先して概要を作成しています。";
         } else {
             $lines[] = "現時点では全 {$totalRows} 件を対象に確認しており、特定列だけのランキングではなく、登録されているCSVレコード全体をもとに概要を作成しています。";
+        }
+
+        if ($diagramMode) {
+            $chartBlock = $this->buildSummaryChartBlock($files, !empty($searchResult['terms']));
+            if ($chartBlock !== '') {
+                $lines[] = "";
+                $lines[] = "### グラフ";
+                $lines[] = $chartBlock;
+            }
         }
 
         return implode("\n", $lines);
@@ -171,5 +180,50 @@ class CsvSummaryFormatter
     private function parseHeaders(string $rawHeaders): array
     {
         return $this->metadataCatalog->parseHeaders($rawHeaders);
+    }
+
+    private function buildSummaryChartBlock(array $files, bool $isFilteredSummary): string
+    {
+        if (empty($files)) {
+            return '';
+        }
+
+        usort($files, fn($a, $b) => ((int)($b['collected_rows'] ?? 0)) <=> ((int)($a['collected_rows'] ?? 0)));
+        $topFiles = array_slice($files, 0, 6);
+        $labels = [];
+        $data = [];
+
+        foreach ($topFiles as $file) {
+            $count = (int)($file['collected_rows'] ?? 0);
+            if ($count <= 0) {
+                continue;
+            }
+            $labels[] = (string)($file['file_name'] ?? 'CSV');
+            $data[] = $count;
+        }
+
+        if (empty($labels)) {
+            return '';
+        }
+
+        $chart = [
+            'type' => 'bar',
+            'title' => $isFilteredSummary ? '検索対象CSVごとのヒット件数' : '登録済みCSVごとのレコード件数',
+            'labels' => $labels,
+            'datasets' => [[
+                'label' => $isFilteredSummary ? 'ヒット件数' : 'レコード数',
+                'data' => $data,
+            ]],
+        ];
+
+        $fence = str_repeat("\x60", 3);
+        $lead = $isFilteredSummary
+            ? '検索で絞り込まれたCSVごとの件数を比較しやすいよう、棒グラフにまとめました。'
+            : '登録済みCSVごとのレコード件数を比較しやすいよう、棒グラフにまとめました。';
+
+        return $lead
+            . "\n" . $fence . "json:chart\n"
+            . json_encode($chart, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
+            . "\n" . $fence;
     }
 }

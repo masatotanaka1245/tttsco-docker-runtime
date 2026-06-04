@@ -5,6 +5,9 @@
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../config/session.php';
 require_once __DIR__ . '/../../src/Auth.php';
+require_once __DIR__ . '/../../src/ModelRoleResolver.php';
+require_once __DIR__ . '/../../src/OllamaModelCatalog.php';
+require_once __DIR__ . '/../../src/UserSettingsSchema.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -32,54 +35,93 @@ if (empty($csrfHeader) || !verifyCsrfToken($csrfHeader)) {
     exit;
 }
 
+$modelDefaults = ModelRoleResolver::defaults();
+
 // 4. データの受け取りと正規化
 $prompt = $input['default_prompt'] ?? 'construction_consultant';
 $lang   = $input['default_lang'] ?? 'ja';
-$model  = trim($input['default_model'] ?? 'gemma4:e4b');
-$sub_model = trim($input['sub_model'] ?? 'gemma4:e4b');
+$model  = trim($input['default_model'] ?? $modelDefaults['main_model']);
+$sub_model = trim($input['sub_model'] ?? $modelDefaults['sub_model']);
+$embedding_model = trim($input['embedding_model'] ?? $modelDefaults['embedding_model']);
 // URLの末尾の「/」を取り除く
 $ollama_host = rtrim(trim($input['ollama_host'] ?? 'http://127.0.0.1:11434'), '/');
+$hasEmbeddingModelColumn = UserSettingsSchema::hasEmbeddingModelColumn($pdo);
 
 // =========================================================================
-// ★安全対策: 入力されたOllama URLへ接続テストを行う (3秒でタイムアウト)
+// ★安全対策: 入力されたOllama URLへ接続し、モデル名の存在も検証する
 // =========================================================================
-if (function_exists('curl_init')) {
-    $ch = curl_init("{$ollama_host}/api/tags");
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 3);
-    $res = curl_exec($ch);
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
+$catalogProbe = OllamaModelCatalog::probe($ollama_host, 3);
+if (!$catalogProbe['success']) {
+    echo json_encode([
+        'success' => false,
+        'error' => "指定された AIサーバー({$ollama_host}) と通信できません。URLやポート(通常11434)が正しいか、サーバーが起動しているか確認してください。"
+    ]);
+    exit;
+}
 
-    // AIサーバーから正常なレスポンス(200)が返ってこない場合は保存をブロック
-    if ($res === false || $httpCode !== 200) {
-        echo json_encode(['success' => false, 'error' => "指定された AIサーバー({$ollama_host}) と通信できません。URLやポート(通常11434)が正しいか、サーバーが起動しているか確認してください。"]);
-        exit;
+$availableModels = $catalogProbe['models'];
+$requestedModels = [
+    'メイン使用モデル' => $model,
+    'サブモデル' => $sub_model,
+    'Embeddingモデル' => $embedding_model,
+];
+$missingModels = [];
+foreach ($requestedModels as $label => $requestedModel) {
+    if ($requestedModel !== '' && OllamaModelCatalog::resolveRequestedModel($requestedModel, $availableModels) === null) {
+        $missingModels[] = "{$label}: {$requestedModel}";
     }
 }
 
+if (!empty($missingModels)) {
+    $availablePreview = array_slice($availableModels, 0, 8);
+    $availableMessage = empty($availablePreview) ? '取得できませんでした' : implode(', ', $availablePreview);
+    echo json_encode([
+        'success' => false,
+        'error' => "指定されたモデルが Ollama に存在しません。 " . implode(' / ', $missingModels) . " | 利用可能モデル例: {$availableMessage}"
+    ]);
+    exit;
+}
+
+$model = OllamaModelCatalog::resolveRequestedModel($model, $availableModels) ?? $model;
+$sub_model = OllamaModelCatalog::resolveRequestedModel($sub_model, $availableModels) ?? $sub_model;
+$embedding_model = OllamaModelCatalog::resolveRequestedModel($embedding_model, $availableModels) ?? $embedding_model;
+
 try {
     // 5. データベース(usersテーブル)の更新
-    $stmt = $pdo->prepare("
-        UPDATE users 
-        SET default_prompt = ?, 
-            default_lang = ?, 
-            default_model = ?, 
-            sub_model = ?, 
-            ollama_host = ?, 
-            updated_at = NOW() 
+    $sql = "
+        UPDATE users
+        SET default_prompt = ?,
+            default_lang = ?,
+            default_model = ?,
+            sub_model = ?,
+            ollama_host = ?, ";
+    $params = [$prompt, $lang, $model, $sub_model, $ollama_host];
+    if ($hasEmbeddingModelColumn) {
+        $sql .= "
+            embedding_model = ?, ";
+        $params[] = $embedding_model;
+    }
+    $sql .= "
+            updated_at = NOW()
         WHERE id = ?
-    ");
-    $stmt->execute([$prompt, $lang, $model, $sub_model, $ollama_host, $_SESSION['user_id']]);
+    ";
+    $params[] = $_SESSION['user_id'];
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
 
     // 6. セッションへ即時同期（再ログイン不要で最新設定を適用するため）
     $_SESSION['default_prompt'] = $prompt;
     $_SESSION['default_lang']   = $lang;
     $_SESSION['default_model']  = $model;
     $_SESSION['sub_model']      = $sub_model;
+    $_SESSION['embedding_model'] = $embedding_model;
     $_SESSION['ollama_host']    = $ollama_host;
 
-    echo json_encode(['success' => true]);
+    echo json_encode([
+        'success' => true,
+        'embedding_model_persisted' => $hasEmbeddingModelColumn,
+        'validated_model_count' => count($availableModels)
+    ]);
 
 } catch (PDOException $e) {
     http_response_code(500);
