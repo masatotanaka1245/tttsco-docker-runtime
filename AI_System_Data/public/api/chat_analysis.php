@@ -848,6 +848,7 @@ class AdvancedReasoningRouteProcessor {
             $this->createReasoningStepCallback(),
             $this->createCompleteCsvRouteCallback(),
             $this->createElapsedFormatterCallback(),
+            $this->diagramMode,
             $this->createChatLoggerCallback()
         );
 

@@ -107,19 +107,21 @@ class CsvAggregationPlanner
         $hasSemanticCategoryIntent = preg_match('/(カテゴリ|カテゴリー|分類|傾向|どのような情報|どんな情報|分析してください|分析して|テーマ)/u', $question) === 1;
         $hasColumnExplainIntent = preg_match('/(どういう|どのような|説明|意味|何を表|どんなイベント|イベント.*説明|イベント.*意味|それぞれ.*説明)/u', $question) === 1;
         $hasDateIntent = $this->hasDateIntent($question);
+        $hasValueDistributionIntent = preg_match('/(全ての値|すべての値|各値|値ごとの件数|各レコード数|それぞれの件数|内訳|分布|一覧|表に)/u', $question) === 1;
+        $wantsDistinctOnly = $hasDistinctIntent && !$hasValueDistributionIntent;
         $wantsExactCount = $targetColumn !== null
             && $targetValue !== null
             && preg_match('/(件数|何件|件ありますか|件ある|集計)/u', $question) === 1;
         $isDateLikeColumn = $targetColumn !== null && $this->isDateLikeColumnName($targetColumn);
 
-        if ($targetColumn !== null && $hasDistinctIntent) {
-            $aggregationMode = 'distinct_count';
-            $dateGranularity = 'none';
-            $aggregateType = 'distinct_count';
-        } elseif ($wantsExactCount) {
+        if ($wantsExactCount) {
             $aggregationMode = 'exact_value_count';
             $dateGranularity = 'none';
             $aggregateType = 'exact_value_count';
+        } elseif ($targetColumn !== null && $wantsDistinctOnly) {
+            $aggregationMode = 'distinct_count';
+            $dateGranularity = 'none';
+            $aggregateType = 'distinct_count';
         } elseif ($targetColumn !== null && $hasColumnExplainIntent) {
             $aggregationMode = 'column_semantics';
             $dateGranularity = 'none';
@@ -154,6 +156,7 @@ class CsvAggregationPlanner
             'date_granularity' => $dateGranularity,
             'sort_order' => $sortOrder,
             'wants_table' => preg_match('/(表|一覧)/u', $question) === 1,
+            'wants_all_values' => preg_match('/(全ての値|すべての値|各値|値ごとの件数|各レコード数|それぞれの件数|全件)/u', $question) === 1,
             'wants_detail' => preg_match('/(どのような情報|内容|項目|レコードを特定)/u', $question) === 1,
         ];
     }
@@ -313,17 +316,36 @@ class CsvAggregationPlanner
 
     private function extractRequestedTargetValue(string $question, array $excludedValues = []): ?string
     {
-        if (!preg_match_all('/[「『"]([^」』"]+)[」』"]/u', $question, $matches)) {
-            return null;
+        $excluded = array_values(array_filter(array_map('strval', $excludedValues)));
+
+        if (preg_match_all('/[「『"]([^」』"]+)[」』"]/u', $question, $matches)) {
+            foreach (array_reverse($matches[1]) as $candidate) {
+                $candidate = trim((string)$candidate);
+                if ($candidate === '' || in_array($candidate, $excluded, true)) {
+                    continue;
+                }
+                return $candidate;
+            }
         }
 
-        $excluded = array_values(array_filter(array_map('strval', $excludedValues)));
-        foreach (array_reverse($matches[1]) as $candidate) {
-            $candidate = trim((string)$candidate);
-            if ($candidate === '' || in_array($candidate, $excluded, true)) {
-                continue;
+        if (preg_match_all('/(\d{4}年\d{1,2}月(?:\d{1,2}日)?)/u', $question, $dateMatches)) {
+            foreach (array_reverse($dateMatches[1]) as $candidate) {
+                $candidate = trim((string)$candidate);
+                if ($candidate === '' || in_array($candidate, $excluded, true)) {
+                    continue;
+                }
+                return $candidate;
             }
-            return $candidate;
+        }
+
+        if (preg_match_all('/(\d{4}[\/\-]\d{1,2}(?:[\/\-]\d{1,2})?)/u', $question, $isoDateMatches)) {
+            foreach (array_reverse($isoDateMatches[1]) as $candidate) {
+                $candidate = trim((string)$candidate);
+                if ($candidate === '' || in_array($candidate, $excluded, true)) {
+                    continue;
+                }
+                return $candidate;
+            }
         }
 
         return null;

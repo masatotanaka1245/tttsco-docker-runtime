@@ -227,7 +227,7 @@ class CsvAggregationAnswerFormatter
         return implode("\n", $lines);
     }
 
-    public function buildValueDistributionAnswer(array $plan, array $target, array $rows): string
+    public function buildValueDistributionAnswer(array $plan, array $target, array $rows, bool $diagramMode = false): string
     {
         $fileName = (string)($target['file_name'] ?? ($plan['target_file_name'] ?? '対象CSV'));
         $column = (string)($plan['target_column'] ?? '');
@@ -235,7 +235,8 @@ class CsvAggregationAnswerFormatter
         $uniqueCount = count($rows);
         $topCount = !empty($rows) ? (int)$rows[0]['record_count'] : 0;
         $allSingle = $uniqueCount > 0 && $topCount <= 1;
-        $previewRows = array_slice($rows, 0, 15);
+        $showAllValues = (bool)($plan['wants_all_values'] ?? false) || $uniqueCount <= 15;
+        $previewRows = $showAllValues ? $rows : array_slice($rows, 0, 15);
 
         $lines = [];
         $lines[] = "{$fileName} の {$column} 列について、値ごとの件数分布を集計しました。";
@@ -257,7 +258,7 @@ class CsvAggregationAnswerFormatter
             $lines[] = "";
         }
 
-        $lines[] = "### 上位の値分布";
+        $lines[] = $showAllValues ? "### 値ごとの件数一覧" : "### 上位の値分布";
         $lines[] = "| 値 | 件数 |";
         $lines[] = "| --- | ---: |";
         foreach ($previewRows as $row) {
@@ -265,9 +266,26 @@ class CsvAggregationAnswerFormatter
             $lines[] = "| {$item} | " . (int)($row['record_count'] ?? 0) . " |";
         }
 
-        if ($uniqueCount > count($previewRows)) {
+        if (!$showAllValues && $uniqueCount > count($previewRows)) {
             $lines[] = "";
             $lines[] = "※ 件数が多いため、上位 " . count($previewRows) . " 件を表示しています。";
+        }
+
+        if ($diagramMode && !empty($previewRows)) {
+            $chartRows = count($previewRows) > 20 ? array_slice($previewRows, 0, 20) : $previewRows;
+            $chart = [
+                'type' => 'bar',
+                'title' => $showAllValues ? "{$column} 列の値ごとの件数" : "{$column} 列の上位件数分布",
+                'labels' => array_map(fn($row) => (string)($row['item'] ?? ''), $chartRows),
+                'datasets' => [[
+                    'label' => '件数',
+                    'data' => array_map(fn($row) => (int)($row['record_count'] ?? 0), $chartRows),
+                ]],
+            ];
+            $fence = str_repeat("\x60", 3);
+            $lines[] = "";
+            $lines[] = "### グラフ";
+            $lines[] = $fence . "json:chart\n" . json_encode($chart, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . "\n" . $fence;
         }
 
         return implode("\n", $lines);

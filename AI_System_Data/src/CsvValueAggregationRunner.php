@@ -9,6 +9,7 @@ class CsvValueAggregationRunner
     private $insertReasoningStep;
     private $completeRoute;
     private $elapsedFormatter;
+    private $diagramMode;
 
     public function __construct(
         callable $statusSender,
@@ -17,6 +18,7 @@ class CsvValueAggregationRunner
         callable $insertReasoningStep,
         callable $completeRoute,
         callable $elapsedFormatter,
+        bool $diagramMode = false,
         ?callable $logger = null
     ) {
         $this->statusSender = $statusSender;
@@ -25,6 +27,7 @@ class CsvValueAggregationRunner
         $this->insertReasoningStep = $insertReasoningStep;
         $this->completeRoute = $completeRoute;
         $this->elapsedFormatter = $elapsedFormatter;
+        $this->diagramMode = $diagramMode;
         $this->logger = $logger;
     }
 
@@ -95,7 +98,7 @@ class CsvValueAggregationRunner
             return false;
         }
 
-        $finalResponse = $formatter->buildValueDistributionAnswer($plan, $target, $rows);
+        $finalResponse = $formatter->buildValueDistributionAnswer($plan, $target, $rows, $this->diagramMode);
         ($this->setFinalResponse)($finalResponse);
         ($this->appendSubAnswer)($finalResponse);
         ($this->insertReasoningStep)(

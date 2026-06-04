@@ -13,6 +13,11 @@
   - `月別` / `年月` / `日時は不要` / `若い順` を month 粒度の `date_histogram` として解釈する
   - `2026年4月を抽出して件数` のような質問を、全体分布ではなく exact value count に寄せる
   - 追い質問でも、直前会話から `target_file_name` と `target_column` を補完して軽量ルートへ戻す
+- あわせて、値集計の意味の取り分けも同じ束で整える。
+  - `ユニーク件数` は distinct count
+  - `全ての値の件数` / `各値の件数` / `各レコード数` は value distribution
+  - `2025年3月の総件数` のような単一値指定は exact value count
+- 次回の実装は、まず planner の判定順と `target_value` 抽出を直し、そのあと formatter / diagram mode の表現差を整える順番で進める。
 - 第2優先は、全社横断ブリーフィング系質問で、前段ログの表現と最終 route の整合性を高めることです。
 - 特に `project_id = NULL` の汎用質問では、selector 段階から `global_no_project` / `global_cross` を前提に扱い、`advanced_hybrid` を想起させるログを抑える方針です。
 - `chat_global.php` 側の `[FINAL-ANSWER] route=...` も dispatcher から受け取った route 名に合わせ、`global_react` のような内部別名を表に出さない方針です。
