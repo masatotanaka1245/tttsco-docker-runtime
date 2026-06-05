@@ -19,6 +19,7 @@ class ChatRouteFactorizer
     {
         $mentionedCsv = null;
         $mentionedColumnTarget = null;
+        $explicitColumnReference = $this->findExplicitColumnReference($message);
 
         if ($this->csvContextResolver !== null) {
             try {
@@ -49,14 +50,20 @@ class ChatRouteFactorizer
         $targetsAllCsv = preg_match('/(全て|すべて|全部|全件)/u', $message) === 1
             && $hasCsvContext;
 
-        $targetColumn = $mentionedColumnTarget['column_name'] ?? null;
+        $targetColumn = $explicitColumnReference ?? ($mentionedColumnTarget['column_name'] ?? null);
         if ($mentionedCsv === null && !empty($mentionedColumnTarget['file_name'])) {
             $mentionedCsv = (string)$mentionedColumnTarget['file_name'];
         }
 
         if ($this->csvContextResolver !== null
             && ($mentionedCsv === null || $targetColumn === null)
-            && ($hasColumnExplainIntent || ($hasAggregateIntent && ($hasDateIntent || !$hasCsvContext || $targetColumn !== null)))
+            && $this->shouldInheritRecentCsvContext(
+                $message,
+                $hasAggregateIntent,
+                $hasDateIntent,
+                $hasColumnExplainIntent,
+                $targetColumn
+            )
             && !empty($recentHistory)
         ) {
             $recentContext = $this->csvContextResolver->findRecentCsvContext($recentHistory);
@@ -114,6 +121,15 @@ class ChatRouteFactorizer
                 ? 'month'
                 : (preg_match('/(年別|年ごと)/u', $message) === 1 ? 'year' : 'day');
             $route = 'data_analysis.csv_agg';
+        } elseif ($hasAggregateIntent && $hasDateIntent && $targetColumn !== null) {
+            $intent = 'aggregate';
+            $target = $mentionedCsv !== null ? 'single_csv' : 'all_csv';
+            $scope = 'records_with_date';
+            $operation = 'count';
+            $timeAxis = preg_match('/(月別|月ごと|年月|日時は不要|月単位)/u', $message) === 1
+                ? 'month'
+                : (preg_match('/(年別|年ごと)/u', $message) === 1 ? 'year' : 'day');
+            $route = 'data_analysis.csv_agg';
         } elseif ($hasAggregateIntent && $hasDateIntent && $hasCsvContext) {
             $intent = 'aggregate';
             $target = 'all_csv';
@@ -132,21 +148,21 @@ class ChatRouteFactorizer
                 ? 'month'
                 : (preg_match('/(年別|年ごと)/u', $message) === 1 ? 'year' : 'day');
             $route = 'data_analysis.csv_agg';
-        } elseif ($mentionedCsv !== null && $hasAggregateIntent && $hasDistinctIntent) {
+        } elseif ($targetColumn !== null && $hasAggregateIntent && $hasDistinctIntent) {
             $intent = 'aggregate';
-            $target = 'single_csv';
+            $target = $mentionedCsv !== null ? 'single_csv' : 'all_csv';
             $scope = 'file_content';
             $operation = 'distinct_count';
             $route = 'data_analysis.csv_agg';
-        } elseif ($mentionedCsv !== null && $targetColumn !== null && $hasColumnExplainIntent) {
+        } elseif ($targetColumn !== null && $hasColumnExplainIntent) {
             $intent = 'aggregate';
-            $target = 'single_csv';
+            $target = $mentionedCsv !== null ? 'single_csv' : 'all_csv';
             $scope = 'file_content';
             $operation = 'column_semantics';
             $route = 'data_analysis.csv_agg';
-        } elseif ($mentionedCsv !== null && $targetColumn !== null && $hasAggregateIntent) {
+        } elseif ($targetColumn !== null && $hasAggregateIntent) {
             $intent = 'aggregate';
-            $target = 'single_csv';
+            $target = $mentionedCsv !== null ? 'single_csv' : 'all_csv';
             $scope = 'file_content';
             $operation = 'value_distribution';
             $route = 'data_analysis.csv_agg';
@@ -202,5 +218,71 @@ class ChatRouteFactorizer
         }
 
         return implode("\n\n", $parts);
+    }
+
+    private function findExplicitColumnReference(string $message): ?string
+    {
+        if (preg_match_all('/[「『"]([^」』"]+)[」』"]\s*(?:カラム|列|項目)/u', $message, $matches)) {
+            foreach (array_reverse($matches[1]) as $candidate) {
+                $candidate = trim((string)$candidate);
+                if ($candidate !== '') {
+                    return $candidate;
+                }
+            }
+        }
+
+        if (preg_match_all('/(?:^|[\s　])([A-Za-z_][A-Za-z0-9_]*|[一-龠ぁ-んァ-ヶー]+)\s*(?:カラム|列|項目)/u', $message, $matches)) {
+            foreach (array_reverse($matches[1]) as $candidate) {
+                $candidate = trim((string)$candidate);
+                if ($candidate !== '') {
+                    return $candidate;
+                }
+            }
+        }
+
+        if (preg_match('/(?:^|[\s　])([A-Za-z_][A-Za-z0-9_]*|[一-龠ぁ-んァ-ヶー]+)\s*から\s*(?:年月|月別|年別|日別|日時|日付|時刻)/u', $message, $matches) === 1) {
+            $candidate = trim((string)($matches[1] ?? ''));
+            if ($candidate !== '') {
+                return $candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private function shouldInheritRecentCsvContext(
+        string $message,
+        bool $hasAggregateIntent,
+        bool $hasDateIntent,
+        bool $hasColumnExplainIntent,
+        ?string $targetColumn
+    ): bool {
+        if ($hasColumnExplainIntent) {
+            return true;
+        }
+
+        if ($this->isAggregationFollowUpIntent($message)) {
+            return true;
+        }
+
+        if (preg_match('/((この|その|同じ|前回|直前|先ほど|さっき|引き続き|続けて).*(CSV|ファイル|列|カラム|項目|集計|条件))|((CSV|ファイル|列|カラム|項目|集計|条件).*(この|その|同じ|前回|直前|先ほど|さっき))/u', $message) === 1) {
+            return true;
+        }
+
+        if (
+            $hasAggregateIntent
+            && $hasDateIntent
+            && $targetColumn === null
+            && preg_match('/(\d{4}年\d{1,2}月(?:\d{1,2}日)?|\d{4}[\/\-]\d{1,2}(?:[\/\-]\d{1,2})?)/u', $message) === 1
+        ) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private function isAggregationFollowUpIntent(string $message): bool
+    {
+        return preg_match('/(若い順|古い順|昇順|降順|新しい順|新しいものから|古いものから|グラフ|グラフ化|チャート|並び替え|並べ替え|ソート)/iu', $message) === 1;
     }
 }

@@ -16,6 +16,8 @@ window.chartInstances = window.chartInstances || {};
 let chatBusy = false;
 let chatStatusTimer = null;
 let chatStatusStartedAt = null;
+let currentChatStatusMessage = '';
+let activeChatStatusTargets = { loadingId: null, messageId: null };
 
 // モジュールスコープでグラフ配色とモーダル用インスタンスを管理（window汚染の排除）
 let activeModalChart = null;
@@ -428,6 +430,81 @@ function createMermaidCard(source, title = 'Mermaid 図表') {
     `;
 }
 
+function normalizeReasoningPlainText(text) {
+    return normalizeAiText(text)
+        .replace(/```[\s\S]*?```/g, ' ')
+        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1')
+        .replace(/[#>*_`~\-|]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function trimReasoningLabel(text, maxLength = 32) {
+    const cleaned = normalizeReasoningPlainText(text)
+        .replace(/["{}\[\]\(\):;]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    if (!cleaned) return '要点整理';
+    return cleaned.length > maxLength ? `${cleaned.slice(0, maxLength)}...` : cleaned;
+}
+
+function buildReasoningFlowMermaid(reasoningSteps = []) {
+    if (!Array.isArray(reasoningSteps) || reasoningSteps.length === 0) return '';
+
+    const lines = [
+        'flowchart TD',
+        'start["質問受信"]',
+        'analyze["意図解析"]',
+        'start --> analyze'
+    ];
+
+    let prevNodeId = 'analyze';
+    reasoningSteps.forEach((step, index) => {
+        const queryLabel = trimReasoningLabel(step?.sub_query || `サブクエリ ${index + 1}`, 28);
+        const answerLabel = trimReasoningLabel(step?.sub_answer || '根拠確認', 34);
+        const queryNodeId = `sq${index + 1}`;
+        const answerNodeId = `sa${index + 1}`;
+        lines.push(`${queryNodeId}["${index + 1}. ${queryLabel}"]`);
+        lines.push(`${answerNodeId}["検証: ${answerLabel}"]`);
+        lines.push(`${prevNodeId} --> ${queryNodeId}`);
+        lines.push(`${queryNodeId} --> ${answerNodeId}`);
+        prevNodeId = answerNodeId;
+    });
+
+    lines.push('final["最終回答生成"]');
+    lines.push(`${prevNodeId} --> final`);
+    return lines.join('\n');
+}
+
+function buildReasoningProcessDetailsHtml(reasoningSteps = []) {
+    if (!Array.isArray(reasoningSteps) || reasoningSteps.length === 0) return '';
+
+    const flowSource = buildReasoningFlowMermaid(reasoningSteps);
+    const flowHtml = flowSource
+        ? `<div class="pb-1">${createMermaidCard(flowSource, 'AI 思考・検証フロー')}</div>`
+        : '';
+
+    return `
+        <details class="mb-3 border border-indigo-100 rounded-xl bg-indigo-50/20 overflow-hidden group w-full">
+            <summary class="text-[10px] font-bold text-indigo-600 p-2.5 cursor-pointer hover:bg-indigo-50/50 transition-colors select-none outline-none flex items-center gap-1.5">
+                <span class="group-open:rotate-90 transition-transform text-[8px] w-3 text-center block">▶</span>
+                🧠 AIの思考・検証プロセスを表示 (${reasoningSteps.length}件のサブクエリ)
+            </summary>
+            <div class="p-3.5 pt-0 space-y-3 border-t border-indigo-100/60 max-h-[360px] overflow-y-auto custom-scrollbar bg-white/50">
+                ${flowHtml}
+                ${reasoningSteps.map(step => `
+                    <div class="text-[10px] bg-white p-3 rounded-xl border border-indigo-50 shadow-xs">
+                        <p class="font-bold text-indigo-700 mb-1.5">Q. ${escapeHTML(step.sub_query)}</p>
+                        <div class="text-slate-600 markdown-body chat-markdown chat-reasoning-body">
+                            ${parseMarkdownToHtml(step.sub_answer || '')}
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        </details>
+    `;
+}
+
 function renderMermaidInContainer(parentContainer) {
     if (!parentContainer || !ensureMermaidReady()) return;
 
@@ -509,39 +586,24 @@ customRenderer.code = function(code, infostring, escaped) {
 // グローバル空間へのモーダル展開関数の露出バインド（aiRenderer.jsからの協調キック用）
 window.launchChartZoomModal = launchChartZoomModal;
 
-function getChatStatusBar() {
-    const form = document.getElementById('chat-form');
-    if (!form) return null;
-
-    let bar = document.getElementById('chat-processing-status');
-    if (!bar) {
-        bar = document.createElement('div');
-        bar.id = 'chat-processing-status';
-        bar.className = 'hidden items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-[10px] text-slate-500 shadow-2xs';
-        form.parentNode?.insertBefore(bar, form);
-    }
-    return bar;
-}
-
 function updateChatProcessingStatus(message, variant = 'processing') {
-    const bar = getChatStatusBar();
-    if (!bar) return;
-
     const elapsed = chatStatusStartedAt ? Math.max(0, Math.floor((Date.now() - chatStatusStartedAt) / 1000)) : 0;
-    const tone = variant === 'done'
-        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-        : variant === 'error'
-            ? 'border-red-200 bg-red-50 text-red-700'
-            : 'border-amber-200 bg-amber-50 text-amber-800';
+    currentChatStatusMessage = message;
 
-    bar.className = `flex items-center justify-between gap-3 rounded-xl border px-3 py-1.5 text-[10px] shadow-2xs ${tone}`;
-    bar.innerHTML = `
-        <span class="flex min-w-0 items-center gap-2 font-bold">
-            <span class="${variant === 'processing' ? 'inline-block h-2.5 w-2.5 rounded-full border-2 border-current border-t-transparent animate-spin' : 'inline-block h-2.5 w-2.5 rounded-full bg-current'}"></span>
-            <span class="truncate">${escapeHTML(message)}</span>
-        </span>
-        <span class="shrink-0 font-mono text-[9px] opacity-75">${elapsed}s</span>
-    `;
+    const loadingBubble = activeChatStatusTargets.loadingId
+        ? document.getElementById(activeChatStatusTargets.loadingId)
+        : null;
+    if (loadingBubble) {
+        const holders = loadingBubble.querySelectorAll('.status-msg-holder');
+        holders.forEach((holder) => { holder.textContent = message; });
+
+        const elapsedHolder = loadingBubble.querySelector('.status-elapsed-holder');
+        if (elapsedHolder) elapsedHolder.textContent = `${elapsed}s`;
+    }
+
+    if (activeChatStatusTargets.messageId) {
+        aiRenderer.setInlineStatus(activeChatStatusTargets.messageId, message, variant, elapsed);
+    }
 }
 
 function startChatProcessingStatus(message) {
@@ -549,14 +611,13 @@ function startChatProcessingStatus(message) {
     updateChatProcessingStatus(message);
     if (chatStatusTimer) clearInterval(chatStatusTimer);
     chatStatusTimer = setInterval(() => {
-        const current = document.getElementById('chat-processing-status')?.dataset.message || message;
+        const current = currentChatStatusMessage || message;
         updateChatProcessingStatus(current);
     }, 1000);
 }
 
 function setChatProcessingStatus(message, variant = 'processing') {
-    const bar = getChatStatusBar();
-    if (bar) bar.dataset.message = message;
+    currentChatStatusMessage = message;
     updateChatProcessingStatus(message, variant);
 }
 
@@ -567,12 +628,21 @@ function finishChatProcessingStatus(message, variant = 'done') {
     }
     setChatProcessingStatus(message, variant);
     setTimeout(() => {
-        const bar = document.getElementById('chat-processing-status');
-        if (bar && !chatBusy) {
-            bar.classList.add('hidden');
-            bar.textContent = '';
+        if (!chatBusy) {
+            if (activeChatStatusTargets.messageId) {
+                aiRenderer.clearInlineStatus(activeChatStatusTargets.messageId);
+            }
+            const loadingBubble = activeChatStatusTargets.loadingId
+                ? document.getElementById(activeChatStatusTargets.loadingId)
+                : null;
+            if (loadingBubble) {
+                const statusLine = loadingBubble.querySelector('.loading-inline-status');
+                if (statusLine) statusLine.remove();
+            }
+            currentChatStatusMessage = '';
+            activeChatStatusTargets = { loadingId: null, messageId: null };
         }
-    }, 2500);
+    }, 1600);
 }
 
 /**
@@ -777,9 +847,10 @@ function handleChat(e) {
     }
 
     const loadingDiv = document.createElement('div');
-    loadingDiv.id = tempId; 
+    loadingDiv.id = tempId;
     loadingDiv.className = 'flex gap-3 items-start animate-pulse-soft';
-    
+    activeChatStatusTargets = { loadingId: tempId, messageId: null };
+
     loadingDiv.innerHTML = `
         <div class="w-7 h-7 rounded-full bg-amber-50 text-amber-700 border border-amber-200/60 flex items-center justify-center text-xs font-bold flex-shrink-0 shadow-sm select-none">🤖</div>
         <div class="flex flex-col items-start max-w-[82%] gap-0.5">
@@ -787,9 +858,15 @@ function handleChat(e) {
                 <span class="text-[9px] font-black text-slate-500 uppercase tracking-tight">AI Assistant</span>
                 <span class="text-[8px] text-slate-400 font-mono tracking-tighter">${formatChatDate(null)}</span>
             </div>
-            <div class="bg-white border border-slate-200 text-slate-500 rounded-2xl rounded-tl-none px-3.5 py-3 text-xs shadow-sm font-semibold flex items-center gap-2 leading-relaxed">
-                <span class="inline-block w-3 h-3 border-2 border-[#4F5D95] border-t-transparent rounded-full animate-spin"></span>
-                <span class="status-msg-holder">回答を準備しています...</span>
+            <div class="bg-white border border-slate-200 text-slate-500 rounded-2xl rounded-tl-none px-3.5 py-3 text-xs shadow-sm font-semibold leading-relaxed">
+                <div class="flex items-center gap-2">
+                    <span class="inline-block w-3 h-3 border-2 border-[#4F5D95] border-t-transparent rounded-full animate-spin"></span>
+                    <span class="status-msg-holder">回答を準備しています...</span>
+                </div>
+                <div class="loading-inline-status mt-3 flex w-full items-center justify-end gap-2 text-[9px] text-slate-400">
+                    <span class="font-bold tracking-tight">経過時間</span>
+                    <span class="status-elapsed-holder shrink-0 font-mono">0s</span>
+                </div>
             </div>
         </div>
     `;
@@ -869,6 +946,12 @@ function handleChat(e) {
                             if (!bubbleCreated) {
                                 document.getElementById(tempId)?.remove();
                                 aiRenderer.createMessageBubble(targetMessageId, 'assistant');
+                                activeChatStatusTargets.messageId = targetMessageId;
+                                activeChatStatusTargets.loadingId = null;
+                                if (currentChatStatusMessage) {
+                                    const elapsed = chatStatusStartedAt ? Math.max(0, Math.floor((Date.now() - chatStatusStartedAt) / 1000)) : 0;
+                                    aiRenderer.setInlineStatus(targetMessageId, currentChatStatusMessage, 'processing', elapsed);
+                                }
                                 bubbleCreated = true;
                             }
 
@@ -938,24 +1021,7 @@ function handleChat(e) {
                                     }
 
                                     if (sseData.reasoning_steps && sseData.reasoning_steps.length > 0) {
-                                        const rHtml = `
-                                            <details class="mb-3 border border-indigo-100 rounded-xl bg-indigo-50/20 overflow-hidden group w-full">
-                                                <summary class="text-[10px] font-bold text-indigo-600 p-2.5 cursor-pointer hover:bg-indigo-50/50 transition-colors select-none outline-none flex items-center gap-1.5">
-                                                    <span class="group-open:rotate-90 transition-transform text-[8px] w-3 text-center block">▶</span>
-                                                    🧠 AIの思考・検証プロセスを表示 (${sseData.reasoning_steps.length}件のサブクエリ)
-                                                </summary>
-                                                <div class="p-3.5 pt-0 space-y-3 border-t border-indigo-100/60 max-h-[300px] overflow-y-auto custom-scrollbar bg-white/50">
-                                                    ${sseData.reasoning_steps.map(step => `
-                                                        <div class="text-[10px] bg-white p-3 rounded-xl border border-indigo-50 shadow-xs">
-                                                            <p class="font-bold text-indigo-700 mb-1.5">Q. ${escapeHTML(step.sub_query)}</p>
-                                                            <div class="text-slate-600 leading-relaxed markdown-body text-[10px]">
-                                                                ${parseMarkdownToHtml(step.sub_answer || '')}
-                                                            </div>
-                                                        </div>
-                                                    `).join('')}
-                                                </div>
-                                            </details>
-                                        `;
+                                        const rHtml = buildReasoningProcessDetailsHtml(sseData.reasoning_steps);
                                         const reasoningFragment = document.createRange().createContextualFragment(rHtml);
                                         bubbleContainer.insertBefore(reasoningFragment, bubbleContainer.children[1] || null);
                                     }
@@ -1033,7 +1099,7 @@ function handleChat(e) {
             finishChatProcessingStatus('通信エラーが発生しました。', 'error');
         } finally {
             setFormBusy(false);
-            if (document.getElementById('chat-processing-status')?.dataset.message && !document.getElementById('chat-processing-status')?.classList.contains('hidden')) {
+            if (currentChatStatusMessage) {
                 if (terminalStatus === 'error') {
                     finishChatProcessingStatus('エラーのため処理を終了しました。次の質問を送信できます。', 'error');
                 } else {
@@ -1063,24 +1129,7 @@ function appendMsg(role, text, sources = [], reasoningSteps = [], createdAt = nu
     
     let reasoningHtml = '';
     if (reasoningSteps && reasoningSteps.length > 0) {
-        reasoningHtml = `
-            <details class="mb-3 border border-indigo-100 rounded-xl bg-indigo-50/20 overflow-hidden group w-full">
-                <summary class="text-[10px] font-bold text-indigo-600 p-2.5 cursor-pointer hover:bg-indigo-50/50 transition-colors select-none outline-none flex items-center gap-1.5">
-                    <span class="group-open:rotate-90 transition-transform text-[8px] w-3 text-center block">▶</span>
-                    🧠 AIの思考・検証プロセスを表示 (${reasoningSteps.length}件のサブクエリ)
-                </summary>
-                <div class="p-3.5 pt-0 space-y-3 border-t border-indigo-100/60 max-h-[300px] overflow-y-auto custom-scrollbar bg-white/50">
-                    ${reasoningSteps.map(step => `
-                        <div class="text-[10px] bg-white p-3 rounded-xl border border-indigo-50 shadow-xs">
-                            <p class="font-bold text-indigo-700 mb-1.5">Q. ${escapeHTML(step.sub_query)}</p>
-                            <div class="text-slate-600 markdown-body chat-markdown chat-reasoning-body">
-                                ${parseMarkdownToHtml(step.sub_answer || '')}
-                            </div>
-                        </div>
-                    `).join('')}
-                </div>
-            </details>
-        `;
+        reasoningHtml = buildReasoningProcessDetailsHtml(reasoningSteps);
     }
 
     // ★【完全閉塞：動的RegExp生成仕様】生のトリプルバッククォートを完全に排除し、16進数文字コードで安全パース
@@ -1184,6 +1233,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 });
+
+window.buildReasoningProcessDetailsHtml = buildReasoningProcessDetailsHtml;
 
 // =========================================================================
 // ★[究極の安全設計] グローバルへの確実なバインドレイヤー

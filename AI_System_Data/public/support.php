@@ -59,7 +59,11 @@ if (!function_exists('h')) {
             opacity: 1; 
         }
         
-        :root {--support-width: 410px;}
+        :root {
+            --support-width: 410px;
+            --support-sidebar-width: 16rem;
+            --support-sidebar-collapsed-width: 4.75rem;
+        }
         .overview-map-container { position: relative; z-index: 0; }
         details > summary { list-style: none; }
         details > summary::-webkit-details-marker { display: none; }
@@ -76,12 +80,288 @@ if (!function_exists('h')) {
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
-        #chat-input:focus, 
-        input:focus, 
+        #chat-input:focus,
+        input:focus,
         select:focus {
             outline: none !important;
             box-shadow: none !important;
             border-color: transparent !important;
+        }
+
+        #support-sidebar {
+            width: var(--support-sidebar-width);
+            transition: width 0.24s ease, padding 0.24s ease;
+        }
+        #support-sidebar .support-sidebar-heading {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+        }
+        #support-sidebar .support-project-link {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.75rem;
+        }
+        #support-sidebar .support-project-badge {
+            width: 2rem;
+            height: 2rem;
+            border-radius: 0.9rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            border: 1px solid #e2e8f0;
+            background: #f8fafc;
+            color: #475569;
+            font-size: 11px;
+            font-weight: 900;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+        }
+        #support-sidebar .support-project-copy {
+            min-width: 0;
+            flex: 1;
+        }
+        #support-sidebar .support-sidebar-footer-icon {
+            display: none;
+        }
+        #support-sidebar-toggle {
+            width: 2rem;
+            height: 2rem;
+            border-radius: 0.9rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        #support-sidebar-toggle-icon {
+            transition: transform 0.24s ease;
+        }
+
+        body.sidebar-collapsed #support-sidebar {
+            width: var(--support-sidebar-collapsed-width);
+            padding-left: 0.75rem;
+            padding-right: 0.75rem;
+        }
+        body.sidebar-collapsed #support-sidebar .support-sidebar-title,
+        body.sidebar-collapsed #support-sidebar .support-project-copy,
+        body.sidebar-collapsed #support-sidebar .support-sidebar-footer-label {
+            display: none;
+        }
+        body.sidebar-collapsed #support-sidebar .support-sidebar-heading {
+            justify-content: center;
+        }
+        body.sidebar-collapsed #support-sidebar .support-project-link {
+            justify-content: center;
+            padding-left: 0.45rem;
+            padding-right: 0.45rem;
+        }
+        body.sidebar-collapsed #support-sidebar .support-project-badge {
+            width: 2.25rem;
+            height: 2.25rem;
+            font-size: 12px;
+        }
+        body.sidebar-collapsed #support-sidebar .support-project-create-btn {
+            justify-content: center;
+            padding-left: 0.5rem;
+            padding-right: 0.5rem;
+        }
+        body.sidebar-collapsed #support-sidebar .support-sidebar-footer-icon {
+            display: inline-flex;
+        }
+        body.sidebar-collapsed #support-sidebar-toggle-icon {
+            transform: rotate(180deg);
+        }
+
+        #tab-header {
+            flex-wrap: nowrap;
+            overflow-x: auto;
+            overflow-y: hidden;
+            scrollbar-width: none;
+        }
+        #tab-header::-webkit-scrollbar { display: none; }
+        #tab-header .tab-btn {
+            flex: 0 0 auto;
+            max-width: clamp(72px, 14vw, 136px);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .chat-thread-tabs {
+            display: flex;
+            align-items: flex-end;
+            gap: 0.15rem;
+            overflow-x: auto;
+            overflow-y: hidden;
+            padding: 0 0.15rem;
+            scrollbar-width: none;
+        }
+        .chat-thread-tabs::-webkit-scrollbar { display: none; }
+        .chat-thread-tab-group {
+            position: relative;
+            flex: 0 0 auto;
+            min-width: 0;
+        }
+        .chat-thread-tab {
+            min-width: 0;
+            max-width: 184px;
+            padding: 0.45rem 1.85rem 0.4rem 0.75rem;
+            border-radius: 0.9rem 0.9rem 0 0;
+            border: 1px solid #e2e8f0;
+            border-bottom: none;
+            background: #eef2f7;
+            box-shadow: inset 0 -1px 0 rgba(226, 232, 240, 0.85);
+        }
+        .chat-thread-tab__title {
+            display: block;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .chat-thread-tab__meta {
+            display: block;
+            margin-top: 0.1rem;
+            white-space: nowrap;
+        }
+        .chat-thread-tab-delete,
+        .chat-thread-tab-create {
+            flex: 0 0 auto;
+        }
+        .chat-thread-tab-delete {
+            position: absolute;
+            top: 0.22rem;
+            right: 0.4rem;
+            width: 1.15rem;
+            height: 1.15rem;
+            border-radius: 999px;
+        }
+        .chat-thread-tab-create {
+            height: 1.95rem;
+            border-radius: 0.9rem 0.9rem 0 0;
+            border-bottom: none;
+            background: #f8fafc;
+        }
+        .chat-output-options {
+            position: relative;
+            overflow: visible;
+        }
+        .chat-output-options > summary {
+            list-style: none;
+        }
+        .chat-output-options > summary::-webkit-details-marker {
+            display: none;
+        }
+        .chat-output-options-panel {
+            position: absolute;
+            right: 0;
+            bottom: calc(100% + 0.5rem);
+            width: min(19rem, calc(100vw - 3rem));
+            border: 1px solid #e2e8f0;
+            border-radius: 1rem;
+            background: rgba(255, 255, 255, 0.98);
+            box-shadow: 0 16px 40px rgba(15, 23, 42, 0.12);
+            backdrop-filter: blur(8px);
+            z-index: 25;
+        }
+        .chat-footer-toolbar {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 0.75rem;
+        }
+        .chat-footer-toolbar__left,
+        .chat-footer-toolbar__right {
+            min-width: 0;
+        }
+        .chat-footer-toolbar__left {
+            flex: 1 1 auto;
+        }
+        .chat-footer-toolbar__right {
+            flex: 0 0 auto;
+            display: flex;
+            justify-content: flex-end;
+        }
+        .chat-output-options-trigger {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            border-radius: 999px;
+            border: 1px solid #cbd5e1;
+            background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+            padding: 0.375rem 0.875rem;
+            color: #475569;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+        }
+        .chat-output-options-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        .chat-box-shell {
+            position: relative;
+            flex: 1 1 auto;
+            min-height: 0;
+        }
+        .chat-clear-overlay-btn {
+            position: absolute;
+            top: 0.75rem;
+            right: 0.75rem;
+            z-index: 12;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.35rem;
+            min-height: 1.9rem;
+            padding: 0 0.6rem;
+            border-radius: 0.7rem;
+            border: 1px solid rgba(148, 163, 184, 0.45);
+            background: rgba(255, 255, 255, 0.88);
+            color: #94a3b8;
+            box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+            backdrop-filter: blur(6px);
+        }
+        .chat-clear-overlay-btn:hover {
+            border-color: rgba(239, 68, 68, 0.25);
+            background: rgba(254, 242, 242, 0.95);
+            color: #ef4444;
+        }
+
+        @media (max-width: 1280px) {
+            #tab-header .tab-btn {
+                max-width: 108px;
+            }
+            .chat-thread-tab {
+                max-width: 148px;
+            }
+        }
+
+        @media (max-width: 1024px) {
+            #tab-header .tab-btn {
+                max-width: 74px;
+                padding-left: 0.75rem;
+                padding-right: 0.75rem;
+            }
+            .chat-thread-tab {
+                max-width: 126px;
+            }
+            .chat-thread-tab__meta {
+                display: none;
+            }
+        }
+
+        @media (max-width: 860px) {
+            #tab-header .tab-btn {
+                max-width: 58px;
+                font-size: 10px;
+            }
+            .chat-footer-toolbar {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            .chat-footer-toolbar__right {
+                justify-content: flex-end;
+            }
         }
     </style>
 
@@ -108,18 +388,36 @@ if (!function_exists('h')) {
 
 <main class="flex-1 flex overflow-hidden h-[calc(100vh-72px)] gap-px bg-slate-200/50 w-full" role="region" aria-label="Support System Console">
     
-    <div class="w-64 bg-white flex flex-col p-4 border-r border-slate-200/60 flex-shrink-0" role="navigation">
-        <h2 class="text-[11px] font-black text-slate-400 px-1 pb-3 mb-2 uppercase tracking-widest border-b border-slate-100">業務一覧</h2>
+    <div id="support-sidebar" class="bg-white flex flex-col p-4 border-r border-slate-200/60 flex-shrink-0" role="navigation">
+        <div class="support-sidebar-heading px-1 pb-3 mb-2 border-b border-slate-100">
+            <h2 class="support-sidebar-title text-[11px] font-black text-slate-400 uppercase tracking-widest">業務一覧</h2>
+            <button
+                id="support-sidebar-toggle"
+                type="button"
+                class="border border-slate-200 bg-slate-50 text-slate-500 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 transition-all duration-200 shadow-2xs"
+                aria-label="業務一覧を折りたたむ"
+                title="業務一覧を折りたたむ"
+            >
+                <span id="support-sidebar-toggle-icon" aria-hidden="true">◀</span>
+            </button>
+        </div>
         <div class="flex-1 overflow-y-auto space-y-1.5 pr-1 no-scrollbar" role="list">
             <?php foreach ($projects as $p): ?>
                 <?php $isProjFocused = ($selected_project_id == $p['id']); ?>
-                <a href="?project_id=<?= h((string)$p['id']) ?>" class="block p-3 rounded-xl transition-all duration-200 ease-in-out <?= $isProjFocused ? 'bg-slate-100 text-slate-900 font-extrabold shadow-2xs' : 'hover:bg-slate-50 text-slate-600 border-transparent' ?>">
-                    <p class="text-xs leading-snug <?= $isProjFocused ? 'text-slate-900 font-black' : 'text-slate-600 font-medium' ?>"><?= h($p['project_name']) ?></p>
-                    <p class="text-[9px] text-slate-400 mt-1.5 font-medium tracking-tight">Update: <?= date('m/d H:i', strtotime($p['updated_at'])) ?></p>
+                <?php $projectBadge = mb_substr((string)$p['project_name'], 0, 1); ?>
+                <a href="?project_id=<?= h((string)$p['id']) ?>" title="<?= h($p['project_name']) ?>" class="support-project-link block p-3 rounded-xl transition-all duration-200 ease-in-out <?= $isProjFocused ? 'bg-slate-100 text-slate-900 font-extrabold shadow-2xs' : 'hover:bg-slate-50 text-slate-600 border-transparent' ?>">
+                    <span class="support-project-badge <?= $isProjFocused ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : '' ?>"><?= h($projectBadge) ?></span>
+                    <span class="support-project-copy">
+                        <p class="text-xs leading-snug truncate <?= $isProjFocused ? 'text-slate-900 font-black' : 'text-slate-600 font-medium' ?>"><?= h($p['project_name']) ?></p>
+                        <p class="text-[9px] text-slate-400 mt-1.5 font-medium tracking-tight">Update: <?= date('m/d H:i', strtotime($p['updated_at'])) ?></p>
+                    </span>
                 </a>
             <?php endforeach; ?>
         </div>
-        <button onclick="if(typeof window.openAppModal === 'function') window.openAppModal('project-modal')" class="mt-4 p-3 bg-slate-50 text-slate-600 rounded-xl text-xs font-bold border border-slate-200 hover:bg-indigo-50/50 hover:text-[#4F5D95] hover:border-indigo-200 transition-all duration-200 shadow-2xs transform active:scale-98">+ 新規案件登録</button>
+        <button onclick="if(typeof window.openAppModal === 'function') window.openAppModal('project-modal')" class="support-project-create-btn mt-4 p-3 bg-slate-50 text-slate-600 rounded-xl text-xs font-bold border border-slate-200 hover:bg-indigo-50/50 hover:text-[#4F5D95] hover:border-indigo-200 transition-all duration-200 shadow-2xs transform active:scale-98">
+            <span class="support-sidebar-footer-icon" aria-hidden="true">＋</span>
+            <span class="support-sidebar-footer-label">+ 新規案件登録</span>
+        </button>
     </div>
 
     <?php if ($current_project): ?>
@@ -486,12 +784,17 @@ if (!function_exists('h')) {
     <div id="resize-handle" class="h-full w-1 bg-transparent hover:bg-indigo-500/20 active:bg-indigo-500/40 cursor-col-resize z-10 relative transition-colors duration-200"></div>
 
     <div id="right-panel" class="w-[var(--support-width)] bg-white flex flex-col h-full border-l border-slate-200/60 flex-shrink-0 relative transition-all duration-200">
-        <div class="p-4 bg-white/90 backdrop-blur-md border-b border-slate-200/60 flex justify-between items-center gap-2 shadow-2xs relative z-10">
+        <div class="px-4 py-3 bg-white/90 backdrop-blur-md border-b border-slate-200/60 flex justify-between items-center gap-2 shadow-2xs relative z-10">
             <div class="flex-shrink-0">
-                <p class="font-black text-slate-700 text-[10px] uppercase tracking-widest" title="接続先: <?= h($ollama_host) ?>">AI Assistant Panel</p>
-                <p class="text-[8px] text-emerald-600 font-bold uppercase tracking-widest mt-1 flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> Agentic RAG Pipeline</p>
+                <p class="font-black text-slate-700 text-[10px] uppercase tracking-widest flex items-center gap-1.5" title="接続先: <?= h($ollama_host) ?>">
+                    <span>AI Assistant Panel</span>
+                    <span class="inline-flex items-center gap-1 text-[8px] text-emerald-600 font-bold uppercase tracking-widest">
+                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                        <span>Ready</span>
+                    </span>
+                </p>
             </div>
-            
+
             <div class="flex items-center gap-1.5 overflow-hidden">
                 <select id="support-prompt-select" class="text-[10px] border border-slate-200 rounded-xl px-2 py-1.5 bg-slate-50/50 hover:bg-white font-bold text-slate-600 tracking-wide max-w-[90px] truncate outline-none transition-all duration-200 ease-in-out cursor-pointer shadow-2xs relative shadow-inner focus:border-indigo-400">
                     <option value="construction_consultant" <?= $default_prompt_mode == 'construction_consultant' ? 'selected' : '' ?>>🏗️ 建設</option>
@@ -500,45 +803,24 @@ if (!function_exists('h')) {
                     <option value="general_chat" <?= $default_prompt_mode == 'general_chat' ? 'selected' : '' ?>>💬 会話</option>
                 </select>
                 
-                <select id="support-model-select" class="text-[10px] border border-slate-200 rounded-xl px-2 py-1.5 bg-slate-50/50 hover:bg-white font-mono max-w-[100px] truncate outline-none transition-all duration-200 ease-in-out cursor-pointer text-slate-600 shadow-2xs focus:border-indigo-400" title="現在のホスト: <?= h($ollama_host) ?>">
-                    <?php foreach ($installed_models as $m): ?>
-                        <option value="<?= h($m) ?>" <?= $m == $active_model ? 'selected' : '' ?>><?= h($m) ?></option>
-                    <?php endforeach; ?>
+                <select id="support-model-select" class="text-[10px] border border-slate-200 rounded-xl px-2 py-1.5 bg-slate-50/50 hover:bg-white font-mono max-w-[100px] truncate outline-none transition-all duration-200 ease-in-out cursor-pointer text-slate-600 shadow-2xs focus:border-indigo-400" title="現在のホスト: <?= h($ollama_host) ?>" <?= empty($installed_models) ? 'disabled' : '' ?>>
+                    <?php if (empty($installed_models)): ?>
+                        <option value="">LLM未取得</option>
+                    <?php else: ?>
+                        <?php foreach ($installed_models as $m): ?>
+                            <option value="<?= h($m) ?>" <?= $m == $active_model ? 'selected' : '' ?>><?= h($m) ?></option>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
                 </select>
-                <button
-                    type="button"
-                    onclick="if(typeof window.createProjectChatThread === 'function') window.createProjectChatThread()"
-                    class="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-bold text-slate-500 shadow-2xs transition-all duration-200 ease-in-out hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 active:scale-95"
-                    title="新しい会話スレッドを作成"
-                    aria-label="新しい会話スレッドを作成"
-                >
-                    <span class="text-[12px]" aria-hidden="true">＋</span>
-                    <span class="hidden md:inline">新規</span>
-                </button>
-                <button
-                    id="btn-clear-chat-history"
-                    type="button"
-                    class="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-bold text-slate-500 shadow-2xs transition-all duration-200 ease-in-out hover:border-amber-300 hover:bg-amber-50 hover:text-amber-700 active:scale-95"
-                    title="この案件のAI会話履歴を削除"
-                    aria-label="この案件のAI会話履歴を削除"
-                >
-                    <svg xmlns="<?= !empty($URL_SVG_XMLNS) ? h($URL_SVG_XMLNS) : 'http://www.w3.org/2000/svg' ?>" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3.5 h-3.5">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M3 6h18M8.25 6V4.875A1.875 1.875 0 0 1 10.125 3h3.75A1.875 1.875 0 0 1 15.75 4.875V6m-8.25 0v11.625A2.25 2.25 0 0 0 9.75 19.875h4.5A2.25 2.25 0 0 0 16.5 17.625V6m-6 3.75v6.75m3-6.75v6.75" />
-                    </svg>
-                    <span class="hidden md:inline">履歴クリア</span>
-                </button>
             </div>
         </div>
 
-        <div class="border-b border-slate-200/70 bg-white px-3 py-3">
-            <div class="mb-2 flex items-center justify-between gap-2 px-1">
-                <div>
-                    <p class="text-[9px] font-black uppercase tracking-wider text-slate-400">Conversation Threads</p>
-                    <p id="active-thread-title" class="text-[11px] font-bold text-slate-600"><?= h((string)($selected_thread['title'] ?? '会話 1')) ?></p>
-                </div>
-                <span class="rounded-full bg-slate-100 px-2 py-1 text-[9px] font-bold text-slate-500"><?= count($chat_threads) ?>件</span>
-            </div>
-            <div id="chat-thread-list" class="max-h-36 space-y-1.5 overflow-y-auto pr-1 no-scrollbar">
+        <div class="sr-only" aria-hidden="true">
+            <p id="active-thread-title"><?= h((string)($selected_thread['title'] ?? '会話 1')) ?></p>
+        </div>
+
+        <div class="border-b border-slate-200/70 bg-white px-3 pt-2">
+            <div id="chat-thread-list" class="chat-thread-tabs">
                 <?php foreach ($chat_threads as $thread): ?>
                     <?php
                         $threadId = (int)($thread['id'] ?? 0);
@@ -546,113 +828,148 @@ if (!function_exists('h')) {
                         $threadTitle = (string)($thread['title'] ?? ('会話 ' . $threadId));
                         $threadMetaAt = (string)($thread['last_message_at'] ?: $thread['updated_at'] ?: $thread['created_at'] ?: '');
                     ?>
-                    <div class="group flex items-center gap-1.5">
+                    <div class="chat-thread-tab-group group">
                         <button
                             type="button"
                             data-thread-switch
                             data-thread-id="<?= $threadId ?>"
-                            onclick="if(typeof window.switchProjectChatThread === 'function') window.switchProjectChatThread(<?= $threadId ?>)"
-                            class="flex min-w-0 flex-1 items-start justify-between rounded-2xl border px-3 py-2 text-left transition-all duration-200 ease-in-out <?= $isActiveThread ? 'border-indigo-200 bg-indigo-50 text-indigo-700 shadow-2xs' : 'border-slate-200 bg-slate-50/70 text-slate-600 hover:border-slate-300 hover:bg-white' ?>"
+                            aria-current="<?= $isActiveThread ? 'page' : 'false' ?>"
+                            <?= $isActiveThread ? 'disabled' : '' ?>
+                            onclick="<?= $isActiveThread ? 'return false;' : "if(typeof window.switchProjectChatThread === 'function') window.switchProjectChatThread($threadId)" ?>"
+                            class="chat-thread-tab flex min-w-0 items-start justify-between text-left transition-all duration-200 ease-in-out <?= $isActiveThread ? 'border-slate-200 bg-white text-indigo-700 shadow-sm cursor-default' : 'border-slate-200 bg-slate-100/90 text-slate-600 hover:bg-slate-50 hover:text-slate-700' ?>"
                         >
                             <span class="min-w-0">
-                                <span data-thread-title class="block truncate text-[11px] font-bold"><?= h($threadTitle) ?></span>
-                                <span class="mt-1 block text-[9px] font-medium <?= $isActiveThread ? 'text-indigo-500' : 'text-slate-400' ?>">
+                                <span data-thread-title class="chat-thread-tab__title text-[11px] font-bold"><?= h($threadTitle) ?></span>
+                                <span class="chat-thread-tab__meta text-[9px] font-medium <?= $isActiveThread ? 'text-indigo-500' : 'text-slate-400' ?>">
                                     <?= h($threadMetaAt !== '' ? date('m/d H:i', strtotime($threadMetaAt)) : '履歴なし') ?>
                                     ・ <?= (int)($thread['message_count'] ?? 0) ?>件
                                 </span>
                             </span>
-                            <?php if ($isActiveThread): ?>
-                                <span class="ml-3 rounded-full bg-white/80 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wider text-indigo-500">Now</span>
-                            <?php endif; ?>
                         </button>
                         <?php if (count($chat_threads) > 1): ?>
                             <button
                                 type="button"
                                 onclick="if(typeof window.deleteProjectChatThread === 'function') window.deleteProjectChatThread(<?= $threadId ?>)"
-                                class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl text-slate-300 transition-all duration-200 ease-in-out hover:bg-red-50 hover:text-red-500"
+                                class="chat-thread-tab-delete inline-flex items-center justify-center border border-transparent text-[13px] font-bold leading-none text-slate-300 transition-all duration-200 ease-in-out hover:border-red-100 hover:bg-red-50 hover:text-red-500"
                                 title="このスレッドを削除"
                                 aria-label="このスレッドを削除"
-                            >🗑️</button>
+                            >×</button>
                         <?php endif; ?>
+                    </div>
+                <?php endforeach; ?>
+                <button
+                    type="button"
+                    onclick="if(typeof window.createProjectChatThread === 'function') window.createProjectChatThread()"
+                    class="chat-thread-tab-create inline-flex items-center justify-center border border-dashed border-slate-300 px-3 text-[11px] font-black text-slate-500 transition-all duration-200 ease-in-out hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 active:scale-95"
+                    title="新しい会話スレッドを作成"
+                    aria-label="新しい会話スレッドを作成"
+                >＋</button>
+            </div>
+        </div>
+
+        <div class="chat-box-shell">
+            <button
+                id="btn-clear-chat-history"
+                type="button"
+                class="chat-clear-overlay-btn text-[10px] font-bold transition-all duration-200 ease-in-out active:scale-95"
+                title="この案件のAI会話履歴を削除"
+                aria-label="この案件のAI会話履歴を削除"
+            >
+                <span class="text-[13px] font-black leading-none" aria-hidden="true">×</span>
+                <span>履歴クリア</span>
+            </button>
+
+            <div id="chat-box" class="h-full p-4 space-y-5 overflow-y-auto bg-slate-50/40 no-scrollbar">
+                <?php foreach ($chat_history as $chat): ?>
+                    <?php $timeStr = date('Y/m/d H:i', strtotime($chat['created_at'])); ?>
+                    <div class="flex gap-3 items-start <?= $chat['role'] === 'assistant' ? '' : 'flex-row-reverse' ?> animate-fadeIn">
+                        <div class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 shadow-2xs border select-none
+                            <?= $chat['role'] === 'assistant' ? 'bg-amber-50 text-amber-700 border-amber-200/40' : 'bg-indigo-50 text-indigo-700 border-indigo-200/40' ?>">
+                            <?= $chat['role'] === 'assistant' ? '🤖' : '👤' ?>
+                        </div>
+
+                        <div class="chat-message-stack flex flex-col <?= $chat['role'] === 'assistant' ? 'items-start' : 'items-end' ?> gap-0.5 w-full">
+                            <div class="flex items-center gap-1.5 px-1">
+                                <span class="text-[9px] font-black text-slate-400 uppercase tracking-tight">
+                                    <?= $chat['role'] === 'assistant' ? 'AI Assistant' : 'You' ?>
+                                </span>
+                                <span class="text-[8px] text-slate-400 font-mono tracking-tighter"><?= $timeStr ?></span>
+                            </div>
+                            <div class="chat-message-bubble chat-message-body p-4 markdown-body chat-markdown shadow-2xs border
+                                <?= $chat['role'] === 'assistant' ? 'chat-assistant rounded-tl-none border-slate-100' : 'chat-user rounded-tr-none border-[#3b4773] shadow-xs' ?>">
+
+                                <?php if ($chat['role'] === 'assistant'): ?>
+                                    <?php
+                                        $reasoningSteps = $chat_reasoning_steps_by_chat_id[(int)$chat['id']] ?? [];
+                                        $reasoningJson = json_encode(
+                                            $reasoningSteps,
+                                            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
+                                        );
+                                    ?>
+                                    <div class="chat-raw-message-source hidden"><?= h($chat['message']) ?></div>
+                                    <script type="application/json" class="chat-reasoning-source"><?= $reasoningJson ?: '[]' ?></script>
+                                    <div class="ai-text-body markdown-body chat-markdown w-full"></div>
+                                <?php else: ?>
+                                    <div class="chat-raw-message-source hidden"><?= h($chat['message']) ?></div>
+                                    <div class="user-text-body w-full break-words"><?= h($chat['message']) ?></div>
+                                <?php endif; ?>
+                            </div>
+                        </div>
                     </div>
                 <?php endforeach; ?>
             </div>
         </div>
-
-        <div id="chat-box" class="flex-1 p-4 space-y-5 overflow-y-auto bg-slate-50/40 no-scrollbar">
-            <?php foreach ($chat_history as $chat): ?>
-                <?php $timeStr = date('Y/m/d H:i', strtotime($chat['created_at'])); ?>
-                <div class="flex gap-3 items-start <?= $chat['role'] === 'assistant' ? '' : 'flex-row-reverse' ?> animate-fadeIn">
-                    <div class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 shadow-2xs border select-none
-                        <?= $chat['role'] === 'assistant' ? 'bg-amber-50 text-amber-700 border-amber-200/40' : 'bg-indigo-50 text-indigo-700 border-indigo-200/40' ?>">
-                        <?= $chat['role'] === 'assistant' ? '🤖' : '👤' ?>
-                    </div>
-
-                    <div class="chat-message-stack flex flex-col <?= $chat['role'] === 'assistant' ? 'items-start' : 'items-end' ?> gap-0.5 w-full">
-                        <div class="flex items-center gap-1.5 px-1">
-                            <span class="text-[9px] font-black text-slate-400 uppercase tracking-tight">
-                                <?= $chat['role'] === 'assistant' ? 'AI Assistant' : 'You' ?>
-                            </span>
-                            <span class="text-[8px] text-slate-400 font-mono tracking-tighter"><?= $timeStr ?></span>
-                        </div>
-                        <div class="chat-message-bubble chat-message-body p-4 markdown-body chat-markdown shadow-2xs border
-                            <?= $chat['role'] === 'assistant' ? 'chat-assistant rounded-tl-none border-slate-100' : 'chat-user rounded-tr-none border-[#3b4773] shadow-xs' ?>">
-                            
-                            <?php if ($chat['role'] === 'assistant'): ?>
-                                <?php
-                                    $reasoningSteps = $chat_reasoning_steps_by_chat_id[(int)$chat['id']] ?? [];
-                                    $reasoningJson = json_encode(
-                                        $reasoningSteps,
-                                        JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
-                                    );
-                                ?>
-                                <div class="chat-raw-message-source hidden"><?= h($chat['message']) ?></div>
-                                <script type="application/json" class="chat-reasoning-source"><?= $reasoningJson ?: '[]' ?></script>
-                                <div class="ai-text-body markdown-body chat-markdown w-full"></div>
-                            <?php else: ?>
-                                <div class="chat-raw-message-source hidden"><?= h($chat['message']) ?></div>
-                                <div class="user-text-body w-full break-words"><?= h($chat['message']) ?></div>
-                            <?php endif; ?>
-                        </div>
-                    </div>
-                </div>
-            <?php endforeach; ?>
-        </div>
         
         <div class="p-4 pt-2 border-t border-slate-100 bg-white relative z-10 space-y-3">
-            <div class="flex flex-wrap gap-1.5 overflow-x-auto no-scrollbar" id="quick-actions-bar">
-                <button type="button" onclick="const input=document.getElementById('chat-input'); input.value='登録済みのCSVデータを集計して概要を教えてください。'; input.dispatchEvent(new Event('input')); input.focus();" class="text-[9px] bg-slate-50 hover:bg-slate-100 border border-slate-200/80 rounded-full px-3 py-1 font-bold text-slate-500 shadow-2xs transition-all duration-200 ease-in-out transform hover:border-[#4F5D95] hover:text-[#4F5D95] hover:-translate-y-0.5 hover:shadow-xs hover:scale-[1.02] active:scale-95 active:shadow-inner">📊 データ集計</button>
-                <button type="button" onclick="const input=document.getElementById('chat-input'); input.value='この案件に関連する資料PDFから主要な留意点を抽出してください。'; input.dispatchEvent(new Event('input')); input.focus();" class="text-[9px] bg-slate-50 hover:bg-slate-100 border border-slate-200/80 rounded-full px-3 py-1 font-bold text-slate-500 shadow-2xs transition-all duration-200 ease-in-out transform hover:border-[#4F5D95] hover:text-[#4F5D95] hover:-translate-y-0.5 hover:shadow-xs hover:scale-[1.02] active:scale-95 active:shadow-inner">🔍 資料抽出</button>
-                <button type="button" onclick="const input=document.getElementById('chat-input'); input.value='これまでの会話内容を簡潔にまとめてください。'; input.dispatchEvent(new Event('input')); input.focus();" class="text-[9px] bg-slate-50 hover:bg-slate-100 border border-slate-200/80 rounded-full px-3 py-1 font-bold text-slate-500 shadow-2xs transition-all duration-200 ease-in-out transform hover:border-[#4F5D95] hover:text-[#4F5D95] hover:-translate-y-0.5 hover:shadow-xs hover:scale-[1.02] active:scale-95 active:shadow-inner">📝 文脈総括</button>
-            </div>
-
-            <div class="space-y-1.5 px-1">
-                <div class="flex items-center justify-between gap-2">
-                    <span class="text-[9px] font-black text-slate-400 uppercase tracking-wider">回答モード</span>
-                    <span class="text-[9px] text-slate-400 font-medium truncate">必要な時だけ切替</span>
+            <div class="chat-footer-toolbar">
+                <div class="chat-footer-toolbar__left">
+                    <div class="flex flex-wrap gap-1.5 overflow-x-auto no-scrollbar" id="quick-actions-bar">
+                        <button type="button" onclick="const input=document.getElementById('chat-input'); input.value='登録済みのCSVデータを集計して概要を教えてください。'; input.dispatchEvent(new Event('input')); input.focus();" class="text-[9px] bg-slate-50 hover:bg-indigo-50 border border-slate-200/80 rounded-full px-3 py-1 font-bold text-slate-500 shadow-2xs transition-colors duration-200 ease-in-out hover:border-indigo-200 hover:text-[#4F5D95]">📊 データ集計</button>
+                        <button type="button" onclick="const input=document.getElementById('chat-input'); input.value='この案件に関連する資料PDFから主要な留意点を抽出してください。'; input.dispatchEvent(new Event('input')); input.focus();" class="text-[9px] bg-slate-50 hover:bg-indigo-50 border border-slate-200/80 rounded-full px-3 py-1 font-bold text-slate-500 shadow-2xs transition-colors duration-200 ease-in-out hover:border-indigo-200 hover:text-[#4F5D95]">🔍 資料抽出</button>
+                        <button type="button" onclick="const input=document.getElementById('chat-input'); input.value='これまでの会話内容を簡潔にまとめてください。'; input.dispatchEvent(new Event('input')); input.focus();" class="text-[9px] bg-slate-50 hover:bg-indigo-50 border border-slate-200/80 rounded-full px-3 py-1 font-bold text-slate-500 shadow-2xs transition-colors duration-200 ease-in-out hover:border-indigo-200 hover:text-[#4F5D95]">📝 文脈総括</button>
+                    </div>
                 </div>
-                <div class="grid grid-cols-3 gap-1.5" role="group" aria-label="回答モード">
-                    <label class="chat-mode-switch" title="AIが質問を要素分解し、個別に資料を精読してから統合回答を作成します">
-                        <input type="checkbox" id="advanced-reasoning-mode" class="sr-only peer">
-                        <span class="chat-mode-pill peer-checked:border-indigo-300 peer-checked:bg-indigo-50 peer-checked:text-indigo-700 peer-checked:shadow-sm">
-                            <span class="text-[12px]" aria-hidden="true">🧠</span>
-                            <span>フル思考</span>
-                        </span>
-                    </label>
-                    <label class="chat-mode-switch" title="必要に応じてMermaidやChart.jsの図表を回答に含めます">
-                        <input type="checkbox" id="diagram-mode" class="sr-only peer">
-                        <span class="chat-mode-pill peer-checked:border-emerald-300 peer-checked:bg-emerald-50 peer-checked:text-emerald-700 peer-checked:shadow-sm">
-                            <span class="text-[12px]" aria-hidden="true">📈</span>
-                            <span>図解</span>
-                        </span>
-                    </label>
-                    <label class="chat-mode-switch" title="回答をHTML/CSS報告書としてPDF化し、PDFタブと検索対象へ登録します">
-                        <input type="checkbox" id="report-mode" class="sr-only peer">
-                        <span class="chat-mode-pill peer-checked:border-amber-300 peer-checked:bg-amber-50 peer-checked:text-amber-700 peer-checked:shadow-sm">
-                            <span class="text-[12px]" aria-hidden="true">📄</span>
-                            <span>報告書</span>
-                        </span>
-                    </label>
+
+                <div class="chat-footer-toolbar__right">
+                    <details class="chat-output-options">
+                        <summary class="chat-output-options-trigger cursor-pointer text-[10px] font-black transition-all duration-200 ease-in-out hover:border-indigo-300 hover:text-indigo-700 select-none">
+                            <span aria-hidden="true">⚙️</span>
+                            <span>出力オプション</span>
+                        </summary>
+                        <div class="chat-output-options-panel px-3 py-3 space-y-3">
+                            <div class="chat-output-options-group" role="group" aria-label="出力オプション">
+                                <label class="chat-mode-switch" title="必要に応じてMermaidやChart.jsの図表を回答に含めます">
+                                    <input type="checkbox" id="diagram-mode" class="sr-only peer">
+                                    <span class="chat-mode-pill w-full justify-start peer-checked:border-emerald-300 peer-checked:bg-emerald-50 peer-checked:text-emerald-700 peer-checked:shadow-sm">
+                                        <span class="text-[12px]" aria-hidden="true">📈</span>
+                                        <span>図解</span>
+                                    </span>
+                                </label>
+                                <label class="chat-mode-switch" title="回答をHTML/CSS報告書としてPDF化し、PDFタブと検索対象へ登録します">
+                                    <input type="checkbox" id="report-mode" class="sr-only peer">
+                                    <span class="chat-mode-pill w-full justify-start peer-checked:border-amber-300 peer-checked:bg-amber-50 peer-checked:text-amber-700 peer-checked:shadow-sm">
+                                        <span class="text-[12px]" aria-hidden="true">📄</span>
+                                        <span>報告書</span>
+                                    </span>
+                                </label>
+                            </div>
+
+                            <?php if ($role === 'admin'): ?>
+                            <div class="space-y-1.5 border-t border-slate-100 pt-2">
+                                <p class="text-[9px] font-black text-slate-400 uppercase tracking-wider px-1">管理者向け高度推論</p>
+                                <div class="chat-output-options-group">
+                                    <label class="chat-mode-switch" title="AIが質問を要素分解し、個別に資料を精読してから統合回答を作成します">
+                                        <input type="checkbox" id="advanced-reasoning-mode" class="sr-only peer">
+                                        <span class="chat-mode-pill w-full justify-start peer-checked:border-indigo-300 peer-checked:bg-indigo-50 peer-checked:text-indigo-700 peer-checked:shadow-sm">
+                                            <span class="text-[12px]" aria-hidden="true">🧠</span>
+                                            <span>フル思考</span>
+                                        </span>
+                                    </label>
+                                </div>
+                            </div>
+                            <?php endif; ?>
+                        </div>
+                    </details>
                 </div>
             </div>
 
@@ -701,7 +1018,7 @@ if (!function_exists('h')) {
 
     // ★ 究極の安全設計: import * as 構文を使用し、1096エラー(SyntaxError)を原理的に100%防止
     // ✨ ここを ?v=4 から ?v=5 へ書き換えてキャッシュを強制粉砕！
-    import * as Support from './assets/js/support.js?v=19';
+    import * as Support from './assets/js/support.js?v=20';
 
     // ★要件4: 隔離コンテナ内のJSONデータを仲介して安全にマウント・パースするイベントハンドラの実装
     window.openProjectEditModal = (lat, lng) => {
@@ -764,6 +1081,15 @@ if (!function_exists('h')) {
                     console.warn('reasoning source parse error:', e);
                 }
                 if (!Array.isArray(steps) || steps.length === 0) return;
+
+                if (typeof window.buildReasoningProcessDetailsHtml === 'function') {
+                    const richHtml = window.buildReasoningProcessDetailsHtml(steps);
+                    if (richHtml) {
+                        const fragment = document.createRange().createContextualFragment(richHtml);
+                        textBody.insertBefore(fragment, textBody.firstChild);
+                        return;
+                    }
+                }
 
                 const detailsBox = document.createElement('details');
                 detailsBox.className = 'mb-3 border border-indigo-100 rounded-xl bg-indigo-50/20 overflow-hidden group w-full';
@@ -869,6 +1195,7 @@ if (!function_exists('h')) {
             const chatBox = document.getElementById('chat-box');
             const faqList = document.getElementById('faq-list-container');
             let faqEmptyState = document.getElementById('faq-empty-state');
+            const threadMetaEls = document.querySelectorAll('#chat-thread-list .chat-thread-tab__meta');
 
             if (window.chartInstances && typeof window.chartInstances === 'object') {
                 Object.values(window.chartInstances).forEach((instance) => {
@@ -892,6 +1219,12 @@ if (!function_exists('h')) {
                         </div>
                     </div>
                 `;
+            }
+
+            if (threadMetaEls.length > 0) {
+                threadMetaEls.forEach((metaEl) => {
+                    metaEl.textContent = '履歴なし ・ 0件';
+                });
             }
 
             if (faqList) {

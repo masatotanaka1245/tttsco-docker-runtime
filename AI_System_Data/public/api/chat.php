@@ -42,6 +42,7 @@ define('CHAT_DEBUG_LOG', __DIR__ . '/../../logs/chat_debug.log');
 require_once __DIR__ . '/../../src/AppLogger.php';
 require_once __DIR__ . '/../../src/OllamaChatHelper.php';
 require_once __DIR__ . '/../../src/ProjectContextMemory.php';
+require_once __DIR__ . '/../../src/UserSettingsSessionSynchronizer.php';
 
 // =========================================================================
 // 1. 共通ヘルパー関数・出力制御 の 定義
@@ -77,6 +78,10 @@ if (!function_exists('sendSSE')) {
         @ob_flush();
         @flush();
     }
+}
+
+if (!empty($_SESSION['user_id'])) {
+    UserSettingsSessionSynchronizer::sync($pdo, (int)$_SESSION['user_id']);
 }
 
 /**

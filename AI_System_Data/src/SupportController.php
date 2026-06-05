@@ -21,6 +21,7 @@ require_once __DIR__ . '/../src/Auth.php';
 require_once __DIR__ . '/../src/Parsedown.php';
 require_once __DIR__ . '/../src/ProjectAccess.php';
 require_once __DIR__ . '/../src/ModelRoleResolver.php';
+require_once __DIR__ . '/../src/UserSettingsSessionSynchronizer.php';
 require_once __DIR__ . '/../src/ProjectContextMemory.php';
 require_once __DIR__ . '/../src/ProjectMemoryAutoUpdater.php';
 require_once __DIR__ . '/../src/ChatThreadManager.php';
@@ -55,6 +56,8 @@ if (!function_exists('makeClickableLinks')) {
 
 $user_id = (int)$_SESSION['user_id'];
 $role = $_SESSION['role'] ?? 'user';
+
+UserSettingsSessionSynchronizer::sync($pdo, $user_id);
 
 $resolvedModels = ModelRoleResolver::resolveUserSettings($_SESSION);
 

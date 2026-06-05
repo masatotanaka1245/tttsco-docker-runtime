@@ -83,6 +83,7 @@ export class AiRenderer {
                     </div>
 
                     <div class="ai-text-body markdown-body chat-markdown w-full will-change-[height,transform] transition-all duration-150"></div>
+                    <div class="chat-inline-status hidden mt-3 w-full items-center justify-between gap-3 rounded-xl border px-3 py-2 text-[10px] shadow-xs"></div>
                 </div>
             </div>
         `;
@@ -263,6 +264,30 @@ export class AiRenderer {
         this.mountMermaid(textBody);
 
         this.smartScroll();
+    }
+
+    setInlineStatus(messageId, statusMessage, variant = 'processing', elapsed = 0) {
+        const bubble = document.getElementById(messageId);
+        if (!bubble) return;
+
+        const statusEl = bubble.querySelector('.chat-inline-status');
+        if (!statusEl) return;
+        statusEl.className = 'chat-inline-status mt-3 flex w-full items-center justify-end gap-2 text-[9px] text-slate-400';
+        statusEl.innerHTML = `
+            <span class="font-bold tracking-tight">経過時間</span>
+            <span class="shrink-0 font-mono">${elapsed}s</span>
+        `;
+    }
+
+    clearInlineStatus(messageId) {
+        const bubble = document.getElementById(messageId);
+        if (!bubble) return;
+
+        const statusEl = bubble.querySelector('.chat-inline-status');
+        if (!statusEl) return;
+
+        statusEl.className = 'chat-inline-status hidden mt-3 w-full items-center justify-between gap-3 rounded-xl border px-3 py-2 text-[10px] shadow-xs';
+        statusEl.innerHTML = '';
     }
 
     /**

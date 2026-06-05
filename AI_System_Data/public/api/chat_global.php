@@ -211,8 +211,8 @@ class GlobalChatRouteProcessor {
             chatLogger("[WARN] ReAct [{$iteration}] JSONのパースに失敗。生成文字列: " . $rawResponse);
             return [
                 'thought'      => "出力形式エラーが発生しました。修正して再試行します。",
-                'action'       => "execute_sql",
-                'action_input' => "SELECT 'フォーマットエラーのため再試行' AS error;"
+                'action'       => "finish",
+                'action_input' => "ReActの出力形式が崩れたため、自律調査を継続せず、ここまでの観察結果だけで回答をまとめます。"
             ];
         }
 
@@ -228,13 +228,32 @@ class GlobalChatRouteProcessor {
      */
     private function processSqlAction(string $thought, string $action_input, int $iteration): void {
         $generated_sql = trim($action_input);
-        
+
         // JSON抽出構文をMySQL 8.0で安定するJSON_EXTRACT形式に寄せる
         $generated_sql = preg_replace("/((?:[a-zA-Z0-9_]+\.)?row_data)\s*->>\s*['\"]?\\$?\.?([^'\"]+)['\"]?/i", 'JSON_UNQUOTE(JSON_EXTRACT($1, \'$."$2"\'))', $generated_sql);
-        
+
         $fence = str_repeat("\x60", 3);
         $generated_sql = preg_replace('/' . preg_quote($fence, '/') . 'sql|' . preg_quote($fence, '/') . '/i', '', $generated_sql);
         $generated_sql = preg_replace('/\\s+COLLATE\\s+[\'"]?[a-zA-Z0-9_-]+[\'"]?/i', '', $generated_sql);
+        $generated_sql = trim($generated_sql);
+
+        $sanitizedSql = $this->sanitizeReActSql($generated_sql);
+        if (!$sanitizedSql['success']) {
+            $observation = $sanitizedSql['error'];
+            chatLogger("[WARN] ReAct [{$iteration}] SQL実行前ガードで停止: " . $observation);
+
+            $this->observationHistory .= "\n[Action]: execute_sql\n[Query]: {$generated_sql}\n[Result]:\n{$observation}\n";
+            $this->reasoningSteps[] = [
+                'document_search' => "データベース検索 (ステップ {$iteration})",
+                'sub_answer' => "【AIの推論】\n{$thought}\n\n【実行候補SQL】\n" . $fence . "sql\n{$generated_sql}\n" . $fence . "\n\n【ガード結果】\n{$observation}"
+            ];
+            return;
+        }
+
+        $generated_sql = $sanitizedSql['sql'];
+        if (!empty($sanitizedSql['note'])) {
+            chatLogger("[DEBUG] ReAct [{$iteration}] SQLを単一SELECTへ補正: " . $sanitizedSql['note'] . " | SQL: " . $generated_sql);
+        }
 
         chatLogger("[DEBUG] ReAct [{$iteration}] 組み立てられた実行クエリ: " . $generated_sql);
         sendSSE('status', ['message' => '🗄️ クエリを実行し、結果を解析中...']);
@@ -273,6 +292,118 @@ class GlobalChatRouteProcessor {
             'document_search' => "データベース検索 (ステップ {$iteration})",
             'sub_answer' => "【AIの推論】\n{$thought}\n\n【実行SQL】\n" . $fence . "sql\n{$generated_sql}\n" . $fence . "\n\n【検索結果 (Observation)】\n" . $fence . "json\n" . mb_substr($observation, 0, 1000) . "...\n" . $fence
         ];
+    }
+
+    /**
+     * ReActが生成したSQLを単一SELECTへ寄せ、危険な複文や壊れた末尾句を実行前に止める。
+     */
+    private function sanitizeReActSql(string $sql): array {
+        $normalized = trim($sql);
+        $normalized = preg_replace('/;\s*$/', '', $normalized) ?? $normalized;
+        $normalized = trim($normalized);
+
+        if ($normalized === '') {
+            return [
+                'success' => false,
+                'error'   => "SQLが空のため実行を中止しました。1本のSELECT文を組み立て直してください。",
+            ];
+        }
+
+        $statements = preg_split('/;\s*(?:\r?\n|$)/u', $normalized, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        $statements = array_values(array_filter(array_map('trim', $statements), static function ($part) {
+            return $part !== '';
+        }));
+
+        if (count($statements) > 1) {
+            $merged = $this->tryMergeProjectStatusQueries($statements);
+            if ($merged !== null) {
+                return [
+                    'success' => true,
+                    'sql'     => $merged,
+                    'note'    => '複数の status 別SELECTを IN 条件付きの単一SELECTへ統合しました。',
+                ];
+            }
+
+            return [
+                'success' => false,
+                'error'   => "複数のSQL文が生成されたため実行を中止しました。action_input には 1 本の SELECT 文だけを出してください。",
+            ];
+        }
+
+        $candidate = $statements[0] ?? $normalized;
+        if (preg_match('/^\s*ORDER\s+BY\b/i', $candidate)) {
+            return [
+                'success' => false,
+                'error'   => "ORDER BY 句だけが単独で生成されたため実行を中止しました。SELECT ... ORDER BY ... の1文にまとめてください。",
+            ];
+        }
+
+        if (!preg_match('/^\s*SELECT\b/i', $candidate)) {
+            return [
+                'success' => false,
+                'error'   => "安全性確保のため、action_input は SELECT 文で開始する必要があります。",
+            ];
+        }
+
+        return [
+            'success' => true,
+            'sql'     => $candidate,
+            'note'    => '',
+        ];
+    }
+
+    /**
+     * projects の status 別に分裂したSELECT群を、単一の IN 条件付きSELECTへ寄せる。
+     */
+    private function tryMergeProjectStatusQueries(array $statements): ?string {
+        $orderByClause = '';
+        $queryStatements = $statements;
+        $lastStatement = end($queryStatements);
+
+        if (is_string($lastStatement) && preg_match('/^\s*ORDER\s+BY\s+(.+)$/is', $lastStatement, $orderMatch)) {
+            $orderByClause = ' ORDER BY ' . trim($orderMatch[1]);
+            array_pop($queryStatements);
+        }
+
+        if ($queryStatements === []) {
+            return null;
+        }
+
+        $selectClause = null;
+        $statuses = [];
+
+        foreach ($queryStatements as $statement) {
+            if (!preg_match(
+                '/^\s*SELECT\s+(.*?)\s+FROM\s+projects(?:\s+(?:AS\s+)?[a-zA-Z_][a-zA-Z0-9_]*)?\s+WHERE\s+status\s*=\s*\'(active|completed|on_hold)\'\s*$/is',
+                $statement,
+                $matches
+            )) {
+                return null;
+            }
+
+            $currentSelectClause = trim($matches[1]);
+            if ($selectClause === null) {
+                $selectClause = $currentSelectClause;
+            } elseif (strcasecmp($selectClause, $currentSelectClause) !== 0) {
+                return null;
+            }
+
+            $statuses[] = strtolower($matches[2]);
+        }
+
+        $statuses = array_values(array_unique($statuses));
+        if ($statuses === []) {
+            return null;
+        }
+
+        $quotedStatuses = array_map(static function ($status) {
+            return "'" . $status . "'";
+        }, $statuses);
+
+        return 'SELECT ' . $selectClause
+            . ' FROM projects'
+            . ' WHERE status IN (' . implode(', ', $quotedStatuses) . ')'
+            . $orderByClause;
     }
 
     /**
@@ -504,18 +635,22 @@ class GlobalChatRouteProcessor {
              . "{\n"
              . "  \"thought\": \"現在の状況と次にすべきことの推論（例: まず進行中の案件数を調べよう）\",\n"
              . "  \"action\": \"実行するアクション名（'execute_sql' または 'finish'）\",\n"
-             . "  \"action_input\": \"'execute_sql'の場合はMySQL 8.0のSELECT文。'finish'の場合は調査を終了する理由。\"\n"
+             . "  \"action_input\": \"'execute_sql'の場合はMySQL 8.0のSELECT文を1本だけ。'finish'の場合は調査を終了する理由。\"\n"
              . "}\n\n"
              . "【アクションの説明】\n"
              . "- execute_sql: データベースにクエリを投げます。結果が返されるので、それを見て次の行動を決めてください。※安全なSELECT文のみ。\n"
              . "- finish: 質問に答えるための十分な情報が集まった場合、またはこれ以上検索しても情報がないと判断した場合に選択します。\n\n"
+             . "【SQL生成の絶対ルール】\n"
+             . "1. action_input には、1回の execute_sql につき SQL を1文だけ出力してください。セミコロン区切りで複数文を並べてはいけません。\n"
+             . "2. 単独の ORDER BY 句を出力してはいけません。必ず SELECT ... FROM ... ORDER BY ... の1文に含めてください。\n"
+             . "3. 複数の status を比較したいときは、`WHERE status IN ('active', 'completed', 'on_hold')` のように1本のSELECTへまとめてください。\n\n"
              . "【SQL作成時の注意（ハルシネーション絶対禁止プロトコル）】\n"
-             . "1. 提示された【INFORMATION_SCHEMAコンテキスト】に表記されている現実の実在物理カラムのみを100%信頼せよ。脳内ででっち上げた実在しない嘘のカラム名（架空のdocument_idやcontent等）は絶対に生成禁止とする。\n"
-             . "2. CSVの内部データを検索・集計する場合は `project_csv_rows` を対象とし、日本語キーは `JSON_UNQUOTE(JSON_EXTRACT(T1.row_data, '$.\"項目名\"'))` を使用せよ。\n"
+             . "4. 提示された【INFORMATION_SCHEMAコンテキスト】に表記されている現実の実在物理カラムのみを100%信頼せよ。脳内ででっち上げた実在しない嘘のカラム名（架空のdocument_idやcontent等）は絶対に生成禁止とする。\n"
+             . "5. CSVの内部データを検索・集計する場合は `project_csv_rows` を対象とし、日本語キーは `JSON_UNQUOTE(JSON_EXTRACT(T1.row_data, '$.\"項目名\"'))` を使用せよ。\n"
              . "   - 絶対生成禁止: row_data->>?$.項目名、row_data->>$.項目名、row_data->>$.'項目名' などの壊れたJSONパス\n"
              . "   - `project_csv_rows` に `row_count` カラムは存在しない。CSV行数は `COUNT(T1.id)`、CSVファイルの登録行数は `project_csv_files.row_count` を使用せよ。\n"
-             . "3. 資料テキスト検索は `doc_chunks` の実在する物理カラム `chunk_text` に対して LIKE検索（例: `chunk_text LIKE '%キーワード%'`）を利用せよ。\n"
-             . "4. レコード件数のカウントは `COUNT(id)` 等の実在する物理カラムを使用せよ。\n"
-             . "5. キャスト時に `COLLATE` 句は絶対に使用しないでください。";
+             . "6. 資料テキスト検索は `doc_chunks` の実在する物理カラム `chunk_text` に対して LIKE検索（例: `chunk_text LIKE '%キーワード%'`）を利用せよ。\n"
+             . "7. レコード件数のカウントは `COUNT(id)` 等の実在する物理カラムを使用せよ。\n"
+             . "8. キャスト時に `COLLATE` 句は絶対に使用しないでください。";
     }
 }

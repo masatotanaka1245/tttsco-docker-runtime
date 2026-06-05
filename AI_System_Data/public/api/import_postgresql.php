@@ -18,6 +18,7 @@ require_once __DIR__ . '/../../src/ModelRoleResolver.php';
 require_once __DIR__ . '/../../src/VectorSearch.php';
 require_once __DIR__ . '/../../src/ProjectAccess.php';
 require_once __DIR__ . '/../../src/AppLogger.php';
+require_once __DIR__ . '/../../src/UserSettingsSessionSynchronizer.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -94,6 +95,8 @@ if (!$project_id || empty($pg_host) || empty($pg_dbname) || empty($pg_user) || e
     echo json_encode(['success' => false, 'error' => '必須パラメータが不足しています。']);
     exit;
 }
+
+UserSettingsSessionSynchronizer::sync($pdo, (int)$_SESSION['user_id']);
 
 if (!canAccessProject($pdo, (int)$project_id, $user_id, $role)) {
     http_response_code(403);

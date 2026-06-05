@@ -2,6 +2,34 @@
 
 class CsvAggregationAnswerFormatter
 {
+    public function buildMissingColumnAnswer(array $plan): string
+    {
+        $column = trim((string)($plan['target_column'] ?? ''));
+        $targetFileName = trim((string)($plan['target_file_name'] ?? ''));
+        $targetValue = trim((string)($plan['target_value'] ?? ''));
+        $scopeLabel = $targetFileName !== '' ? $targetFileName : '登録済みCSV全体';
+
+        $lines = [];
+        $lines[] = "{$scopeLabel} から集計対象を確認しましたが、指定された列は見つかりませんでした。";
+        $lines[] = "";
+        if ($targetFileName !== '') {
+            $lines[] = "- 対象CSV: {$targetFileName}";
+        } else {
+            $lines[] = "- 対象範囲: 登録済みCSV全体";
+        }
+        if ($column !== '') {
+            $lines[] = "- 指定列: {$column}";
+        }
+        if ($targetValue !== '') {
+            $lines[] = "- 指定値: {$targetValue}";
+        }
+        $lines[] = "- 結果: 該当列を確認できなかったため、集計は実行していません。";
+        $lines[] = "";
+        $lines[] = "列名の表記ゆれがないか、または対象CSVをもう少し具体的に指定していただければ再確認できます。";
+
+        return implode("\n", $lines);
+    }
+
     public function buildColumnSemanticsAnswer(array $plan, array $target, array $rows, array $analysis, bool $diagramMode = false): string
     {
         $fileName = (string)($target['file_name'] ?? ($plan['target_file_name'] ?? '対象CSV'));
@@ -232,6 +260,7 @@ class CsvAggregationAnswerFormatter
         $fileName = (string)($target['file_name'] ?? ($plan['target_file_name'] ?? '対象CSV'));
         $column = (string)($plan['target_column'] ?? '');
         $rowCount = (int)($target['row_count'] ?? 0);
+        $matchedFiles = array_values(array_filter(array_map('strval', (array)($target['matched_files'] ?? []))));
         $uniqueCount = count($rows);
         $maxCount = !empty($rows) ? max(array_map(fn($row) => (int)($row['record_count'] ?? 0), $rows)) : 0;
         $allSingle = $uniqueCount > 0 && $maxCount <= 1;
@@ -243,6 +272,9 @@ class CsvAggregationAnswerFormatter
         $lines[] = "{$fileName} の {$column} 列について、値ごとの件数分布を集計しました。";
         $lines[] = "";
         $lines[] = "- 対象CSV: {$fileName}";
+        if (!empty($matchedFiles)) {
+            $lines[] = "- 対象ファイル一覧: " . implode(' / ', $matchedFiles);
+        }
         $lines[] = "- 集計列: {$column}";
         if ($rowCount > 0) {
             $lines[] = "- 元レコード数: {$rowCount}件";
@@ -311,11 +343,15 @@ class CsvAggregationAnswerFormatter
         $column = (string)($plan['target_column'] ?? '');
         $rowCount = (int)($target['row_count'] ?? 0);
         $columns = $target['columns'] ?? [];
+        $matchedFiles = array_values(array_filter(array_map('strval', (array)($target['matched_files'] ?? []))));
 
         $lines = [];
         $lines[] = "{$fileName} の {$column} 列を対象に、重複を除いた件数を集計しました。";
         $lines[] = "";
         $lines[] = "- 対象CSV: {$fileName}";
+        if (!empty($matchedFiles)) {
+            $lines[] = "- 対象ファイル一覧: " . implode(' / ', $matchedFiles);
+        }
         $lines[] = "- 集計列: {$column}";
         $lines[] = "- ユニーク件数: {$distinctCount}件";
         if ($rowCount > 0) {
@@ -334,11 +370,15 @@ class CsvAggregationAnswerFormatter
         $column = (string)($plan['target_column'] ?? '');
         $targetValue = (string)($plan['target_value'] ?? '');
         $rowCount = (int)($target['row_count'] ?? 0);
+        $matchedFiles = array_values(array_filter(array_map('strval', (array)($target['matched_files'] ?? []))));
 
         $lines = [];
         $lines[] = "{$fileName} の {$column} 列から「{$targetValue}」を抽出し、件数を集計しました。";
         $lines[] = "";
         $lines[] = "- 対象CSV: {$fileName}";
+        if (!empty($matchedFiles)) {
+            $lines[] = "- 対象ファイル一覧: " . implode(' / ', $matchedFiles);
+        }
         $lines[] = "- 集計列: {$column}";
         $lines[] = "- 抽出値: {$targetValue}";
         $lines[] = "- 該当件数: {$matchedCount}件";

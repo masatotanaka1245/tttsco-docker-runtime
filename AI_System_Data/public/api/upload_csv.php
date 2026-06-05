@@ -22,6 +22,7 @@ require_once __DIR__ . '/../../src/Auth.php';
 require_once __DIR__ . '/../../src/ProjectAccess.php';
 require_once __DIR__ . '/../../src/AppLogger.php';
 require_once __DIR__ . '/../../src/ModelRoleResolver.php';
+require_once __DIR__ . '/../../src/UserSettingsSessionSynchronizer.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -111,6 +112,8 @@ if (!function_exists('updateCsvProgress')) {
         }
     }
 }
+
+UserSettingsSessionSynchronizer::sync($pdo, (int)$_SESSION['user_id']);
 
 if (!function_exists('csvElapsedSeconds')) {
     function csvElapsedSeconds(float $start): string {

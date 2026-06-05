@@ -34,6 +34,7 @@ require_once __DIR__ . '/../../src/Auth.php';
 require_once __DIR__ . '/../../src/ProjectAccess.php';
 require_once __DIR__ . '/../../src/AppLogger.php';
 require_once __DIR__ . '/../../src/ModelRoleResolver.php';
+require_once __DIR__ . '/../../src/UserSettingsSessionSynchronizer.php';
 
 // 認証チェック
 $auth = new Auth($pdo);
@@ -43,6 +44,8 @@ if (!$auth->isLoggedIn()) {
     echo json_encode(['success' => false, 'error' => 'ログインが必要です']);
     exit;
 }
+
+UserSettingsSessionSynchronizer::sync($pdo, (int)$_SESSION['user_id']);
 
 $csrfToken = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
 if (!verifyCsrfToken($csrfToken)) {

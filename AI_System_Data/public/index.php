@@ -18,6 +18,8 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/session.php';
 require_once __DIR__ . '/../src/Auth.php';
 require_once __DIR__ . '/../src/ProjectAccess.php';
+require_once __DIR__ . '/../src/ModelRoleResolver.php';
+require_once __DIR__ . '/../src/UserSettingsSessionSynchronizer.php';
 
 // === 1. セキュリティ & 認証 ===
 $auth = new Auth($pdo);
@@ -30,6 +32,8 @@ $csrfToken = getCsrfToken();
 $userId    = $_SESSION['user_id'] ?? null;
 $username  = $_SESSION['username'] ?? 'ゲスト';
 $userRole  = $_SESSION['role'] ?? 'user';
+
+UserSettingsSessionSynchronizer::sync($pdo, (int)$userId);
 
 // === 2. リクエストパラメータ取得 ===
 $selected_project_id = filter_input(INPUT_GET, 'project_id', FILTER_VALIDATE_INT);
@@ -94,9 +98,10 @@ $totalDocs = $stmtDocs->fetchColumn();
 $all_users = $pdo->query("SELECT id, username, department FROM users ORDER BY username ASC")->fetchAll(PDO::FETCH_ASSOC);
 
 // 隔離環境変数から安全マッピング代入
-$ollama_host        = rtrim($_SESSION['ollama_host'] ?? $URL_OLLAMA_HOST, '/');
-$default_chat_model = $_SESSION['default_model'] ?? 'gemma4:e4b';
-$default_model      = 'gemma4:e4b';
+$resolvedModels     = ModelRoleResolver::resolveUserSettings($_SESSION);
+$ollama_host        = $resolvedModels['ollama_host'] ?: rtrim($URL_OLLAMA_HOST, '/');
+$default_chat_model = $resolvedModels['main_model'];
+$default_model      = ModelRoleResolver::DEFAULT_MAIN_MODEL;
 $installed_models = [];
 try {
     $ch = curl_init("{$ollama_host}/api/tags");

@@ -73,6 +73,35 @@ class CsvAggregationTargetResolver
         return null;
     }
 
+    public function findColumnTargets(?string $targetFileName, string $targetColumn): array
+    {
+        if ($targetColumn === '') {
+            return [];
+        }
+
+        $targets = [];
+        foreach ($this->metadataCatalog->loadFiles() as $file) {
+            $fileName = (string)($file['file_name'] ?? '');
+            if ($targetFileName !== null && $targetFileName !== '' && $fileName !== $targetFileName) {
+                continue;
+            }
+
+            $columns = array_map('strval', (array)($file['columns'] ?? []));
+            if (!in_array($targetColumn, $columns, true)) {
+                continue;
+            }
+
+            $targets[] = [
+                'csv_file_id' => (int)$file['id'],
+                'file_name' => $fileName,
+                'row_count' => (int)($file['row_count'] ?? 0),
+                'columns' => $columns,
+            ];
+        }
+
+        return $targets;
+    }
+
     public function executeDateAggregationQuery(array $target, string $dateColumn, array $plan): array
     {
         $csvFileId = (int)$target['csv_file_id'];

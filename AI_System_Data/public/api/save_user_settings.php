@@ -47,6 +47,28 @@ $embedding_model = trim($input['embedding_model'] ?? $modelDefaults['embedding_m
 $ollama_host = rtrim(trim($input['ollama_host'] ?? 'http://127.0.0.1:11434'), '/');
 $hasEmbeddingModelColumn = UserSettingsSchema::hasEmbeddingModelColumn($pdo);
 
+$missingRequiredFields = [];
+if ($ollama_host === '') {
+    $missingRequiredFields[] = 'Ollama 接続先 URL';
+}
+if ($model === '') {
+    $missingRequiredFields[] = 'メイン使用モデル';
+}
+if ($sub_model === '') {
+    $missingRequiredFields[] = 'サブモデル';
+}
+if ($embedding_model === '') {
+    $missingRequiredFields[] = 'Embeddingモデル';
+}
+
+if (!empty($missingRequiredFields)) {
+    echo json_encode([
+        'success' => false,
+        'error' => '未設定の項目があります: ' . implode(' / ', $missingRequiredFields) . '。LLM が表示されない場合は、接続先と Ollama 上のモデル配備状況をご確認ください。'
+    ]);
+    exit;
+}
+
 // =========================================================================
 // ★安全対策: 入力されたOllama URLへ接続し、モデル名の存在も検証する
 // =========================================================================
@@ -60,6 +82,14 @@ if (!$catalogProbe['success']) {
 }
 
 $availableModels = $catalogProbe['models'];
+if (empty($availableModels)) {
+    echo json_encode([
+        'success' => false,
+        'error' => "指定された AIサーバー({$ollama_host}) には利用可能な LLM が見つかりませんでした。`ollama list` の結果や、対象ホストにモデルが配置されているかをご確認ください。"
+    ]);
+    exit;
+}
+
 $requestedModels = [
     'メイン使用モデル' => $model,
     'サブモデル' => $sub_model,

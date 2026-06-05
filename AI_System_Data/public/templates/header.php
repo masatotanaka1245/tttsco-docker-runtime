@@ -6,6 +6,7 @@
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../src/ModelRoleResolver.php';
 require_once __DIR__ . '/../../src/UserSettingsSchema.php';
+require_once __DIR__ . '/../../src/UserSettingsSessionSynchronizer.php';
 
 $current_page = basename($_SERVER['PHP_SELF']);
 $username = $_SESSION['username'] ?? 'ゲスト';
@@ -15,40 +16,8 @@ $userId = $_SESSION['user_id'] ?? 0;
 
 // ユーザー設定の取得 (DBから最新の状態を反映、未設定時のデフォルト値も定義)
 $modelDefaults = ModelRoleResolver::defaults();
-$userSettings = [
-    'default_prompt' => 'construction_consultant',
-    'default_lang'   => 'ja',
-    'default_model'  => $modelDefaults['main_model'],
-    'sub_model'      => $modelDefaults['sub_model'],
-    'embedding_model' => $modelDefaults['embedding_model'],
-    'ollama_host'    => $_SESSION['ollama_host'] ?? $modelDefaults['ollama_host']
-];
 $hasEmbeddingModelColumn = UserSettingsSchema::hasEmbeddingModelColumn($pdo);
-
-if ($userId) {
-    try {
-        $selectColumns = 'default_prompt, default_lang, default_model, sub_model, ollama_host';
-        if ($hasEmbeddingModelColumn) {
-            $selectColumns .= ', embedding_model';
-        }
-        $stmtSet = $pdo->prepare("SELECT {$selectColumns} FROM users WHERE id = ?");
-        $stmtSet->execute([$userId]);
-        $dbSettings = $stmtSet->fetch(PDO::FETCH_ASSOC);
-        if ($dbSettings) {
-            $userSettings = array_merge($userSettings, array_filter($dbSettings, function($v) { return $v !== null && $v !== ''; }));
-            
-            // 取得した設定をセッションにも同期させて、API側で利用できるようにする
-            $_SESSION['default_prompt'] = $userSettings['default_prompt'];
-            $_SESSION['default_lang']   = $userSettings['default_lang'];
-            $_SESSION['default_model']  = $userSettings['default_model'];
-            $_SESSION['sub_model']      = $userSettings['sub_model'];
-            $_SESSION['embedding_model'] = $userSettings['embedding_model'];
-            $_SESSION['ollama_host']    = $userSettings['ollama_host'];
-        }
-    } catch (PDOException $e) {
-        // エラー時はデフォルトを使用
-    }
-}
+$userSettings = UserSettingsSessionSynchronizer::sync($pdo, (int)$userId);
 
 // アクティブページの判定用関数
 if (!function_exists('isActive')) {

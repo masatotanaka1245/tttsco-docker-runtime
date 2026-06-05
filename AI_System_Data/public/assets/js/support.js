@@ -11,7 +11,7 @@
 
 import { openAppModal, closeProjectModal, closeEditModal, bindModalEvents, closeTab, scrollToBottom, initChatInput, injectPdfLoadingMask, switchTab, openPdfTab, initResizer } from './modules/ui.js?v=5';
 import { handleCsvUpload, loadCsvData, handleDeleteCsv, handlePostgresImport, openCsvPreviewByDocId } from './modules/csv.js?v=4';
-import { handleChat, appendMsg, initExistingCharts, initDebugLogViewer } from './modules/chat.js?v=17';
+import { handleChat, appendMsg, initExistingCharts, initDebugLogViewer } from './modules/chat.js?v=18';
 import { checkUploadOnLoad as checkUploadOnLoadModule, handleUpload as handleUploadModule } from './modules/upload.js?v=6';
 import * as Project from './modules/project.js?v=6';
 // ★最終繋ぎ込み要件1: 100点満点でクレンジングが完了した map.js から回線を引き受ける
@@ -234,6 +234,172 @@ function openFaqModal(q = '', a = '') {
     }
 }
 
+function getSupportPanelPreferenceElements() {
+    const form = document.getElementById('user-settings-form');
+    if (!form) return null;
+
+    return {
+        form,
+        panelModelSelect: document.getElementById('support-model-select'),
+        panelPromptSelect: document.getElementById('support-prompt-select'),
+        formModelInput: form.querySelector('[name="default_model"]'),
+        formPromptSelect: form.querySelector('[name="default_prompt"]'),
+    };
+}
+
+function syncSupportPanelPreferencesToForm() {
+    const els = getSupportPanelPreferenceElements();
+    if (!els) return null;
+
+    const {
+        panelModelSelect,
+        panelPromptSelect,
+        formModelInput,
+        formPromptSelect,
+    } = els;
+
+    if (panelModelSelect && formModelInput) {
+        formModelInput.value = panelModelSelect.value;
+    }
+
+    if (panelPromptSelect && formPromptSelect) {
+        formPromptSelect.value = panelPromptSelect.value;
+    }
+
+    return els;
+}
+
+function getMissingLlmSelectionMessage(panelModelSelect) {
+    if (!panelModelSelect) return 'LLM の選択欄が見つかりませんでした。画面を再読み込みしてからもう一度お試しください。';
+    if (panelModelSelect.options.length === 0) {
+        return '利用可能な LLM がまだ取得できていません。ヘッダーの接続設定から Ollama 接続先とモデル配備状況をご確認ください。';
+    }
+    if (!panelModelSelect.value) {
+        return 'LLM が未選択のため保存できません。ヘッダーの接続設定から利用するモデルを選択してください。';
+    }
+    return '';
+}
+
+async function persistSupportPanelPreferences(changedField) {
+    const els = getSupportPanelPreferenceElements();
+    if (!els || !changedField) return;
+
+    const {
+        form,
+        panelModelSelect,
+        panelPromptSelect,
+        formModelInput,
+        formPromptSelect,
+    } = els;
+
+    const llmSelectionError = getMissingLlmSelectionMessage(panelModelSelect);
+    if (llmSelectionError) {
+        if (panelModelSelect) {
+            panelModelSelect.value = panelModelSelect.dataset.persistedValue || '';
+        }
+        alert(llmSelectionError);
+        return;
+    }
+
+    syncSupportPanelPreferencesToForm();
+
+    const previous = {
+        panelModel: panelModelSelect ? panelModelSelect.dataset.persistedValue || panelModelSelect.value : '',
+        panelPrompt: panelPromptSelect ? panelPromptSelect.dataset.persistedValue || panelPromptSelect.value : '',
+        formModel: formModelInput ? formModelInput.dataset.persistedValue || formModelInput.value : '',
+        formPrompt: formPromptSelect ? formPromptSelect.dataset.persistedValue || formPromptSelect.value : '',
+    };
+
+    changedField.disabled = true;
+    changedField.dataset.saving = 'true';
+
+    try {
+        const payload = Object.fromEntries(new FormData(form).entries());
+        const res = await secureFetch('api/save_user_settings.php', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+
+        if (!res.success) {
+            throw new Error(res.error || '設定の保存に失敗しました。');
+        }
+
+        if (panelModelSelect) {
+            panelModelSelect.dataset.persistedValue = panelModelSelect.value;
+            panelModelSelect.title = `現在のホスト: ${payload.ollama_host || panelModelSelect.title || ''}`;
+        }
+        if (panelPromptSelect) panelPromptSelect.dataset.persistedValue = panelPromptSelect.value;
+        if (formModelInput) formModelInput.dataset.persistedValue = formModelInput.value;
+        if (formPromptSelect) formPromptSelect.dataset.persistedValue = formPromptSelect.value;
+    } catch (error) {
+        if (panelModelSelect) panelModelSelect.value = previous.panelModel;
+        if (panelPromptSelect) panelPromptSelect.value = previous.panelPrompt;
+        if (formModelInput) formModelInput.value = previous.formModel;
+        if (formPromptSelect) formPromptSelect.value = previous.formPrompt;
+        alert(error.message || '設定の保存に失敗しました。');
+    } finally {
+        changedField.disabled = false;
+        delete changedField.dataset.saving;
+    }
+}
+
+function initSupportPanelPreferencePersistence() {
+    const els = syncSupportPanelPreferencesToForm();
+    if (!els) return;
+
+    const { panelModelSelect, panelPromptSelect } = els;
+
+    if (panelModelSelect && panelModelSelect.dataset.persistBound !== 'true') {
+        panelModelSelect.dataset.persistBound = 'true';
+        panelModelSelect.dataset.persistedValue = panelModelSelect.value;
+        panelModelSelect.addEventListener('change', () => persistSupportPanelPreferences(panelModelSelect));
+    }
+
+    if (panelPromptSelect && panelPromptSelect.dataset.persistBound !== 'true') {
+        panelPromptSelect.dataset.persistBound = 'true';
+        panelPromptSelect.dataset.persistedValue = panelPromptSelect.value;
+        panelPromptSelect.addEventListener('change', () => persistSupportPanelPreferences(panelPromptSelect));
+    }
+}
+
+function initSupportSidebarToggle() {
+    const sidebar = document.getElementById('support-sidebar');
+    const toggleButton = document.getElementById('support-sidebar-toggle');
+    if (!sidebar || !toggleButton || toggleButton.dataset.bound === 'true') return;
+
+    const storageKey = 'supportSidebarCollapsed';
+    const body = document.body;
+
+    const applyState = (collapsed) => {
+        body.classList.toggle('sidebar-collapsed', collapsed);
+        toggleButton.setAttribute('aria-pressed', collapsed ? 'true' : 'false');
+        toggleButton.setAttribute('aria-label', collapsed ? '業務一覧を展開' : '業務一覧を折りたたむ');
+        toggleButton.title = collapsed ? '業務一覧を展開' : '業務一覧を折りたたむ';
+    };
+
+    applyState(window.localStorage.getItem(storageKey) === '1');
+
+    toggleButton.dataset.bound = 'true';
+    toggleButton.addEventListener('click', () => {
+        const nextCollapsed = !body.classList.contains('sidebar-collapsed');
+        applyState(nextCollapsed);
+        window.localStorage.setItem(storageKey, nextCollapsed ? '1' : '0');
+    });
+}
+
+function initThreadTabsUi() {
+    const activeThreadButton = document.querySelector('#chat-thread-list [data-thread-switch][aria-current="page"]');
+    if (!activeThreadButton) return;
+
+    window.requestAnimationFrame(() => {
+        activeThreadButton.scrollIntoView({
+            block: 'nearest',
+            inline: 'center',
+            behavior: 'auto'
+        });
+    });
+}
+
 async function handleSaveFaq(e) {
     e.preventDefault();
     const { projectId } = getConfig();
@@ -362,6 +528,9 @@ function bindGlobalFunctions() {
 
 try {
     bindGlobalFunctions();
+    initSupportPanelPreferencePersistence();
+    initSupportSidebarToggle();
+    initThreadTabsUi();
 } catch (e) {
     console.error('Fatal execution error in support.js bindings:', e);
 }
@@ -377,6 +546,8 @@ export {
     searchAddress,
     copyCoords,
     initModalMap,
+    initSupportSidebarToggle,
+    initThreadTabsUi,
     handleCreateProject,
     handleUpdateProject,
     deleteProject,
@@ -402,6 +573,7 @@ export {
     appendMsg,
     initDebugLogViewer,
     bindGlobalFunctions,
+    initSupportPanelPreferencePersistence,
     // ── UIモジュールから仕入れた関数群を support.php へ正確に再出荷 ──
     openAppModal,
     closeProjectModal,
