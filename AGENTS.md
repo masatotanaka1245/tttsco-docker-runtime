@@ -203,6 +203,23 @@
   - `doc_chunks` 根拠を使う軽量最終回答では、資料名・ページ・本文抜粋に寄せた決定論寄りの整形を優先し、一般論を足さない
   - Gemma 系モデルの Ollama 呼び出しでは、`[OLLAMA-PAYLOAD]` / `[OLLAMA-THINK]` ログで `<|think|>` 付与有無と思考トレース有無を確認できるようにする
 
+### 3.9 主要フロー見直しの教訓（2026-06-05）
+
+- 背景
+  - 内部の責務分離や helper 化はかなり進んだが、実際に使った感覚では「よくなった実感」が弱いというフィードバックが出た。
+  - 直近ログでは、CSV 集計の follow-up で CSV 名と列名は補完できても、直前の `aggregation_mode=value_distribution` や `若い順` / `グラフ化` の意図が継続されず、広い `CSV-OVERVIEW` へ落ちるケースが見えた。
+  - `これまでの会話内容を簡潔にまとめて報告書を作成` のような依頼でも、`report_mode=on` に反して `history_summary` が優先され、報告書化へ進まないケースが見えた。
+- やってはいけないこと
+  - helper 分割や局所修正だけを積み重ね、主要ユーザーフローごとの期待着地を決めないまま route を増やすこと
+  - CSV follow-up で `target_file_name` と `target_column` だけ補完して満足し、`aggregation_mode` や `sort_order` の継続を考えないこと
+  - `履歴要約` と `報告書化` が共存する依頼で、`history_summary` を機械的に最優先し、報告書化 intent を潰すこと
+- 推奨対応
+  - 実装修正の前に、主要フローごとに「期待 route」「引き継ぐ文脈」「mode の効き方」を md に固定する
+  - CSV 集計の follow-up では、`target_file_name` / `target_column` に加えて `aggregation_mode` / `sort_order` / `output_format` / `diagram_mode` を引き継ぐ
+  - `これまでの会話内容をまとめて報告書化` のような依頼では、`history_summary` より報告書 intent を優先する
+  - 実運用では、履歴要約質問に `report_mode=on` が付いている時点で、文面に `報告書` がなくても報告書化フローを優先してよい
+  - `diagram_mode=on` は route を変えるより、軽量 route のまま deterministic な chart を足す方向で扱う
+
 ## 4. 主要ファイルの責務
 
 ### API ルート

@@ -20,6 +20,9 @@ class ChatRouteDispatcher
         $isHistorySummaryMode = (bool)($context['is_history_summary_mode'] ?? false);
         $isAnalysisMode = (bool)($context['is_analysis_mode'] ?? false);
         $advancedReasoning = (bool)($context['advanced_reasoning'] ?? false);
+        $threadId = isset($context['thread_id']) && $context['thread_id'] !== null
+            ? (int)$context['thread_id']
+            : null;
 
         $globalCrossPattern = '/(全社|横断|データベース全体|すべての(案件|プロジェクト)|全体を見渡して|全システム|システム全体)/u';
 
@@ -42,7 +45,8 @@ class ChatRouteDispatcher
                 $embeddingModel,
                 $context['prompt_key'],
                 $context['user_id'],
-                $context['role']
+                $context['role'],
+                $threadId
             );
             return $routeName;
         }
@@ -106,6 +110,7 @@ class ChatRouteDispatcher
                 $context['history_summary_text'],
                 $context['user_id'],
                 $context['role'],
+                $threadId,
                 (bool)$context['report_mode'],
                 (bool)$context['diagram_mode']
             );
@@ -132,6 +137,7 @@ class ChatRouteDispatcher
                 $context['history_summary_text'],
                 $context['user_id'],
                 $context['role'],
+                $threadId,
                 (bool)$context['report_mode'],
                 (bool)$context['diagram_mode']
             );
@@ -162,6 +168,7 @@ class ChatRouteDispatcher
             $engine,
             $context['user_id'],
             $context['role'],
+            $threadId,
             (bool)$context['report_mode'],
             (bool)$context['diagram_mode']
         );

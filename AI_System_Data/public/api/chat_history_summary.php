@@ -8,8 +8,8 @@
 
 require_once __DIR__ . '/../../src/ChatModelRolePayload.php';
 
-function runHistorySummaryRoute($pdo, $ollamaHost, $projectId, $originalMessage, $model, $subModel, $embeddingModel, $promptKey, $user_id, $role): void {
-    $processor = new HistorySummaryRouteProcessor($pdo, $ollamaHost, $projectId, $originalMessage, $model, $subModel, $embeddingModel, $promptKey, $user_id, $role);
+function runHistorySummaryRoute($pdo, $ollamaHost, $projectId, $originalMessage, $model, $subModel, $embeddingModel, $promptKey, $user_id, $role, $threadId = null): void {
+    $processor = new HistorySummaryRouteProcessor($pdo, $ollamaHost, $projectId, $originalMessage, $model, $subModel, $embeddingModel, $promptKey, $user_id, $role, $threadId);
     $processor->execute();
 }
 
@@ -24,13 +24,14 @@ class HistorySummaryRouteProcessor {
     private string $promptKey;
     private int $user_id;
     private string $role;
+    private ?int $threadId;
     private string $sessionId;
     private string $finalResponse = '';
     private ?array $evalResult = null;
     private string $guardContext = '';
     private array $reasoningSteps = [];
 
-    public function __construct(PDO $pdo, string $ollamaHost, ?int $projectId, string $originalMessage, string $model, string $subModel, string $embeddingModel, string $promptKey, int $user_id, string $role) {
+    public function __construct(PDO $pdo, string $ollamaHost, ?int $projectId, string $originalMessage, string $model, string $subModel, string $embeddingModel, string $promptKey, int $user_id, string $role, ?int $threadId = null) {
         $this->pdo = $pdo;
         $this->ollamaHost = rtrim($ollamaHost, '/');
         $this->projectId = $projectId;
@@ -41,6 +42,7 @@ class HistorySummaryRouteProcessor {
         $this->promptKey = $promptKey;
         $this->user_id = $user_id;
         $this->role = $role;
+        $this->threadId = $threadId;
         $this->sessionId = 'history-summary_' . uniqid('', true) . '-' . mt_rand(1000, 9999);
     }
 
@@ -85,11 +87,11 @@ class HistorySummaryRouteProcessor {
             $stmt = $this->pdo->prepare("
                 SELECT role, message, created_at
                 FROM chat_history
-                WHERE project_id = ? AND user_id = ?
+                WHERE project_id = ? AND thread_id = ? AND user_id = ?
                 ORDER BY created_at DESC
                 LIMIT {$limit}
             ");
-            $stmt->execute([$this->projectId, $this->user_id]);
+            $stmt->execute([$this->projectId, $this->threadId, $this->user_id]);
         }
 
         return array_reverse($stmt->fetchAll(PDO::FETCH_ASSOC));
@@ -214,11 +216,11 @@ class HistorySummaryRouteProcessor {
         try {
             $this->pdo->beginTransaction();
 
-            $stmtUser = $this->pdo->prepare("INSERT INTO chat_history (project_id, user_id, role, message, created_at) VALUES (?, ?, 'user', ?, NOW())");
-            $stmtUser->execute([$this->projectId, $this->user_id, $this->originalMessage]);
+            $stmtUser = $this->pdo->prepare("INSERT INTO chat_history (project_id, thread_id, user_id, role, message, created_at) VALUES (?, ?, ?, 'user', ?, NOW())");
+            $stmtUser->execute([$this->projectId, $this->threadId, $this->user_id, $this->originalMessage]);
 
-            $stmtAi = $this->pdo->prepare("INSERT INTO chat_history (project_id, user_id, role, message, created_at) VALUES (?, ?, 'assistant', ?, NOW())");
-            $stmtAi->execute([$this->projectId, $this->user_id, $this->finalResponse]);
+            $stmtAi = $this->pdo->prepare("INSERT INTO chat_history (project_id, thread_id, user_id, role, message, created_at) VALUES (?, ?, ?, 'assistant', ?, NOW())");
+            $stmtAi->execute([$this->projectId, $this->threadId, $this->user_id, $this->finalResponse]);
             $historyId = (int)$this->pdo->lastInsertId();
 
             if ($this->evalResult) {

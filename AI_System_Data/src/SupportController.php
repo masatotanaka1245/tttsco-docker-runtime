@@ -22,6 +22,7 @@ require_once __DIR__ . '/../src/Parsedown.php';
 require_once __DIR__ . '/../src/ProjectAccess.php';
 require_once __DIR__ . '/../src/ModelRoleResolver.php';
 require_once __DIR__ . '/../src/ProjectContextMemory.php';
+require_once __DIR__ . '/../src/ChatThreadManager.php';
 
 $parsedown = new Parsedown();
 $parsedown->setBreaksEnabled(true);
@@ -86,6 +87,7 @@ $active_model = in_array($default_chat_model, $installed_models) ? $default_chat
 if (!in_array($active_model, $installed_models)) { array_unshift($installed_models, $active_model); }
 
 $selected_project_id = filter_input(INPUT_GET, 'project_id', FILTER_VALIDATE_INT);
+$selected_thread_id = filter_input(INPUT_GET, 'thread_id', FILTER_VALIDATE_INT);
 $active_tab = filter_input(INPUT_GET, 'tab', FILTER_SANITIZE_SPECIAL_CHARS) ?: 'overview';
 $memory_flash = filter_input(INPUT_GET, 'memory_saved', FILTER_SANITIZE_SPECIAL_CHARS) ?: '';
 
@@ -208,6 +210,8 @@ $all_users = $pdo->query("SELECT id, username, department FROM users ORDER BY us
 // =========================================================================
 $current_project = null;
 $documents = [];
+$chat_threads = [];
+$selected_thread = null;
 $chat_history = [];
 $chat_reasoning_steps_by_chat_id = [];
 $comments = [];
@@ -228,13 +232,31 @@ if ($selected_project_id) {
             if (!canAccessProject($pdo, (int)$selected_project_id, $user_id, $role)) {
                 $current_project = null; // 権限がない場合はデータを破棄
             } else {
+                $selected_thread_id = ChatThreadManager::resolveThreadId($pdo, (int)$selected_project_id, $selected_thread_id ?: null, $user_id);
+                $chat_threads = ChatThreadManager::listThreads($pdo, (int)$selected_project_id, $user_id);
+                foreach ($chat_threads as $thread) {
+                    if ((int)($thread['id'] ?? 0) === (int)$selected_thread_id) {
+                        $selected_thread = $thread;
+                        break;
+                    }
+                }
+
                 // 安全なプリペアドステートメントによる関連テーブルの一元フェッチ
                 $stmtDocs = $pdo->prepare("SELECT * FROM documents WHERE project_id = :project_id AND title NOT LIKE '[CSVデータ]%' ORDER BY created_at DESC");
                 $stmtDocs->execute(['project_id' => $selected_project_id]);
                 $documents = $stmtDocs->fetchAll(PDO::FETCH_ASSOC);
 
-                $stmtChat = $pdo->prepare("SELECT * FROM chat_history WHERE project_id = :project_id ORDER BY created_at ASC");
-                $stmtChat->execute(['project_id' => $selected_project_id]);
+                $stmtChat = $pdo->prepare("
+                    SELECT *
+                    FROM chat_history
+                    WHERE project_id = :project_id
+                      AND thread_id = :thread_id
+                    ORDER BY created_at ASC
+                ");
+                $stmtChat->execute([
+                    'project_id' => $selected_project_id,
+                    'thread_id' => $selected_thread_id,
+                ]);
                 $chat_history = $stmtChat->fetchAll(PDO::FETCH_ASSOC);
 
                 $assistantChatIds = array_values(array_filter(array_map(static function ($chat) {

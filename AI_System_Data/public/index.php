@@ -196,7 +196,31 @@ $renderRightPanel = function() use (&$focused_project, &$focused_docs, &$csv_fil
                 <div class="bg-white border border-slate-200/80 rounded-2xl overflow-hidden shadow-sm transition-all duration-300 ease-in-out hover:shadow-md">
                     <div class="bg-slate-50/70 p-3.5 px-5 font-bold text-slate-700 flex justify-between items-center text-xs border-b border-slate-100">
                         <span class="font-extrabold tracking-wide text-slate-600">🏢 業務詳細情報</span>
-                        <a href="support.php?project_id=<?= h((string)$selected_project_id) ?>&tab=overview" class="text-[10px] bg-white border border-slate-200 text-[#4F5D95] hover:bg-indigo-50 border-slate-200/80 hover:border-indigo-300 px-3 py-1.5 rounded-xl shadow-2xs font-extrabold transition-all duration-200 ease-in-out transform active:scale-95">業務支援へ &rarr;</a>
+                        <div class="flex items-center gap-2">
+                            <button
+                                type="button"
+                                onclick="if(typeof window.createProjectChatThread === 'function') window.createProjectChatThread()"
+                                class="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-[10px] font-extrabold text-slate-500 shadow-2xs transition-all duration-200 ease-in-out hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 active:scale-95"
+                                title="この案件に新しい会話スレッドを作成"
+                                aria-label="この案件に新しい会話スレッドを作成"
+                            >
+                                <span class="text-[12px]" aria-hidden="true">＋</span>
+                                <span>新しい会話</span>
+                            </button>
+                            <button
+                                type="button"
+                                onclick="if(typeof window.clearProjectChatHistory === 'function') window.clearProjectChatHistory()"
+                                class="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-[10px] font-extrabold text-slate-500 shadow-2xs transition-all duration-200 ease-in-out hover:border-amber-300 hover:bg-amber-50 hover:text-amber-700 active:scale-95"
+                                title="この案件のAI会話履歴を削除"
+                                aria-label="この案件のAI会話履歴を削除"
+                            >
+                                <svg xmlns="<?= h((string)$URL_SVG_XMLNS) ?>" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3.5 h-3.5">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 6h18M8.25 6V4.875A1.875 1.875 0 0 1 10.125 3h3.75A1.875 1.875 0 0 1 15.75 4.875V6m-8.25 0v11.625A2.25 2.25 0 0 0 9.75 19.875h4.5A2.25 2.25 0 0 0 16.5 17.625V6m-6 3.75v6.75m3-6.75v6.75" />
+                                </svg>
+                                <span>会話をクリア</span>
+                            </button>
+                            <a href="support.php?project_id=<?= h((string)$selected_project_id) ?>&tab=overview" class="text-[10px] bg-white border border-slate-200 text-[#4F5D95] hover:bg-indigo-50 border-slate-200/80 hover:border-indigo-300 px-3 py-1.5 rounded-xl shadow-2xs font-extrabold transition-all duration-200 ease-in-out transform active:scale-95">業務支援へ &rarr;</a>
+                        </div>
                     </div>
                     <table class="w-full text-left border-collapse text-xs">
                         <tbody class="divide-y divide-slate-100">
@@ -660,6 +684,7 @@ if ($isAjax) {
                         <?php $selected_project_id_int = isset($selected_project_id) ? (int)$selected_project_id : 0; ?>
                         <?php $isFocused = ($selected_project_id_int === (int)$proj['id']); ?>
                         <div class="project-list-item p-4 flex flex-col md:flex-row md:items-center justify-between cursor-pointer transition-all duration-200 ease-in-out group <?= $isFocused ? 'bg-slate-100 text-slate-900 font-extrabold shadow-2xs pl-3' : 'bg-white hover:bg-slate-100/70' ?>"
+                             data-project-id="<?= (int)$proj['id'] ?>"
                              onclick="window.loadProjectDetails(<?= $proj['id'] ?>, this)">
                             
                             <div class="flex items-start gap-4 flex-1 pr-4">
@@ -1186,6 +1211,17 @@ if ($isAjax) {
         }
     };
 
+    window.afterProjectHistoryCleared = async function(projectId, result = null) {
+        const activeTabId = document.querySelector('.tab-btn.active')?.id || 'tab-overview';
+        const activeProjectItem = document.querySelector(`.project-list-item[data-project-id="${projectId}"]`);
+
+        if (result?.counts) {
+            console.info('Project chat history cleared', result.counts);
+        }
+
+        await window.loadProjectDetails(projectId, activeProjectItem, activeTabId);
+    };
+
     document.addEventListener('DOMContentLoaded', () => {
         initPanelResizeAndToggle();
 
@@ -1325,7 +1361,7 @@ if ($isAjax) {
     });
 </script>
 <script type="module">
-    import * as Support from './assets/js/support.js?v=5';
+    import * as Support from './assets/js/support.js?v=6';
 
     if (typeof Support.bindGlobalFunctions === 'function') {
         Support.bindGlobalFunctions();

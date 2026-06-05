@@ -8,6 +8,7 @@ final class AdvancedRouteFinalizer
 {
     private $pdo;
     private $projectId;
+    private $threadId;
     private $userId;
     private $reasoningId;
     private $originalMessage;
@@ -28,6 +29,7 @@ final class AdvancedRouteFinalizer
     public function __construct(
         PDO $pdo,
         int $projectId,
+        ?int $threadId,
         int $userId,
         string $reasoningId,
         string $originalMessage,
@@ -47,6 +49,7 @@ final class AdvancedRouteFinalizer
     ) {
         $this->pdo = $pdo;
         $this->projectId = $projectId;
+        $this->threadId = $threadId;
         $this->userId = $userId;
         $this->reasoningId = $reasoningId;
         $this->originalMessage = $originalMessage;
@@ -89,11 +92,11 @@ final class AdvancedRouteFinalizer
                 $this->log("[DEBUG] chat_reasoning_steps の最終ステップ(99)をトランザクション内で正常に完了記録しました。");
             }
 
-            $stmtUser = $this->pdo->prepare("INSERT INTO chat_history (project_id, user_id, role, message, created_at) VALUES (?, ?, 'user', ?, NOW())");
-            $stmtUser->execute([$this->projectId, $this->userId, $this->normalize($this->originalMessage)]);
+            $stmtUser = $this->pdo->prepare("INSERT INTO chat_history (project_id, thread_id, user_id, role, message, created_at) VALUES (?, ?, ?, 'user', ?, NOW())");
+            $stmtUser->execute([$this->projectId, $this->threadId, $this->userId, $this->normalize($this->originalMessage)]);
 
-            $stmtAi = $this->pdo->prepare("INSERT INTO chat_history (project_id, user_id, role, message, created_at) VALUES (?, ?, 'assistant', ?, NOW())");
-            $stmtAi->execute([$this->projectId, $this->userId, $this->normalize($this->finalResponse)]);
+            $stmtAi = $this->pdo->prepare("INSERT INTO chat_history (project_id, thread_id, user_id, role, message, created_at) VALUES (?, ?, ?, 'assistant', ?, NOW())");
+            $stmtAi->execute([$this->projectId, $this->threadId, $this->userId, $this->normalize($this->finalResponse)]);
             $historyId = (int)$this->pdo->lastInsertId();
             $this->log("[DEBUG] chat_history 登録成功。ID: {$historyId}");
 

@@ -125,12 +125,12 @@ class CsvAggregationTargetResolver
         ];
     }
 
-    public function executeValueDistributionQuery(array $target, string $targetColumn): array
+    public function executeValueDistributionQuery(array $target, string $targetColumn, ?string $itemSortOrder = null): array
     {
         $csvFileId = (int)$target['csv_file_id'];
-        $sql = $this->queryBuilder->buildValueDistributionSql($csvFileId, $targetColumn);
+        $sql = $this->queryBuilder->buildValueDistributionSql($csvFileId, $targetColumn, $itemSortOrder);
 
-        $this->log("[CSV-AGG-SQL] file={$target['file_name']} | column={$targetColumn} | sql={$sql}");
+        $this->log("[CSV-AGG-SQL] file={$target['file_name']} | column={$targetColumn} | item_sort=" . ($itemSortOrder ?? 'count_desc') . " | sql={$sql}");
 
         $stmt = $this->pdo->query($sql);
         $rows = $stmt ? $stmt->fetchAll(PDO::FETCH_ASSOC) : [];
@@ -157,12 +157,12 @@ class CsvAggregationTargetResolver
         ];
     }
 
-    public function executeFilteredDistributionQuery(array $target, string $sourceColumn, string $targetColumn, array $matchedValues): array
+    public function executeFilteredDistributionQuery(array $target, string $sourceColumn, string $targetColumn, array $matchedValues, ?string $itemSortOrder = null): array
     {
         $csvFileId = (int)$target['csv_file_id'];
-        $sql = $this->queryBuilder->buildFilteredDistributionSql($csvFileId, $sourceColumn, $targetColumn, $matchedValues);
+        $sql = $this->queryBuilder->buildFilteredDistributionSql($csvFileId, $sourceColumn, $targetColumn, $matchedValues, $itemSortOrder);
 
-        $this->log("[CSV-AGG-SQL] file={$target['file_name']} | source={$sourceColumn} | filter_values=" . count($matchedValues) . " | column={$targetColumn} | sql={$sql}");
+        $this->log("[CSV-AGG-SQL] file={$target['file_name']} | source={$sourceColumn} | filter_values=" . count($matchedValues) . " | column={$targetColumn} | item_sort=" . ($itemSortOrder ?? 'count_desc') . " | sql={$sql}");
 
         $stmt = $this->pdo->query($sql);
         $rows = $stmt ? $stmt->fetchAll(PDO::FETCH_ASSOC) : [];

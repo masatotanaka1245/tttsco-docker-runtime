@@ -258,6 +258,7 @@ require_once __DIR__ . '/../../src/Auth.php';
 require_once __DIR__ . '/../../src/EmbeddingEngine.php';
 require_once __DIR__ . '/../../src/VectorSearch.php';
 require_once __DIR__ . '/../../src/PromptManager.php';
+require_once __DIR__ . '/../../src/ChatThreadManager.php';
 require_once __DIR__ . '/../../src/ChatRequestGuard.php';
 require_once __DIR__ . '/../../src/ChatHistoryContextResolver.php';
 require_once __DIR__ . '/../../src/ChatRouteFactorizer.php';
@@ -301,6 +302,7 @@ try {
     $input      = json_decode(file_get_contents('php://input'), true);
     $message    = trim($input['message'] ?? '');
     $project_id = (isset($input['project_id']) && $input['project_id'] !== '') ? filter_var($input['project_id'], FILTER_VALIDATE_INT) : null;
+    $thread_id  = (isset($input['thread_id']) && $input['thread_id'] !== '') ? filter_var($input['thread_id'], FILTER_VALIDATE_INT) : null;
 
     if (empty($message)) {
         throw new Exception('Bad Request: メッセージが空です。');
@@ -423,6 +425,7 @@ try {
         $stmt->execute([$project_id]);
         $project_info = $stmt->fetch(PDO::FETCH_ASSOC);
         if ($project_info) {
+            $thread_id = ChatThreadManager::resolveThreadId($pdo, (int)$project_id, $thread_id ?: null, (int)$user_id);
             $project_context = "【現在の業務背景】\n業務名: {$project_info['project_name']}\n場所: {$project_info['address']}\n概要: " . ($project_info['description'] ?? '特記なし') . "\n";
         }
     }
@@ -435,9 +438,9 @@ try {
     try {
         $historySql = $project_id === null
             ? "SELECT role, message FROM chat_history WHERE project_id IS NULL AND user_id = ? ORDER BY created_at DESC LIMIT 8"
-            : "SELECT role, message FROM chat_history WHERE project_id = ? AND user_id = ? ORDER BY created_at DESC LIMIT 8";
+            : "SELECT role, message FROM chat_history WHERE project_id = ? AND thread_id = ? AND user_id = ? ORDER BY created_at DESC LIMIT 8";
         $stmtHistory = $pdo->prepare($historySql);
-        $stmtHistory->execute($project_id === null ? [$user_id] : [$project_id, $user_id]);
+        $stmtHistory->execute($project_id === null ? [$user_id] : [$project_id, $thread_id, $user_id]);
         $recentHistory = array_reverse($stmtHistory->fetchAll(PDO::FETCH_ASSOC));
         if ($recentHistory) {
             $historyLines = [];
@@ -497,6 +500,7 @@ try {
         'history_summary_text' => $history_summary_text,
         'user_id' => $user_id,
         'role' => $role,
+        'thread_id' => $thread_id,
         'report_mode' => $report_mode,
         'diagram_mode' => $diagram_mode,
         'advanced_reasoning' => $advanced_reasoning,

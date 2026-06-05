@@ -73,7 +73,8 @@ class CsvValueAggregationRunner
         array $plan,
         float $routeStart,
         CsvAggregationTargetResolver $targetResolver,
-        CsvAggregationAnswerFormatter $formatter
+        CsvAggregationAnswerFormatter $formatter,
+        ?bool $diagramMode = null
     ): bool {
         $target = $targetResolver->findFileTarget((string)($plan['target_file_name'] ?? ''));
         $targetColumn = (string)($plan['target_column'] ?? '');
@@ -91,14 +92,18 @@ class CsvValueAggregationRunner
         );
 
         $this->sendStatus(3, '📊 対象列の値分布を集計しています...');
-        $result = $targetResolver->executeValueDistributionQuery($target, $targetColumn);
+        $itemSortOrder = !empty($plan['uses_value_ordering'])
+            ? (string)($plan['sort_order'] ?? 'asc')
+            : null;
+        $result = $targetResolver->executeValueDistributionQuery($target, $targetColumn, $itemSortOrder);
         $rows = $result['rows'] ?? [];
         if (empty($rows)) {
             $this->log('[CSV-AGG] value_distribution の集計結果が0件でした。CSV証拠読解ルートへフォールバックします。');
             return false;
         }
 
-        $finalResponse = $formatter->buildValueDistributionAnswer($plan, $target, $rows, $this->diagramMode);
+        $effectiveDiagramMode = $diagramMode ?? $this->diagramMode;
+        $finalResponse = $formatter->buildValueDistributionAnswer($plan, $target, $rows, $effectiveDiagramMode);
         ($this->setFinalResponse)($finalResponse);
         ($this->appendSubAnswer)($finalResponse);
         ($this->insertReasoningStep)(

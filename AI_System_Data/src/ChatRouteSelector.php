@@ -30,11 +30,21 @@ class ChatRouteSelector
         $analysisPattern = '/(集計|何種類|割合|平均|カウント|件数|グラフ|チャート|分布|推移|合計)/u';
         $csvEvidencePattern = '/(CSV|csv|登録済み.*データ|データ.*(内容|概要|項目|列|カラム|入って)|列には|カラムには|項目には)/u';
         $historySummaryPattern = '/((これまで|今まで|過去|直近).*(会話|やりとり|チャット|履歴).*(まとめ|要約|整理)|((会話|やりとり|チャット|履歴).*(まとめ|要約|整理)))/u';
+        $historyReportPattern = '/((会話|やりとり|チャット|履歴).*(報告書|レポート|PDF).*(作成|作って|出力|生成)|((報告書|レポート|PDF).*(作成|作って|出力|生成).*(会話|やりとり|チャット|履歴)))/u';
         $structuredAnalysisPattern = '/(transaction_uid|login_seconds|row_data|APP_\d+|ユーザー.*(操作|時間)|操作.*(時間|秒|秒数)|ログイン秒|利用時間|滞在時間|実行時間)/iu';
         $normalRagPreferredPattern = '/(良い案|よい案|方法|支援する方法|設計書案|仕様書案|要件定義|システム.*構築|提案|企画|たたき台|ドラフト)/u';
         $hasHistorySummaryRequest = preg_match($historySummaryPattern, $message) === 1;
+        $hasHistoryReportRequest = preg_match($historyReportPattern, $message) === 1;
 
-        if ($hasHistorySummaryRequest) {
+        if ($hasHistorySummaryRequest && $reportMode && $projectId !== null) {
+            $explicitAdvanced = true;
+            if ($hasHistoryReportRequest) {
+                $this->log("[SMART-ROUTER] 会話履歴の報告書化要求を検知。軽量履歴要約ではなく報告書向けフル思考ルートを優先します。");
+            } else {
+                $this->log("[SMART-ROUTER] 会話履歴要約要求に report_mode=on が付与されているため、軽量履歴要約ではなく報告書向けフル思考ルートを優先します。");
+            }
+
+        } elseif ($hasHistorySummaryRequest) {
             $isHistorySummaryMode = true;
             $this->log("[SMART-ROUTER] 会話履歴要約要求を検知。report_mode より軽量履歴サマリールートを優先します。");
 

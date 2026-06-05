@@ -9,11 +9,11 @@
 require_once __DIR__ . '/../../src/ProjectContextMemory.php';
 require_once __DIR__ . '/../../src/ChatModelRolePayload.php';
 
-function runNormalStreamingRoute($pdo, $ollama_host, $projectId, $originalMessage, $searchQuery, $model, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $vectorSearch, $engine, $user_id, $role, bool $reportMode = false, bool $diagramMode = false) {
+function runNormalStreamingRoute($pdo, $ollama_host, $projectId, $originalMessage, $searchQuery, $model, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $vectorSearch, $engine, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false) {
     $processor = new NormalStreamingRouteProcessor(
         $pdo, $ollama_host, $projectId, $originalMessage, $searchQuery,
         $model, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText,
-        $vectorSearch, $engine, $user_id, $role, $reportMode, $diagramMode
+        $vectorSearch, $engine, $user_id, $role, $threadId, $reportMode, $diagramMode
     );
     $processor->execute();
 }
@@ -34,6 +34,7 @@ class NormalStreamingRouteProcessor {
     private $engine;
     private $user_id;
     private $role;
+    private $threadId;
     private $reportMode = false;
     private $diagramMode = false;
     private $reportDocument = null;
@@ -52,7 +53,7 @@ class NormalStreamingRouteProcessor {
     private $buffer = "";
     private $ollamaErrorMsg = "";
 
-    public function __construct($pdo, $ollama_host, $projectId, $originalMessage, $searchQuery, $model, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $vectorSearch, $engine, $user_id, $role, bool $reportMode = false, bool $diagramMode = false) {
+    public function __construct($pdo, $ollama_host, $projectId, $originalMessage, $searchQuery, $model, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $vectorSearch, $engine, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false) {
         $this->pdo                = $pdo;
         $this->ollama_host        = $ollama_host;
         $this->projectId          = $projectId;
@@ -68,6 +69,7 @@ class NormalStreamingRouteProcessor {
         $this->engine             = $engine;
         $this->user_id            = $user_id;
         $this->role               = $role;
+        $this->threadId           = $threadId;
         $this->reportMode         = $reportMode;
         $this->diagramMode        = $diagramMode;
     }
@@ -411,12 +413,12 @@ class NormalStreamingRouteProcessor {
             $this->pdo->beginTransaction();
 
             // 1. ユーザー履歴保存
-            $stmtUser = $this->pdo->prepare("INSERT INTO chat_history (project_id, user_id, role, message, created_at) VALUES (?, ?, 'user', ?, NOW())");
-            $stmtUser->execute([$this->projectId, $this->user_id, $this->normalizeUtf8($this->originalMessage)]);
+            $stmtUser = $this->pdo->prepare("INSERT INTO chat_history (project_id, thread_id, user_id, role, message, created_at) VALUES (?, ?, ?, 'user', ?, NOW())");
+            $stmtUser->execute([$this->projectId, $this->threadId, $this->user_id, $this->normalizeUtf8($this->originalMessage)]);
 
             // 2. AI履歴保存
-            $stmtAi = $this->pdo->prepare("INSERT INTO chat_history (project_id, user_id, role, message, created_at) VALUES (?, ?, 'assistant', ?, NOW())");
-            $stmtAi->execute([$this->projectId, $this->user_id, $this->normalizeUtf8($this->fullResponse)]);
+            $stmtAi = $this->pdo->prepare("INSERT INTO chat_history (project_id, thread_id, user_id, role, message, created_at) VALUES (?, ?, ?, 'assistant', ?, NOW())");
+            $stmtAi->execute([$this->projectId, $this->threadId, $this->user_id, $this->normalizeUtf8($this->fullResponse)]);
             $historyId = $this->pdo->lastInsertId();
             chatLogger("[DEBUG] chat_history 登録成功。ID: {$historyId}");
 

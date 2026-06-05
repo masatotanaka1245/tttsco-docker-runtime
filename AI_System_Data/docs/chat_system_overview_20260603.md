@@ -6,7 +6,21 @@
 
 理想仕様ではなく、「いま実装がどう動いているか」を優先して整理しています。
 
-## 0. 直近ログから確定した次着手方針（2026-06-04）
+## 0. 直近ログから確定した次着手方針
+
+### 2026-06-05
+
+- 第1優先は、主要ユーザーフローごとの期待動作を先に固定することです。
+- 背景として、内部の責務分離やモデル責務の整理はかなり進んだ一方、実際の使用感では以下のズレが残っています。
+  - CSV 集計の follow-up で、CSV 名と列名は補完できても、直前の `value_distribution` や `若い順` / `古い順` / `グラフ化` の意図が継続されず、広い `CSV-OVERVIEW` へ落ちることがある
+  - `report_mode=on` かつ `これまでの会話内容をまとめて報告書を作成` のような依頼でも、`history_summary` が優先され、報告書化へ進まないことがある
+- そのため、次の修正では局所的な if 文追加より先に、主要フローごとに
+  - どの route が正解か
+  - どの文脈を引き継ぐべきか
+  - `report_mode` / `diagram_mode` が route を変えるのか、出力だけを変えるのか
+  を固定してから実装へ戻る方針を取る
+
+### 2026-06-04
 
 - 第1優先は、`main / sub / embedding` の 3 層でモデル責務を再設計することです。
 - 目標は以下の整理です。
@@ -189,6 +203,27 @@
 - CSV要約 / CSV集計は `advanced_reasoning=on` でも軽量優先
 - `advanced_hybrid.doc_extract` は CSV ルートで上書きしない
 - 全社横断キーワードは最上位で `global` 系へ
+
+### 6.1 主要ユーザーフローと期待着地（2026-06-05 固定方針）
+
+以下は、今後の route 修正で基準にする期待動作です。現状の実装がそうなっているとは限らず、ずれている箇所は今後の改修対象として扱います。
+
+| フロー | 代表質問 | 期待 route | 引き継ぐ文脈 | mode の扱い | 現状の主なズレ |
+| --- | --- | --- | --- | --- | --- |
+| CSV 概要把握 | `登録済みのCSVデータを集計して概要を教えてください。` | `data_analysis.csv_summary` | 案件内 CSV 一覧 | `diagram_mode=on` でも軽量 route は維持し、必要なら deterministic な `json:chart` を足す | 大きなズレは少ない |
+| CSV 集計 | `YearMonth カラムの分布を集計してグラフ化してください。` | `data_analysis.csv_agg` | `target_file_name`, `target_column`, `aggregation_mode=value_distribution` | `diagram_mode=on` は route を変えず、出力へ chart を加える | 概ね安定している |
+| CSV follow-up | `若い順でグラフ化してください。` | 直前の `data_analysis.csv_agg` を継続 | CSV 名、列名に加え、直前の `aggregation_mode`, `sort_order`, 図表意図 | `diagram_mode` が未指定でも、直前がグラフ化なら chart を継続候補として扱う | 現状は CSV 名と列名だけ補完し、`CSV-OVERVIEW` へ落ちることがある |
+| 履歴要約 | `これまでの会話内容を簡潔にまとめてください。` | `history_summary` | 直近の `chat_history` | `report_mode=off` なら軽量最優先 | 概ね安定している |
+| 履歴の報告書化 | `これまでの会話内容を簡潔にまとめて報告書を作成してください。` または `report_mode=on` 付きの履歴要約 | `advanced_hybrid` もしくは報告書専用フロー | 直近の `chat_history`, 報告書モード, 章立て意図 | `report_mode=on` は履歴要約 intent より強く扱い、報告書化へ進める | ここを優先する方針へ修正中 |
+| PDF 留意点抽出 | `この案件に関連する資料PDFから主要な留意点を抽出してください。` | `advanced_hybrid.doc_extract` | project documents, `doc_chunks`, 軽量根拠整形 | `report_mode=off` なら lightweight doc final を許可 | route は安定、候補ノイズは残課題 |
+
+### 6.2 route 優先順位の再確認ポイント
+
+- `report_mode=on` は常に「重い route へ送る」ではなく、「報告書として保存・出荷したい依頼」で route を押し上げる
+- ただし履歴要約については、UI で `report_mode=on` が付いている時点で、文面に `報告書` がなくても `history_summary` より報告書化を優先してよい
+- CSV follow-up では、`target_file_name` と `target_column` だけでなく、直前の `aggregation_mode`, `sort_order`, `output_format`, `diagram_mode` まで引き継ぐ
+- `diagram_mode=on` は原則として route を変えず、軽量 route のまま deterministic な chart を足す方向で扱う
+- `advanced_reasoning=on` でも、CSV 要約・CSV 集計・履歴要約の軽量 route は維持してよい
 
 ## 7. `normal_rag`
 

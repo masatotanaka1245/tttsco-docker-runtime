@@ -47,9 +47,9 @@ if (!function_exists('chatLogger')) {
  * 外部からのエントリーポイント（インターフェース引数100%完全同期維持版・Freeze Protocol）
  * ✨【関数名シンクロ統合】：名前を chat.php 側の呼び出し名 「runAdvancedReasoningRoute」 へ完全同期！
  */
-function runAdvancedReasoningRoute($pdo, $ollama_host, $projectId, $originalMessage, $mainModel, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, bool $reportMode = false, bool $diagramMode = false) {
+function runAdvancedReasoningRoute($pdo, $ollama_host, $projectId, $originalMessage, $mainModel, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false) {
     $processor = new AdvancedReasoningRouteProcessor(
-        $pdo, $ollama_host, $projectId, $originalMessage, $mainModel, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, $reportMode, $diagramMode
+        $pdo, $ollama_host, $projectId, $originalMessage, $mainModel, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, $threadId, $reportMode, $diagramMode
     );
     $processor->execute();
 }
@@ -71,6 +71,7 @@ class AdvancedReasoningRouteProcessor {
     private $historySummaryText;
     private $user_id;
     private $role;
+    private $threadId;
     private $reportMode = false;
     private $diagramMode = false;
     private $reportDocument = null;
@@ -117,7 +118,7 @@ class AdvancedReasoningRouteProcessor {
     /**
      * コンストラクタ (完全DI化)
      */
-    public function __construct($pdo, $ollama_host, $projectId, $originalMessage, $mainModel, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, bool $reportMode = false, bool $diagramMode = false) {
+    public function __construct($pdo, $ollama_host, $projectId, $originalMessage, $mainModel, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false) {
         $this->pdo                = $pdo;
         $this->ollama_host        = $ollama_host;
         $this->projectId          = $projectId;
@@ -130,6 +131,7 @@ class AdvancedReasoningRouteProcessor {
         $this->historySummaryText = $historySummaryText;
         $this->user_id            = $user_id;
         $this->role               = $role;
+        $this->threadId           = $threadId;
         $this->reportMode         = $reportMode;
         $this->diagramMode        = $diagramMode;
         $this->reasoningId        = 'sql-' . uniqid('reason_') . '-' . mt_rand(1000, 9999);
@@ -403,15 +405,22 @@ class AdvancedReasoningRouteProcessor {
 
         $routeStart = microtime(true);
         $plan = $csvAggregationPlanner->buildStructuredAggregationPlan($this->originalMessage, $recentHistory);
+        $effectiveDiagramMode = $this->diagramMode || !empty($plan['wants_chart']);
         $csvAggregationAnswerFormatter = $this->getCsvAggregationAnswerFormatter();
         $targetResolver = $this->getCsvAggregationTargetResolver();
         chatLogger(
             "[CSV-AGG] 集計プリフライト開始"
             . " - scope: {$plan['scope']}"
+            . " | aggregation_mode: " . ($plan['aggregation_mode'] ?? 'unknown')
             . " | aggregate: {$plan['aggregate_type']}"
             . " | date_granularity: {$plan['date_granularity']}"
             . " | sort_order: " . ($plan['sort_order'] ?? 'asc')
+            . " | value_ordering: " . (!empty($plan['uses_value_ordering']) ? 'yes' : 'no')
             . " | context_source: " . ($plan['context_source'] ?? 'unknown')
+            . " | inherited_mode: " . (!empty($plan['used_recent_aggregation_mode']) ? 'yes' : 'no')
+            . " | recent_mode: " . ($plan['recent_aggregation_mode'] ?? 'none')
+            . " | wants_chart: " . (!empty($plan['wants_chart']) ? 'yes' : 'no')
+            . " | effective_diagram_mode: " . ($effectiveDiagramMode ? 'on' : 'off')
             . " | target_file: " . ($plan['target_file_name'] ?? 'all')
             . " | target_column: " . ($plan['target_column'] ?? 'none')
             . " | target_value: " . ($plan['target_value'] ?? 'none')
@@ -439,7 +448,8 @@ class AdvancedReasoningRouteProcessor {
                     $plan,
                     $routeStart,
                     $targetResolver,
-                    $csvAggregationAnswerFormatter
+                    $csvAggregationAnswerFormatter,
+                    $effectiveDiagramMode
                 );
 
             case 'column_semantics':
@@ -448,7 +458,7 @@ class AdvancedReasoningRouteProcessor {
                     $routeStart,
                     $targetResolver,
                     $csvAggregationAnswerFormatter,
-                    $this->diagramMode
+                    $effectiveDiagramMode
                 );
 
             case 'category_filtered_distribution':
@@ -457,7 +467,7 @@ class AdvancedReasoningRouteProcessor {
                     $routeStart,
                     $targetResolver,
                     $csvAggregationAnswerFormatter,
-                    $this->diagramMode
+                    $effectiveDiagramMode
                 );
 
             case 'semantic_category_summary':
@@ -466,7 +476,7 @@ class AdvancedReasoningRouteProcessor {
                     $routeStart,
                     $targetResolver,
                     $csvAggregationAnswerFormatter,
-                    $this->diagramMode
+                    $effectiveDiagramMode
                 );
         }
 
@@ -475,7 +485,7 @@ class AdvancedReasoningRouteProcessor {
             $routeStart,
             $targetResolver,
             $csvAggregationAnswerFormatter,
-            $this->diagramMode
+            $effectiveDiagramMode
         );
     }
 
@@ -1683,11 +1693,11 @@ class AdvancedReasoningRouteProcessor {
             $stmtUpdAns->execute([$this->reasoningId]);
             chatLogger("[DEBUG] chat_reasoning_steps の最終ステップ(99)を完了状態に更新しました。");
 
-            $stmtUser = $this->pdo->prepare("INSERT INTO chat_history (project_id, user_id, role, message, created_at) VALUES (?, ?, 'user', ?, NOW())");
-            $stmtUser->execute([$this->projectId, $this->user_id, $safeOriginalMessage]);
+            $stmtUser = $this->pdo->prepare("INSERT INTO chat_history (project_id, thread_id, user_id, role, message, created_at) VALUES (?, ?, ?, 'user', ?, NOW())");
+            $stmtUser->execute([$this->projectId, $this->threadId, $this->user_id, $safeOriginalMessage]);
 
-            $stmtAi = $this->pdo->prepare("INSERT INTO chat_history (project_id, user_id, role, message, created_at) VALUES (?, ?, 'assistant', ?, NOW())");
-            $stmtAi->execute([$this->projectId, $this->user_id, $safeFinalResponse]);
+            $stmtAi = $this->pdo->prepare("INSERT INTO chat_history (project_id, thread_id, user_id, role, message, created_at) VALUES (?, ?, ?, 'assistant', ?, NOW())");
+            $stmtAi->execute([$this->projectId, $this->threadId, $this->user_id, $safeFinalResponse]);
             $historyId = $this->pdo->lastInsertId();
             chatLogger("[DEBUG] chat_history 登録成功. ID: {$historyId}");
 

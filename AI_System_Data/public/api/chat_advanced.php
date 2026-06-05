@@ -49,11 +49,11 @@ if (!function_exists('chatLogger')) {
 /**
  * 外部からのエントリーポイント（他ファイルと一元規格統一のため、最後尾に $role を追記した13引数拡張版・Freeze Protocol）
  */
-function runAdvancedReasoningRoute($pdo, $ollama_host, $projectId, $originalMessage, $searchQuery, $reasoningId, $mainModel, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, bool $reportMode = false, bool $diagramMode = false) {
+function runAdvancedReasoningRoute($pdo, $ollama_host, $projectId, $originalMessage, $searchQuery, $reasoningId, $mainModel, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false) {
     $processor = new AdvancedReasoningRouteProcessor(
         $pdo, $ollama_host, $projectId, $originalMessage, $searchQuery,
         $reasoningId, $mainModel, $subModel, $embeddingModel, $promptKey,
-        $projectContext, $historySummaryText, $user_id, $role, $reportMode, $diagramMode
+        $projectContext, $historySummaryText, $user_id, $role, $threadId, $reportMode, $diagramMode
     );
     $processor->execute();
 }
@@ -80,6 +80,7 @@ class AdvancedReasoningRouteProcessor {
     private $historySummaryText;
     private $user_id;
     private $role;
+    private $threadId;
     private $model;
     private $reportMode = false;
     private $diagramMode = false;
@@ -104,7 +105,7 @@ class AdvancedReasoningRouteProcessor {
     public $lastLoggedLen = 0;
     public $ollamaErrorMsg = "";
 
-    public function __construct($pdo, $ollama_host, $projectId, $originalMessage, $searchQuery, $reasoningId, $mainModel, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, bool $reportMode = false, bool $diagramMode = false) {
+    public function __construct($pdo, $ollama_host, $projectId, $originalMessage, $searchQuery, $reasoningId, $mainModel, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false) {
         $this->pdo = $pdo;
         $this->ollama_host = $ollama_host;
         $this->projectId = (int)$projectId;
@@ -121,6 +122,7 @@ class AdvancedReasoningRouteProcessor {
         $this->historySummaryText = $this->normalizeUtf8((string)$historySummaryText);
         $this->user_id = (int)$user_id;
         $this->role = (string)$role;
+        $this->threadId = $threadId !== null ? (int)$threadId : null;
         $this->model = $this->subModel;
         $this->reportMode = $reportMode;
         $this->diagramMode = $diagramMode;
@@ -268,6 +270,7 @@ class AdvancedReasoningRouteProcessor {
         return new AdvancedRouteFinalizer(
             $this->pdo,
             $this->projectId,
+            $this->threadId,
             $this->user_id,
             $this->reasoningId,
             $this->originalMessage,

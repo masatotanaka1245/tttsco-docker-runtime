@@ -21,14 +21,15 @@ class CsvAggregationPlanner
     public function shouldUseStructuredAggregationRoute(string $question, array $recentHistory = []): bool
     {
         $hasDateIntent = preg_match('/(日付|日時|年月日|年月|月別|月ごと|年別|年ごと|date|timestamp|時刻|日時は不要|月単位)/iu', $question) === 1;
-        $hasAggregateIntent = preg_match('/(集計|件数|合計|平均|表に|一覧|推移|時系列|別に|グループ|何種類|ユニーク|distinct|重複なし|分布|分類|カテゴリ|抽出して件数|抽出して、件数|若い順|古い順|昇順|降順)/iu', $question) === 1;
+        $hasAggregateIntent = preg_match('/(集計|件数|合計|平均|表に|一覧|推移|時系列|別に|グループ|何種類|ユニーク|distinct|重複なし|分布|分類|カテゴリ|抽出して件数|抽出して、件数|若い順|古い順|昇順|降順|グラフ|グラフ化|チャート)/iu', $question) === 1;
         $hasExplainIntent = preg_match('/(どういう|どのような|説明|意味|何を表|どんなイベント|イベント.*説明|イベント.*意味|それぞれ.*説明)/u', $question) === 1;
         $hasSummaryIntent = preg_match('/(要約|まとめ|概要|内容を要約|内容をまとめ|どんな内容|内容を教えて)/u', $question) === 1;
         $hasCsvContext = preg_match('/(CSV|csv|ファイル|データ|レコード|行)/u', $question) === 1
             || $this->findMentionedCsvFileName($question) !== null;
         $mentionedFile = $this->findMentionedCsvFileName($question);
         $mentionedColumnTarget = $this->findMentionedColumnTarget($question);
-        $recentContext = $this->findRecentCsvContext($recentHistory);
+        $recentContext = $this->findRecentAggregationContext($recentHistory);
+        $isAggregationFollowUp = $this->isAggregationFollowUpIntent($question);
         $isBroadCsvSummary = $hasSummaryIntent
             && $hasCsvContext
             && !$hasDateIntent
@@ -52,13 +53,17 @@ class CsvAggregationPlanner
             return true;
         }
 
+        if ($isAggregationFollowUp && $recentContext !== null) {
+            return true;
+        }
+
         $targetFileName = $mentionedFile;
         if ($targetFileName === null || (!$hasAggregateIntent && !$hasExplainIntent)) {
             if (($hasAggregateIntent || $hasExplainIntent) && $mentionedColumnTarget !== null) {
                 return true;
             }
 
-            return ($hasExplainIntent || ($hasAggregateIntent && $hasDateIntent)) && $recentContext !== null;
+            return ($hasExplainIntent || ($hasAggregateIntent && $hasDateIntent) || $isAggregationFollowUp) && $recentContext !== null;
         }
 
         return $this->findMentionedColumnName($question, $targetFileName) !== null;
@@ -70,6 +75,7 @@ class CsvAggregationPlanner
         $targetFileName = $this->findMentionedCsvFileName($question);
         $targetColumn = $targetFileName !== null ? $this->findMentionedColumnName($question, $targetFileName) : null;
         $contextSource = ($targetFileName !== null || $targetColumn !== null) ? 'explicit' : 'none';
+        $recentAggregationContext = !empty($recentHistory) ? $this->findRecentAggregationContext($recentHistory) : null;
         if ($targetFileName === null || $targetColumn === null) {
             $columnTarget = $this->findMentionedColumnTarget($question);
             if ($columnTarget !== null) {
@@ -80,15 +86,13 @@ class CsvAggregationPlanner
         }
         $canUseRecentHistoryContext = $this->hasDateIntent($question)
             || preg_match('/(どういう|どのような|説明|意味|何を表|どんなイベント|イベント.*説明|イベント.*意味|それぞれ.*説明)/u', $question) === 1
-            || $this->findMentionedColumnTarget($question) !== null;
-        if (($targetFileName === null || $targetColumn === null) && $canUseRecentHistoryContext && !empty($recentHistory)) {
-            $recentContext = $this->findRecentCsvContext($recentHistory);
-            if ($recentContext !== null) {
-                $targetFileName = $targetFileName ?? (string)($recentContext['target_file_name'] ?? '');
-                $targetColumn = $targetColumn ?? (string)($recentContext['target_column'] ?? '');
-                if ($targetFileName !== '' || $targetColumn !== '') {
-                    $contextSource = 'recent_history';
-                }
+            || $this->findMentionedColumnTarget($question) !== null
+            || $this->isAggregationFollowUpIntent($question);
+        if (($targetFileName === null || $targetColumn === null) && $canUseRecentHistoryContext && $recentAggregationContext !== null) {
+            $targetFileName = $targetFileName ?? (string)($recentAggregationContext['target_file_name'] ?? '');
+            $targetColumn = $targetColumn ?? (string)($recentAggregationContext['target_column'] ?? '');
+            if ($targetFileName !== '' || $targetColumn !== '') {
+                $contextSource = $this->isAggregationFollowUpIntent($question) ? 'recent_history_followup' : 'recent_history';
             }
         }
         if ($targetColumn === null && $this->hasDateIntent($question)) {
@@ -110,11 +114,14 @@ class CsvAggregationPlanner
             $dateGranularity = 'year';
         }
 
+        $hasExplicitSortIntent = preg_match('/(若い順|古い順|昇順|降順|新しい順|新しいものから|古いものから)/u', $question) === 1;
         $sortOrder = 'asc';
         if (preg_match('/(若い順|降順|新しい順|新しいものから)/u', $question)) {
             $sortOrder = 'desc';
         } elseif (preg_match('/(古い順|昇順|古いものから)/u', $question)) {
             $sortOrder = 'asc';
+        } elseif (!empty($recentAggregationContext['sort_order'])) {
+            $sortOrder = (string)$recentAggregationContext['sort_order'];
         }
 
         $aggregationMode = 'date_histogram';
@@ -129,6 +136,11 @@ class CsvAggregationPlanner
             && $targetValue !== null
             && preg_match('/(件数|何件|件ありますか|件ある|集計)/u', $question) === 1;
         $isDateLikeColumn = $targetColumn !== null && $this->isDateLikeColumnName($targetColumn);
+        $isAggregationFollowUp = $this->isAggregationFollowUpIntent($question);
+        $recentAggregationMode = (string)($recentAggregationContext['aggregation_mode'] ?? '');
+        $usedRecentAggregationMode = false;
+        $usesValueOrdering = $hasExplicitSortIntent
+            || ($isAggregationFollowUp && !empty($recentAggregationContext['uses_value_ordering']));
 
         if ($wantsExactCount) {
             $aggregationMode = 'exact_value_count';
@@ -142,6 +154,20 @@ class CsvAggregationPlanner
             $aggregationMode = 'column_semantics';
             $dateGranularity = 'none';
             $aggregateType = 'column_semantics';
+        } elseif (
+            $targetColumn !== null
+            && $isAggregationFollowUp
+            && $recentAggregationMode !== ''
+            && !$hasDateIntent
+            && !$hasDistinctIntent
+            && !$hasColumnExplainIntent
+            && !$hasSemanticCategoryIntent
+            && $targetValue === null
+        ) {
+            $aggregationMode = $recentAggregationMode;
+            $dateGranularity = $recentAggregationMode === 'date_histogram' ? $dateGranularity : 'none';
+            $aggregateType = $recentAggregationMode === 'date_histogram' ? 'count' : $recentAggregationMode;
+            $usedRecentAggregationMode = true;
         } elseif ($targetColumn !== null && $isDateLikeColumn && ($hasDateIntent || preg_match('/(若い順|古い順|昇順|降順)/u', $question) === 1)) {
             $aggregationMode = 'date_histogram';
             $aggregateType = 'count';
@@ -169,8 +195,12 @@ class CsvAggregationPlanner
             'context_source' => $contextSource,
             'aggregation_mode' => $aggregationMode,
             'aggregate_type' => $aggregateType,
+            'used_recent_aggregation_mode' => $usedRecentAggregationMode,
+            'recent_aggregation_mode' => $recentAggregationMode,
             'date_granularity' => $dateGranularity,
             'sort_order' => $sortOrder,
+            'uses_value_ordering' => $usesValueOrdering,
+            'wants_chart' => preg_match('/(グラフ|グラフ化|チャート|可視化)/u', $question) === 1,
             'wants_table' => preg_match('/(表|一覧)/u', $question) === 1,
             'wants_all_values' => preg_match('/(全ての値|すべての値|各値|値ごとの件数|各レコード数|それぞれの件数|全件)/u', $question) === 1,
             'wants_detail' => preg_match('/(どのような情報|内容|項目|レコードを特定)/u', $question) === 1,
@@ -185,6 +215,11 @@ class CsvAggregationPlanner
     private function normalizeUtf8(string $text): string
     {
         return (string)call_user_func($this->normalizer, $text);
+    }
+
+    private function isAggregationFollowUpIntent(string $question): bool
+    {
+        return preg_match('/(若い順|古い順|昇順|降順|グラフ|グラフ化|チャート|並び替え|並べ替え|ソート)/iu', $question) === 1;
     }
 
     private function findMentionedColumnName(string $question, string $targetFileName): ?string
@@ -251,6 +286,74 @@ class CsvAggregationPlanner
                     'target_column' => $mentionedColumnTarget['column_name'] ?? null,
                 ];
             }
+        }
+
+        return null;
+    }
+
+    private function findRecentAggregationContext(array $recentHistory): ?array
+    {
+        $userContext = $this->scanRecentAggregationContext($recentHistory, 'user');
+        if ($userContext !== null) {
+            return $userContext;
+        }
+
+        return $this->scanRecentAggregationContext($recentHistory, null);
+    }
+
+    private function scanRecentAggregationContext(array $recentHistory, ?string $roleFilter): ?array
+    {
+        for ($i = count($recentHistory) - 1; $i >= 0; $i--) {
+            $role = (string)($recentHistory[$i]['role'] ?? '');
+            if ($roleFilter !== null && $role !== $roleFilter) {
+                continue;
+            }
+
+            $historyMessage = trim((string)($recentHistory[$i]['message'] ?? ''));
+            if ($historyMessage === '') {
+                continue;
+            }
+
+            $mentionedCsv = $this->findMentionedCsvFileName($historyMessage);
+            $mentionedColumnTarget = $this->findMentionedColumnTarget($historyMessage);
+            if ($mentionedCsv === null && !empty($mentionedColumnTarget['file_name'])) {
+                $mentionedCsv = (string)$mentionedColumnTarget['file_name'];
+            }
+
+            $targetColumn = $mentionedColumnTarget['column_name'] ?? null;
+            if ($mentionedCsv === null && $targetColumn === null) {
+                continue;
+            }
+
+            $targetValue = $this->extractRequestedTargetValue($historyMessage, [$targetColumn]);
+            $hasDistinctIntent = preg_match('/(何種類|ユニーク|distinct|重複なし|種類数)/iu', $historyMessage) === 1;
+            $hasColumnExplainIntent = preg_match('/(どういう|どのような|説明|意味|何を表|どんなイベント|イベント.*説明|イベント.*意味|それぞれ.*説明)/u', $historyMessage) === 1;
+            $hasDateIntent = $this->hasDateIntent($historyMessage);
+            $hasSemanticCategoryIntent = preg_match('/(カテゴリ|カテゴリー|分類|傾向|どのような情報|どんな情報|分析してください|分析して|テーマ)/u', $historyMessage) === 1;
+            $hasValueDistributionIntent = preg_match('/(全ての値|すべての値|各値|値ごとの件数|各レコード数|それぞれの件数|内訳|分布|一覧|表に)/u', $historyMessage) === 1;
+            $sortOrder = preg_match('/(若い順|降順|新しい順|新しいものから)/u', $historyMessage) === 1 ? 'desc' : 'asc';
+            $usesValueOrdering = preg_match('/(若い順|古い順|昇順|降順|新しい順|新しいものから|古いものから)/u', $historyMessage) === 1;
+
+            $aggregationMode = 'value_distribution';
+            if ($targetColumn !== null && $targetValue !== null && preg_match('/(件数|何件|件ありますか|件ある|集計)/u', $historyMessage) === 1) {
+                $aggregationMode = 'exact_value_count';
+            } elseif ($targetColumn !== null && $hasDistinctIntent && !$hasValueDistributionIntent) {
+                $aggregationMode = 'distinct_count';
+            } elseif ($targetColumn !== null && $hasColumnExplainIntent) {
+                $aggregationMode = 'column_semantics';
+            } elseif ($targetColumn !== null && ($hasDateIntent || $this->isDateLikeColumnName((string)$targetColumn))) {
+                $aggregationMode = 'date_histogram';
+            } elseif ($targetColumn !== null && $hasSemanticCategoryIntent) {
+                $aggregationMode = 'semantic_category_summary';
+            }
+
+            return [
+                'target_file_name' => $mentionedCsv,
+                'target_column' => $targetColumn,
+                'aggregation_mode' => $aggregationMode,
+                'sort_order' => $sortOrder,
+                'uses_value_ordering' => $usesValueOrdering,
+            ];
         }
 
         return null;

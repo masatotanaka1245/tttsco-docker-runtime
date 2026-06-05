@@ -233,9 +233,10 @@ class CsvAggregationAnswerFormatter
         $column = (string)($plan['target_column'] ?? '');
         $rowCount = (int)($target['row_count'] ?? 0);
         $uniqueCount = count($rows);
-        $topCount = !empty($rows) ? (int)$rows[0]['record_count'] : 0;
-        $allSingle = $uniqueCount > 0 && $topCount <= 1;
+        $maxCount = !empty($rows) ? max(array_map(fn($row) => (int)($row['record_count'] ?? 0), $rows)) : 0;
+        $allSingle = $uniqueCount > 0 && $maxCount <= 1;
         $showAllValues = (bool)($plan['wants_all_values'] ?? false) || $uniqueCount <= 15;
+        $usesValueOrdering = !empty($plan['uses_value_ordering']);
         $previewRows = $showAllValues ? $rows : array_slice($rows, 0, 15);
 
         $lines = [];
@@ -248,7 +249,10 @@ class CsvAggregationAnswerFormatter
         }
         $lines[] = "- ユニーク値数: {$uniqueCount}件";
         if ($uniqueCount > 0) {
-            $lines[] = "- 最大出現回数: {$topCount}件";
+            $lines[] = "- 最大出現回数: {$maxCount}件";
+        }
+        if ($usesValueOrdering) {
+            $lines[] = "- 並び順: " . $this->distributionSortOrderLabel((string)($plan['sort_order'] ?? 'asc'));
         }
         $lines[] = "";
 
@@ -258,7 +262,13 @@ class CsvAggregationAnswerFormatter
             $lines[] = "";
         }
 
-        $lines[] = $showAllValues ? "### 値ごとの件数一覧" : "### 上位の値分布";
+        if ($showAllValues) {
+            $lines[] = "### 値ごとの件数一覧";
+        } elseif ($usesValueOrdering) {
+            $lines[] = "### 並び順に沿った件数一覧";
+        } else {
+            $lines[] = "### 上位の値分布";
+        }
         $lines[] = "| 値 | 件数 |";
         $lines[] = "| --- | ---: |";
         foreach ($previewRows as $row) {
@@ -268,14 +278,18 @@ class CsvAggregationAnswerFormatter
 
         if (!$showAllValues && $uniqueCount > count($previewRows)) {
             $lines[] = "";
-            $lines[] = "※ 件数が多いため、上位 " . count($previewRows) . " 件を表示しています。";
+            $lines[] = $usesValueOrdering
+                ? "※ 件数が多いため、並び順に沿って先頭 " . count($previewRows) . " 件を表示しています。"
+                : "※ 件数が多いため、上位 " . count($previewRows) . " 件を表示しています。";
         }
 
         if ($diagramMode && !empty($previewRows)) {
             $chartRows = count($previewRows) > 20 ? array_slice($previewRows, 0, 20) : $previewRows;
             $chart = [
                 'type' => 'bar',
-                'title' => $showAllValues ? "{$column} 列の値ごとの件数" : "{$column} 列の上位件数分布",
+                'title' => $showAllValues
+                    ? "{$column} 列の値ごとの件数"
+                    : ($usesValueOrdering ? "{$column} 列の並び順に沿った件数" : "{$column} 列の上位件数分布"),
                 'labels' => array_map(fn($row) => (string)($row['item'] ?? ''), $chartRows),
                 'datasets' => [[
                     'label' => '件数',
@@ -525,6 +539,11 @@ class CsvAggregationAnswerFormatter
     private function sortOrderLabel(string $sortOrder): string
     {
         return $sortOrder === 'desc' ? '新しい順 / 降順' : '古い順 / 昇順';
+    }
+
+    private function distributionSortOrderLabel(string $sortOrder): string
+    {
+        return $sortOrder === 'desc' ? '値の降順' : '値の昇順';
     }
 
     private function buildDateAggregationSummaryLines(array $plan, array $aggregatedRows): array

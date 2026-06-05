@@ -692,7 +692,7 @@ function handleChat(e) {
         return;
     }
 
-    const { projectId } = getConfig();
+    const { projectId, threadId } = getConfig();
     const input = document.getElementById('chat-input');
     if (!input) return;
 
@@ -775,10 +775,11 @@ function handleChat(e) {
                     'Content-Type': 'application/json',
                     'X-CSRF-Token': csrfToken
                 },
-                body: JSON.stringify({ 
-                    message: msg, 
-                    project_id: projectId, 
-                    model: model, 
+                body: JSON.stringify({
+                    message: msg,
+                    project_id: projectId,
+                    thread_id: threadId || null,
+                    model: model,
                     prompt_mode: promptMode,
                     advanced_reasoning: advancedReasoning,
                     advanced_reasoning_id: reasoningId,

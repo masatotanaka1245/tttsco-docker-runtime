@@ -103,6 +103,7 @@ if (!function_exists('h')) {
 <div id="support-config"
      data-csrf-token="<?= h($csrfToken) ?>"
      data-project-id="<?= h((string)$selected_project_id) ?>"
+     data-thread-id="<?= h((string)$selected_thread_id) ?>"
      data-can-debug-log="<?= $role === 'admin' ? '1' : '0' ?>"></div>
 
 <main class="flex-1 flex overflow-hidden h-[calc(100vh-72px)] gap-px bg-slate-200/50 w-full" role="region" aria-label="Support System Console">
@@ -123,14 +124,15 @@ if (!function_exists('h')) {
 
     <?php if ($current_project): ?>
     <div class="flex-1 bg-white flex flex-col overflow-hidden" role="region">
-        
+        <?php $threadQuery = $selected_thread_id ? '&thread_id=' . urlencode((string)$selected_thread_id) : ''; ?>
+
         <div class="bg-slate-50/80 border-b border-slate-200/60 flex items-end gap-1 px-3 pt-3 flex-shrink-0" id="tab-header" role="tablist">
-            <button onclick="if(typeof window.switchTab === 'function') window.switchTab('tab-overview'); history.replaceState(null, '', '?project_id=<?= h((string)$selected_project_id) ?>&tab=overview')" id="btn-overview" role="tab" class="tab-btn <?= $active_tab === 'overview' ? 'active' : '' ?> px-4 py-2 text-[11px] font-bold text-slate-500 rounded-t-xl transition-all duration-200 ease-in-out transform active:scale-98">🏠 概要</button>
-            <button onclick="if(typeof window.switchTab === 'function') window.switchTab('tab-pdf'); history.replaceState(null, '', '?project_id=<?= h((string)$selected_project_id) ?>&tab=pdf')" id="btn-pdf" role="tab" class="tab-btn <?= $active_tab === 'pdf' ? 'active' : '' ?> px-4 py-2 text-[11px] font-bold text-slate-500 rounded-t-xl transition-all duration-200 ease-in-out transform active:scale-98">📄 PDF (<?= count($documents) ?>)</button>
-            <button onclick="if(typeof window.switchTab === 'function') window.switchTab('tab-comments'); history.replaceState(null, '', '?project_id=<?= h((string)$selected_project_id) ?>&tab=comments')" id="btn-comments" role="tab" class="tab-btn <?= $active_tab === 'comments' ? 'active' : '' ?> px-4 py-2 text-[11px] font-bold text-slate-500 rounded-t-xl transition-all duration-200 ease-in-out transform active:scale-98">💬 コメント (<?= count($comments) ?>)</button>
-            <button onclick="if(typeof window.switchTab === 'function') window.switchTab('tab-csv'); history.replaceState(null, '', '?project_id=<?= h((string)$selected_project_id) ?>&tab=csv')" id="btn-csv" role="tab" class="tab-btn <?= $active_tab === 'csv' ? 'active' : '' ?> px-4 py-2 text-[11px] font-bold text-slate-500 rounded-t-xl transition-all duration-200 ease-in-out transform active:scale-98">📊 CSVデータ (<?= count($csv_files) ?>)</button>
-            <button onclick="if(typeof window.switchTab === 'function') window.switchTab('tab-faqs'); history.replaceState(null, '', '?project_id=<?= h((string)$selected_project_id) ?>&tab=faqs')" id="btn-faqs" role="tab" class="tab-btn <?= $active_tab === 'faqs' ? 'active' : '' ?> px-4 py-2 text-[11px] font-bold text-slate-500 rounded-t-xl transition-all duration-200 ease-in-out transform active:scale-98">📚 AIナレッジ・FAQ</button>
-            <button onclick="if(typeof window.switchTab === 'function') window.switchTab('tab-members'); history.replaceState(null, '', '?project_id=<?= h((string)$selected_project_id) ?>&tab=members')" id="btn-members" role="tab" class="tab-btn <?= $active_tab === 'members' ? 'active' : '' ?> px-4 py-2 text-[11px] font-bold text-slate-500 rounded-t-xl transition-all duration-200 ease-in-out transform active:scale-98">👥 メンバー設定</button>
+            <button onclick="if(typeof window.switchTab === 'function') window.switchTab('tab-overview'); history.replaceState(null, '', '?project_id=<?= h((string)$selected_project_id) ?>&tab=overview<?= $threadQuery ?>')" id="btn-overview" role="tab" class="tab-btn <?= $active_tab === 'overview' ? 'active' : '' ?> px-4 py-2 text-[11px] font-bold text-slate-500 rounded-t-xl transition-all duration-200 ease-in-out transform active:scale-98">🏠 概要</button>
+            <button onclick="if(typeof window.switchTab === 'function') window.switchTab('tab-pdf'); history.replaceState(null, '', '?project_id=<?= h((string)$selected_project_id) ?>&tab=pdf<?= $threadQuery ?>')" id="btn-pdf" role="tab" class="tab-btn <?= $active_tab === 'pdf' ? 'active' : '' ?> px-4 py-2 text-[11px] font-bold text-slate-500 rounded-t-xl transition-all duration-200 ease-in-out transform active:scale-98">📄 PDF (<?= count($documents) ?>)</button>
+            <button onclick="if(typeof window.switchTab === 'function') window.switchTab('tab-comments'); history.replaceState(null, '', '?project_id=<?= h((string)$selected_project_id) ?>&tab=comments<?= $threadQuery ?>')" id="btn-comments" role="tab" class="tab-btn <?= $active_tab === 'comments' ? 'active' : '' ?> px-4 py-2 text-[11px] font-bold text-slate-500 rounded-t-xl transition-all duration-200 ease-in-out transform active:scale-98">💬 コメント (<?= count($comments) ?>)</button>
+            <button onclick="if(typeof window.switchTab === 'function') window.switchTab('tab-csv'); history.replaceState(null, '', '?project_id=<?= h((string)$selected_project_id) ?>&tab=csv<?= $threadQuery ?>')" id="btn-csv" role="tab" class="tab-btn <?= $active_tab === 'csv' ? 'active' : '' ?> px-4 py-2 text-[11px] font-bold text-slate-500 rounded-t-xl transition-all duration-200 ease-in-out transform active:scale-98">📊 CSVデータ (<?= count($csv_files) ?>)</button>
+            <button onclick="if(typeof window.switchTab === 'function') window.switchTab('tab-faqs'); history.replaceState(null, '', '?project_id=<?= h((string)$selected_project_id) ?>&tab=faqs<?= $threadQuery ?>')" id="btn-faqs" role="tab" class="tab-btn <?= $active_tab === 'faqs' ? 'active' : '' ?> px-4 py-2 text-[11px] font-bold text-slate-500 rounded-t-xl transition-all duration-200 ease-in-out transform active:scale-98">📚 AIナレッジ・FAQ</button>
+            <button onclick="if(typeof window.switchTab === 'function') window.switchTab('tab-members'); history.replaceState(null, '', '?project_id=<?= h((string)$selected_project_id) ?>&tab=members<?= $threadQuery ?>')" id="btn-members" role="tab" class="tab-btn <?= $active_tab === 'members' ? 'active' : '' ?> px-4 py-2 text-[11px] font-bold text-slate-500 rounded-t-xl transition-all duration-200 ease-in-out transform active:scale-98">👥 メンバー設定</button>
         </div>
 
         <div class="flex-1 overflow-hidden relative bg-[#f8fafc]" id="tab-container">
@@ -151,9 +153,8 @@ if (!function_exists('h')) {
                                 ];
                             ?>
                             <script type="application/json" id="prefill-project-data"><?= json_encode($prefillData, JSON_UNESCAPED_UNICODE) ?></script>
-                            <button onclick="if(typeof window.openProjectEditModal === 'function') window.openProjectEditModal(<?= (float)($current_project['latitude'] ?: 0) ?>, <?= (float)($current_project['longitude'] ?: 0) ?>)" 
+                            <button onclick="if(typeof window.openProjectEditModal === 'function') window.openProjectEditModal(<?= (float)($current_project['latitude'] ?: 0) ?>, <?= (float)($current_project['longitude'] ?: 0) ?>)"
                                 class="text-[#4F5D95] hover:bg-indigo-50 border border-slate-200 px-3 py-1.5 rounded-xl text-[10px] font-bold bg-white shadow-2xs transition-all duration-200 ease-in-out transform active:scale-95">📝 編集</button>
-                            
                             <button id="btn-delete-project" class="text-red-500 hover:bg-red-50 border border-slate-200 px-3 py-1.5 rounded-xl text-[10px] font-bold bg-white shadow-2xs transition-all duration-200 ease-in-out transform active:scale-95">🗑️ 案件を削除</button>
                         </div>
                     </div>
@@ -412,7 +413,7 @@ if (!function_exists('h')) {
                     <h3 class="text-xs font-black text-slate-500 uppercase tracking-wider flex items-center gap-2"><span>Knowledge Base</span> AIナレッジ・FAQ</h3>
                     <button onclick="if(typeof window.openFaqModal === 'function') window.openFaqModal('', '')" class="text-[10px] bg-amber-50 text-amber-700 border border-amber-200 px-3 py-1.5 rounded-xl font-bold shadow-2xs hover:bg-amber-100/80 transition-all duration-200 ease-in-out transform active:scale-95">➕ 手動でナレッジを追加</button>
                 </div>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div id="faq-list-container" class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <?php foreach($faqs as $f): ?>
                         <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs relative group hover:shadow-sm transition-shadow duration-200">
                             <?php if ((int)$f['created_by'] === (int)$user_id || $role === 'admin'): ?>
@@ -425,7 +426,7 @@ if (!function_exists('h')) {
                     <?php endforeach; ?>
                 </div>
                 <?php if(empty($faqs)): ?>
-                    <div class="text-center py-16 bg-white rounded-2xl border border-dashed border-slate-200 shadow-2xs">
+                    <div id="faq-empty-state" class="text-center py-16 bg-white rounded-2xl border border-dashed border-slate-200 shadow-2xs">
                         <p class="text-3xl mb-3 opacity-40">💡</p>
                         <p class="text-xs text-slate-400 font-bold leading-relaxed">チャットの回答にある「📌 ナレッジとして共有」ボタンから、<br>得られた有益な知見をチーム全体へシェアできます。</p>
                     </div>
@@ -498,9 +499,78 @@ if (!function_exists('h')) {
                         <option value="<?= h($m) ?>" <?= $m == $active_model ? 'selected' : '' ?>><?= h($m) ?></option>
                     <?php endforeach; ?>
                 </select>
+                <button
+                    type="button"
+                    onclick="if(typeof window.createProjectChatThread === 'function') window.createProjectChatThread()"
+                    class="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-bold text-slate-500 shadow-2xs transition-all duration-200 ease-in-out hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 active:scale-95"
+                    title="新しい会話スレッドを作成"
+                    aria-label="新しい会話スレッドを作成"
+                >
+                    <span class="text-[12px]" aria-hidden="true">＋</span>
+                    <span class="hidden md:inline">新規</span>
+                </button>
+                <button
+                    id="btn-clear-chat-history"
+                    type="button"
+                    class="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-bold text-slate-500 shadow-2xs transition-all duration-200 ease-in-out hover:border-amber-300 hover:bg-amber-50 hover:text-amber-700 active:scale-95"
+                    title="この案件のAI会話履歴を削除"
+                    aria-label="この案件のAI会話履歴を削除"
+                >
+                    <svg xmlns="<?= !empty($URL_SVG_XMLNS) ? h($URL_SVG_XMLNS) : 'http://www.w3.org/2000/svg' ?>" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3.5 h-3.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M3 6h18M8.25 6V4.875A1.875 1.875 0 0 1 10.125 3h3.75A1.875 1.875 0 0 1 15.75 4.875V6m-8.25 0v11.625A2.25 2.25 0 0 0 9.75 19.875h4.5A2.25 2.25 0 0 0 16.5 17.625V6m-6 3.75v6.75m3-6.75v6.75" />
+                    </svg>
+                    <span class="hidden md:inline">履歴クリア</span>
+                </button>
             </div>
         </div>
-        
+
+        <div class="border-b border-slate-200/70 bg-white px-3 py-3">
+            <div class="mb-2 flex items-center justify-between gap-2 px-1">
+                <div>
+                    <p class="text-[9px] font-black uppercase tracking-wider text-slate-400">Conversation Threads</p>
+                    <p class="text-[11px] font-bold text-slate-600"><?= h((string)($selected_thread['title'] ?? '会話 1')) ?></p>
+                </div>
+                <span class="rounded-full bg-slate-100 px-2 py-1 text-[9px] font-bold text-slate-500"><?= count($chat_threads) ?>件</span>
+            </div>
+            <div id="chat-thread-list" class="max-h-36 space-y-1.5 overflow-y-auto pr-1 no-scrollbar">
+                <?php foreach ($chat_threads as $thread): ?>
+                    <?php
+                        $threadId = (int)($thread['id'] ?? 0);
+                        $isActiveThread = $threadId === (int)$selected_thread_id;
+                        $threadTitle = (string)($thread['title'] ?? ('会話 ' . $threadId));
+                        $threadMetaAt = (string)($thread['last_message_at'] ?: $thread['updated_at'] ?: $thread['created_at'] ?: '');
+                    ?>
+                    <div class="group flex items-center gap-1.5">
+                        <button
+                            type="button"
+                            onclick="if(typeof window.switchProjectChatThread === 'function') window.switchProjectChatThread(<?= $threadId ?>)"
+                            class="flex min-w-0 flex-1 items-start justify-between rounded-2xl border px-3 py-2 text-left transition-all duration-200 ease-in-out <?= $isActiveThread ? 'border-indigo-200 bg-indigo-50 text-indigo-700 shadow-2xs' : 'border-slate-200 bg-slate-50/70 text-slate-600 hover:border-slate-300 hover:bg-white' ?>"
+                        >
+                            <span class="min-w-0">
+                                <span class="block truncate text-[11px] font-bold"><?= h($threadTitle) ?></span>
+                                <span class="mt-1 block text-[9px] font-medium <?= $isActiveThread ? 'text-indigo-500' : 'text-slate-400' ?>">
+                                    <?= h($threadMetaAt !== '' ? date('m/d H:i', strtotime($threadMetaAt)) : '履歴なし') ?>
+                                    ・ <?= (int)($thread['message_count'] ?? 0) ?>件
+                                </span>
+                            </span>
+                            <?php if ($isActiveThread): ?>
+                                <span class="ml-3 rounded-full bg-white/80 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wider text-indigo-500">Now</span>
+                            <?php endif; ?>
+                        </button>
+                        <?php if (count($chat_threads) > 1): ?>
+                            <button
+                                type="button"
+                                onclick="if(typeof window.deleteProjectChatThread === 'function') window.deleteProjectChatThread(<?= $threadId ?>)"
+                                class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl text-slate-300 transition-all duration-200 ease-in-out hover:bg-red-50 hover:text-red-500"
+                                title="このスレッドを削除"
+                                aria-label="このスレッドを削除"
+                            >🗑️</button>
+                        <?php endif; ?>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
+
         <div id="chat-box" class="flex-1 p-4 space-y-5 overflow-y-auto bg-slate-50/40 no-scrollbar">
             <?php foreach ($chat_history as $chat): ?>
                 <?php $timeStr = date('Y/m/d H:i', strtotime($chat['created_at'])); ?>
@@ -623,7 +693,7 @@ if (!function_exists('h')) {
 
     // ★ 究極の安全設計: import * as 構文を使用し、1096エラー(SyntaxError)を原理的に100%防止
     // ✨ ここを ?v=4 から ?v=5 へ書き換えてキャッシュを強制粉砕！
-    import * as Support from './assets/js/support.js?v=18';
+    import * as Support from './assets/js/support.js?v=19';
 
     // ★要件4: 隔離コンテナ内のJSONデータを仲介して安全にマウント・パースするイベントハンドラの実装
     window.openProjectEditModal = (lat, lng) => {
@@ -777,6 +847,66 @@ if (!function_exists('h')) {
                 }
             });
         }
+
+        const clearHistoryBtn = document.getElementById('btn-clear-chat-history');
+        if (clearHistoryBtn) {
+            clearHistoryBtn.addEventListener('click', () => {
+                if (typeof window.clearProjectChatHistory === 'function') {
+                    window.clearProjectChatHistory();
+                }
+            });
+        }
+
+        window.afterProjectHistoryCleared = async function (_projectId, result = null) {
+            const chatBox = document.getElementById('chat-box');
+            const faqList = document.getElementById('faq-list-container');
+            let faqEmptyState = document.getElementById('faq-empty-state');
+
+            if (window.chartInstances && typeof window.chartInstances === 'object') {
+                Object.values(window.chartInstances).forEach((instance) => {
+                    if (instance && typeof instance.destroy === 'function') {
+                        instance.destroy();
+                    }
+                });
+                window.chartInstances = {};
+            }
+            if (window.modalChartInstance && typeof window.modalChartInstance.destroy === 'function') {
+                window.modalChartInstance.destroy();
+                window.modalChartInstance = null;
+            }
+
+            if (chatBox) {
+                chatBox.innerHTML = `
+                    <div class="h-full flex items-center justify-center">
+                        <div class="text-center py-12 px-6 bg-white rounded-2xl border border-dashed border-slate-200 shadow-2xs max-w-md">
+                            <p class="text-3xl mb-3 opacity-40">🧹</p>
+                            <p class="text-xs text-slate-400 font-bold leading-relaxed">この案件のチャット履歴は削除されました。<br>新しい検証をここから始められます。</p>
+                        </div>
+                    </div>
+                `;
+            }
+
+            if (faqList) {
+                faqList.innerHTML = '';
+            }
+            if (!faqEmptyState) {
+                faqEmptyState = document.createElement('div');
+                faqEmptyState.id = 'faq-empty-state';
+                faqEmptyState.className = 'text-center py-16 bg-white rounded-2xl border border-dashed border-slate-200 shadow-2xs';
+                faqEmptyState.innerHTML = '<p class="text-3xl mb-3 opacity-40">💡</p><p class="text-xs text-slate-400 font-bold leading-relaxed">チャットの回答にある「📌 ナレッジとして共有」ボタンから、<br>得られた有益な知見をチーム全体へシェアできます。</p>';
+                faqList?.insertAdjacentElement('afterend', faqEmptyState);
+            } else {
+                faqEmptyState.classList.remove('hidden');
+            }
+
+            if (result?.counts) {
+                console.info('Project chat history cleared', result.counts);
+            }
+
+            if (typeof window.scrollToBottom === 'function') {
+                window.scrollToBottom();
+            }
+        };
 
         document.addEventListener('click', async (e) => {
             const btn = e.target.closest('.btn-delete-pdf');

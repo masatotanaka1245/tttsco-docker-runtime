@@ -169,7 +169,10 @@ class CsvSemanticAggregationRunner
         }
 
         $this->sendStatus(3, '📊 該当カテゴリのレコードを抽出し、件数を集計しています...');
-        $result = $targetResolver->executeFilteredDistributionQuery($target, $sourceColumn, $targetColumn, $matchedValues);
+        $itemSortOrder = !empty($plan['uses_value_ordering'])
+            ? (string)($plan['sort_order'] ?? 'asc')
+            : null;
+        $result = $targetResolver->executeFilteredDistributionQuery($target, $sourceColumn, $targetColumn, $matchedValues, $itemSortOrder);
         $rows = $result['rows'] ?? [];
         if (empty($rows)) {
             $this->log('[CSV-AGG] category_filtered_distribution の集計結果が0件でした。CSV証拠読解ルートへフォールバックします。');

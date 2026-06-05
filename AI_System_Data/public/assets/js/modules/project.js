@@ -98,20 +98,126 @@ export async function handleUpdateProject(e) {
 export async function deleteProject() {
     const { projectId } = getConfig();
     if (!projectId || !confirm('この案件を削除しますか？関連資料やチャット履歴も完全に削除されます。')) return;
-    
+
     try {
-        const data = await secureFetch('api/delete_project.php', { 
-            method: 'POST', 
-            body: JSON.stringify({ id: projectId }) 
+        const data = await secureFetch('api/delete_project.php', {
+            method: 'POST',
+            body: JSON.stringify({ id: projectId })
         });
         if (data.success) {
             window.location.href = 'support.php';
         } else {
             alert(`削除エラー: ${data.error}`);
         }
-    } catch (err) { 
-        alert(`通信エラー: ${err.message}`); 
+    } catch (err) {
+        alert(`通信エラー: ${err.message}`);
     }
+}
+
+function getActiveTabId() {
+    return document.querySelector('.tab-btn.active')?.id?.replace('btn-', '') || 'overview';
+}
+
+function buildSupportUrl(projectId, tab = 'overview', threadId = null) {
+    const params = new URLSearchParams({
+        project_id: String(projectId),
+        tab: String(tab)
+    });
+    if (threadId) {
+        params.set('thread_id', String(threadId));
+    }
+    return `support.php?${params.toString()}`;
+}
+
+/**
+ * C-2. 案件のチャット履歴削除処理
+ */
+export async function clearProjectChatHistory() {
+    const { projectId } = getConfig();
+    if (!projectId) return;
+
+    const confirmed = confirm(
+        'この案件のチャット履歴を削除しますか？\n\n'
+        + '削除対象: チャット履歴 / 推論ログ / 評価 / FAQ参照\n'
+        + '保持対象: PDF / CSV / コメント / 案件本体'
+    );
+    if (!confirmed) return;
+
+    try {
+        const data = await secureFetch('api/clear_project_chat_history.php', {
+            method: 'POST',
+            body: JSON.stringify({ project_id: projectId })
+        });
+
+        if (data.success) {
+            if (typeof window.afterProjectHistoryCleared === 'function') {
+                await window.afterProjectHistoryCleared(projectId, data);
+                return;
+            }
+            location.reload();
+        } else {
+            alert(`削除エラー: ${data.error || '不明なエラー'}`);
+        }
+    } catch (err) {
+        alert(`通信エラー: ${err.message}`);
+    }
+}
+
+export async function createProjectChatThread() {
+    const { projectId } = getConfig();
+    if (!projectId) return;
+
+    try {
+        const data = await secureFetch('api/create_chat_thread.php', {
+            method: 'POST',
+            body: JSON.stringify({ project_id: projectId })
+        });
+        if (!data.success || !data.thread?.id) {
+            alert(`作成エラー: ${data.error || '不明なエラー'}`);
+            return;
+        }
+
+        const activeTab = getActiveTabId();
+        window.location.href = buildSupportUrl(projectId, activeTab, data.thread.id);
+    } catch (err) {
+        alert(`通信エラー: ${err.message}`);
+    }
+}
+
+export async function deleteProjectChatThread(threadId) {
+    const { projectId, threadId: currentThreadId } = getConfig();
+    if (!projectId || !threadId) return;
+
+    const confirmed = confirm('この会話スレッドを削除しますか？このスレッド内の会話履歴と紐づくFAQ参照も削除されます。');
+    if (!confirmed) return;
+
+    try {
+        const data = await secureFetch('api/delete_chat_thread.php', {
+            method: 'POST',
+            body: JSON.stringify({
+                project_id: projectId,
+                thread_id: threadId
+            })
+        });
+        if (!data.success) {
+            alert(`削除エラー: ${data.error || '不明なエラー'}`);
+            return;
+        }
+
+        const activeTab = getActiveTabId();
+        const nextThreadId = data.fallback_thread_id || currentThreadId || null;
+        window.location.href = buildSupportUrl(projectId, activeTab, nextThreadId);
+    } catch (err) {
+        alert(`通信エラー: ${err.message}`);
+    }
+}
+
+export function switchProjectChatThread(threadId) {
+    const { projectId } = getConfig();
+    if (!projectId || !threadId) return;
+
+    const activeTab = getActiveTabId();
+    window.location.href = buildSupportUrl(projectId, activeTab, threadId);
 }
 
 /**

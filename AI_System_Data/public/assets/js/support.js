@@ -13,7 +13,7 @@ import { openAppModal, closeProjectModal, closeEditModal, bindModalEvents, close
 import { handleCsvUpload, loadCsvData, handleDeleteCsv, handlePostgresImport, openCsvPreviewByDocId } from './modules/csv.js?v=4';
 import { handleChat, appendMsg, initExistingCharts, initDebugLogViewer } from './modules/chat.js?v=17';
 import { checkUploadOnLoad as checkUploadOnLoadModule, handleUpload as handleUploadModule } from './modules/upload.js?v=6';
-import * as Project from './modules/project.js?v=5';
+import * as Project from './modules/project.js?v=6';
 // ★最終繋ぎ込み要件1: 100点満点でクレンジングが完了した map.js から回線を引き受ける
 import { searchAddress, copyCoords, initModalMap } from './modules/map.js?v=4';
 
@@ -328,6 +328,10 @@ function bindGlobalFunctions() {
     window.handleCreateProject = Project.handleCreateProject;
     window.handleUpdateProject = Project.handleUpdateProject;
     window.deleteProject = Project.deleteProject;
+    window.clearProjectChatHistory = Project.clearProjectChatHistory;
+    window.createProjectChatThread = Project.createProjectChatThread;
+    window.deleteProjectChatThread = Project.deleteProjectChatThread;
+    window.switchProjectChatThread = Project.switchProjectChatThread;
     window.handleAsyncAddComment = Project.handleAddComment;
     window.handleRemoveComment = Project.handleRemoveComment;
     window.handleAddMember = Project.handleAddMember;
@@ -362,6 +366,11 @@ try {
     console.error('Fatal execution error in support.js bindings:', e);
 }
 
+const clearProjectChatHistory = Project.clearProjectChatHistory;
+const createProjectChatThread = Project.createProjectChatThread;
+const deleteProjectChatThread = Project.deleteProjectChatThread;
+const switchProjectChatThread = Project.switchProjectChatThread;
+
 // HTML側からのモジュールインポートに備えた、完全なエクスポート定義の維持
 export {
     secureFetch,
@@ -371,6 +380,10 @@ export {
     handleCreateProject,
     handleUpdateProject,
     deleteProject,
+    clearProjectChatHistory,
+    createProjectChatThread,
+    deleteProjectChatThread,
+    switchProjectChatThread,
     handleAsyncAddComment,
     handleRemoveComment,
     handleAddMember,
