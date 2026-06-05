@@ -9,9 +9,9 @@ final class ProjectContextMemory
     ];
 
     public const LABELS = [
-        'agents' => 'AGENTS',
-        'readme' => 'README',
-        'todo' => 'TODO',
+        'agents' => 'AIエージェント',
+        'readme' => '案件内容',
+        'todo' => 'タスク一覧',
     ];
 
     public static function load(PDO $pdo, int $projectId): array

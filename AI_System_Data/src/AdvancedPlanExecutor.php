@@ -11,6 +11,8 @@ final class AdvancedPlanExecutor
     private $searchQuery;
     private $originalMessage;
     private $reasoningId;
+    private $threadId;
+    private $userId;
     private $composeMemoryAwarePrompt;
     private $inferOperationType;
     private $buildDocChunkEvidenceSummary;
@@ -26,6 +28,8 @@ final class AdvancedPlanExecutor
         string $searchQuery,
         string $originalMessage,
         string $reasoningId,
+        ?int $threadId,
+        ?int $userId,
         callable $composeMemoryAwarePrompt,
         callable $inferOperationType,
         callable $buildDocChunkEvidenceSummary,
@@ -40,6 +44,8 @@ final class AdvancedPlanExecutor
         $this->searchQuery = $searchQuery;
         $this->originalMessage = $originalMessage;
         $this->reasoningId = $reasoningId;
+        $this->threadId = $threadId;
+        $this->userId = $userId;
         $this->composeMemoryAwarePrompt = $composeMemoryAwarePrompt;
         $this->inferOperationType = $inferOperationType;
         $this->buildDocChunkEvidenceSummary = $buildDocChunkEvidenceSummary;
@@ -52,7 +58,7 @@ final class AdvancedPlanExecutor
     {
         $stepResults = [];
         $stepCounter = 0;
-        $sqlEngine = new SqlExecutionEngine($this->pdo, $this->projectId);
+        $sqlEngine = new SqlExecutionEngine($this->pdo, $this->projectId, $this->threadId, $this->userId);
         $fence = str_repeat("\x60", 3);
 
         foreach ($plan as $stepItem) {

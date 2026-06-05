@@ -7,11 +7,13 @@
  */
 
 require_once __DIR__ . '/../../src/ProjectContextMemory.php';
+require_once __DIR__ . '/../../src/ProjectMemoryAutoUpdater.php';
 require_once __DIR__ . '/../../src/ChatModelRolePayload.php';
+require_once __DIR__ . '/../../src/ChatThreadManager.php';
 
-function runNormalStreamingRoute($pdo, $ollama_host, $projectId, $originalMessage, $searchQuery, $model, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $vectorSearch, $engine, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false) {
+function runNormalStreamingRoute($pdo, $ollama_host, $projectId, $originalMessage, $routeDetail, $searchQuery, $model, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $vectorSearch, $engine, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false) {
     $processor = new NormalStreamingRouteProcessor(
-        $pdo, $ollama_host, $projectId, $originalMessage, $searchQuery,
+        $pdo, $ollama_host, $projectId, $originalMessage, $routeDetail, $searchQuery,
         $model, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText,
         $vectorSearch, $engine, $user_id, $role, $threadId, $reportMode, $diagramMode
     );
@@ -23,6 +25,7 @@ class NormalStreamingRouteProcessor {
     private $ollama_host;
     private $projectId;
     private $originalMessage;
+    private $routeDetail;
     private $searchQuery;
     private $model;
     private $subModel;
@@ -53,11 +56,12 @@ class NormalStreamingRouteProcessor {
     private $buffer = "";
     private $ollamaErrorMsg = "";
 
-    public function __construct($pdo, $ollama_host, $projectId, $originalMessage, $searchQuery, $model, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $vectorSearch, $engine, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false) {
+    public function __construct($pdo, $ollama_host, $projectId, $originalMessage, $routeDetail, $searchQuery, $model, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $vectorSearch, $engine, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false) {
         $this->pdo                = $pdo;
         $this->ollama_host        = $ollama_host;
         $this->projectId          = $projectId;
         $this->originalMessage    = $this->normalizeUtf8((string)$originalMessage);
+        $this->routeDetail        = (string)$routeDetail;
         $this->searchQuery        = $this->normalizeUtf8((string)$searchQuery);
         $this->model              = $model;
         $this->subModel           = $subModel;
@@ -109,6 +113,11 @@ class NormalStreamingRouteProcessor {
     }
 
     private function runQualityEvaluationIfNeeded(): void {
+        if ($this->isProjectMemoryConsultationRoute()) {
+            chatLogger("[JUDGE-NORMAL-SKIP] consultation 専用軽量ルートのため通常RAG品質評価をスキップしました。reason=project_memory_consultation | responseChars=" . mb_strlen($this->fullResponse) . " | contextChars=" . mb_strlen($this->contextText) . " | sources=" . count($this->sourceDocs));
+            return;
+        }
+
         require_once __DIR__ . '/../../src/ChatEvaluationPolicy.php';
         $policy = ChatEvaluationPolicy::shouldEvaluateNormalRag(
             $this->originalMessage,
@@ -189,6 +198,11 @@ class NormalStreamingRouteProcessor {
 
     private function buildRagContext(): void {
         if ($this->projectId === null) {
+            return;
+        }
+        if ($this->isProjectMemoryConsultationRoute()) {
+            $this->contextText = "【案件運用メモ優先モード】\nこの質問は、案件運用メモと直近会話の文脈を優先して検討する相談モードとして扱います。PDF/CSVのベクトル検索結果は今回の主根拠にしません。";
+            chatLogger("[PROJECT-MEMORY] normal consultation route のため資料RAGをスキップします。route_detail={$this->routeDetail}");
             return;
         }
         try {
@@ -292,6 +306,14 @@ class NormalStreamingRouteProcessor {
         if ($this->reportMode) {
             $system_prompt .= "\n【報告書モード】回答は後続処理でPDF報告書化されます。結論、分析対象、根拠、留意点、推奨アクション、出典の順に、報告書として読みやすい見出し構成で作成してください。";
         }
+        if ($this->isProjectMemoryConsultationRoute()) {
+            $system_prompt .= "\n【案件運用メモ優先の相談モード】この質問では、案件運用メモと現在スレッドの文脈を優先し、短く実務的に支援してください。"
+                            . "\n- 根拠のない固有名詞や案件情報を補わないこと"
+                            . "\n- PDFやCSVの本文要約へ逸れないこと"
+                            . "\n- 回答は 400文字程度までを目安にすること"
+                            . "\n- 案件名や表現の相談では、まず強調したい観点を2〜3個に整理する"
+                            . "\n- 直前のAI回答を引きずりすぎず、現在の質問にだけ素直に答える";
+        }
         return $system_prompt;
     }
 
@@ -308,12 +330,24 @@ class NormalStreamingRouteProcessor {
     }
 
     private function streamOllamaGeneration(): bool {
+        if ($this->isProjectMemoryConsultationRoute()) {
+            $fastPathResponse = $this->buildConsultationFastPathResponse();
+            if ($fastPathResponse !== '') {
+                $this->fullResponse = $fastPathResponse;
+                chatLogger("[PROJECT-MEMORY] consultation fast path を適用しました。responseChars=" . mb_strlen($this->fullResponse));
+                return true;
+            }
+        }
+
         $system_prompt = $this->buildSystemPrompt();
-        $dialogue_context_prompt = !empty($this->historySummaryText) ? "【これまでの会話の文脈】\n{$this->historySummaryText}\n\n" : "";
-        $prompt_user = $this->projectContext . "\n"
-                     . $dialogue_context_prompt
-                     . "【参考資料情報】\n" . (!empty($this->contextText) ? $this->contextText : "（指定された資料データは見つかりませんでした）") . "\n"
-                     . "質問：" . $this->originalMessage;
+        $dialogue_context_prompt = $this->buildDialogueContextPrompt();
+        $prompt_user = $this->buildProjectContextPrompt() . $dialogue_context_prompt;
+        if ($this->isProjectMemoryConsultationRoute()) {
+            $prompt_user .= $this->contextText . "\n";
+        } else {
+            $prompt_user .= "【参考資料情報】\n" . (!empty($this->contextText) ? $this->contextText : "（指定された資料データは見つかりませんでした）") . "\n";
+        }
+        $prompt_user .= "質問：" . $this->originalMessage;
 
         chatLogger("Ollama接続開始。モデル: {$this->model} | プロンプト総文字数: " . mb_strlen($prompt_user) . "文字");
 
@@ -422,6 +456,13 @@ class NormalStreamingRouteProcessor {
             $historyId = $this->pdo->lastInsertId();
             chatLogger("[DEBUG] chat_history 登録成功。ID: {$historyId}");
 
+            ChatThreadManager::updateTitleFromMessage(
+                $this->pdo,
+                (int)$this->projectId,
+                $this->threadId !== null ? (int)$this->threadId : null,
+                $this->originalMessage
+            );
+
             // 3. 品質評価スコア（LLM-as-a-Judge）の保存（マッピング不整合を100%解消してバインド）
             if (isset($this->evalResult) && $this->evalResult) {
                 // 返却JSONキー「answer_relevance」を実際のDB物理カラム名「relevance_score」へ完璧にアライン・バインド
@@ -458,6 +499,13 @@ class NormalStreamingRouteProcessor {
             // すべてのインサートが完全に成功したため一括コミットを執行
             $this->pdo->commit();
             chatLogger("[DEBUG] DBトランザクションコミット成功。通常RAGのデータ整合性を完全保護しました。");
+            ProjectMemoryAutoUpdater::refresh(
+                $this->pdo,
+                (int)$this->projectId,
+                $this->threadId !== null ? (int)$this->threadId : null,
+                (int)$this->user_id,
+                fn(string $message) => chatLogger($message)
+            );
             $this->createReportDocumentIfRequested((int)$historyId);
         } catch (Exception $e) {
             // 障害発生時は一斉ロールバックを執行
@@ -533,6 +581,93 @@ class NormalStreamingRouteProcessor {
         chatLogger("[FINAL-ANSWER] route={$routeName} | questionChars=" . mb_strlen($question) . " | responseChars=" . mb_strlen($response) . " | truncated=" . ($isTruncated ? 'yes' : 'no'));
         chatLogger("[FINAL-ANSWER-QUESTION] {$question}");
         chatLogger("[FINAL-ANSWER-BODY] " . $preview);
+    }
+
+    private function isProjectMemoryConsultationRoute(): bool
+    {
+        return $this->routeDetail === 'normal_rag.project_memory_consultation';
+    }
+
+    private function buildProjectContextPrompt(): string
+    {
+        if ($this->isProjectMemoryConsultationRoute()) {
+            return '';
+        }
+
+        return $this->projectContext . "\n";
+    }
+
+    private function buildDialogueContextPrompt(): string
+    {
+        if ($this->historySummaryText === '') {
+            return '';
+        }
+
+        if (!$this->isProjectMemoryConsultationRoute()) {
+            return "【これまでの会話の文脈】\n{$this->historySummaryText}\n\n";
+        }
+
+        $consultationHistory = $this->extractConsultationHistoryContext();
+        if ($consultationHistory === '') {
+            return '';
+        }
+
+        return "【これまでの会話の文脈】\n{$consultationHistory}\n\n";
+    }
+
+    private function extractConsultationHistoryContext(): string
+    {
+        $text = trim($this->historySummaryText);
+        if ($text === '') {
+            return '';
+        }
+
+        $lines = preg_split('/\R/u', $text) ?: [];
+        $userLines = [];
+        foreach ($lines as $line) {
+            $trimmed = trim($line);
+            if ($trimmed === '' || mb_strpos($trimmed, 'AI:') === 0) {
+                continue;
+            }
+            if (mb_strpos($trimmed, 'ユーザー:') === 0) {
+                $userLines[] = $trimmed;
+            }
+        }
+
+        if (empty($userLines)) {
+            return '';
+        }
+
+        $userLines = array_slice($userLines, -2);
+        return implode("\n", $userLines);
+    }
+
+    private function buildConsultationFastPathResponse(): string
+    {
+        $message = trim($this->originalMessage);
+        if ($message === '') {
+            return '';
+        }
+
+        if (preg_match('/(案件名|プロジェクト名|名称)/u', $message) && preg_match('/(変えたい|変更|見直|変える)/u', $message)) {
+            return "案件名の方向性、いっしょに整理しましょう。\n"
+                . "まずは次のどれを一番強調したいか決めると進めやすいです。\n"
+                . "1. 動作確認・検証であること\n"
+                . "2. AIチャットやRAGの機能であること\n"
+                . "3. 実運用を見据えた確認であること\n"
+                . "この3つのうち主役にしたい軸を教えていただければ、その方向に合わせて短めの案件名候補を整えます。";
+        }
+
+        if (preg_match('/動作確認/u', $message) && preg_match('/強調/u', $message)) {
+            return "了解です。今は「開発中」よりも「動作確認・検証中」であることを前に出すのがよさそうです。\n"
+                . "表現の方向としては次の3つが使いやすいです。\n"
+                . "1. 動作確認を実施中\n"
+                . "2. 実運用を想定した検証中\n"
+                . "3. AIチャット機能の挙動確認中\n"
+                . "説明文にするなら、「support.php のAIチャット機能について、実運用を想定した動作確認を進めています。」くらいの言い方が自然です。";
+        }
+
+        return '';
     }
 }
 

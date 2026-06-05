@@ -179,9 +179,20 @@ if (!function_exists('h')) {
                 </div>
 
                 <div class="bg-white border border-slate-200/80 rounded-2xl overflow-hidden shadow-sm transition-all duration-300 hover:shadow-md">
+                    <?php if ($can_manage_project_memory): ?>
+                        <form method="post">
+                            <input type="hidden" name="action" value="save_project_memory">
+                            <input type="hidden" name="csrf_token" value="<?= h($csrfToken) ?>">
+                            <input type="hidden" name="project_id" value="<?= h((string)$selected_project_id) ?>">
+                    <?php endif; ?>
                     <div class="bg-slate-50/70 p-3.5 px-5 font-bold text-slate-700 flex justify-between items-center text-xs border-b border-slate-100">
-                        <span class="font-extrabold tracking-wide text-slate-600">案件運用メモ</span>
-                        <span class="text-[10px] text-slate-400 font-bold uppercase tracking-wider">AGENTS / README / TODO</span>
+                        <div class="flex items-center gap-3">
+                            <span class="font-extrabold tracking-wide text-slate-600">案件運用メモ</span>
+                            <?php if ($can_manage_project_memory): ?>
+                                <button type="submit" class="text-[11px] bg-[#4F5D95] text-white border border-[#4F5D95] px-4 py-2 rounded-xl font-bold shadow-sm hover:bg-[#3f4a7a] transition-all duration-200 ease-in-out transform active:scale-95">メモを保存</button>
+                            <?php endif; ?>
+                        </div>
+                        <span class="text-[10px] text-slate-400 font-bold tracking-wider">案件内容 / AIエージェント / タスク一覧</span>
                     </div>
                     <div class="p-5 space-y-4">
                         <?php if ($memory_flash === '1'): ?>
@@ -193,41 +204,33 @@ if (!function_exists('h')) {
                         <?php endif; ?>
 
                         <p class="text-[11px] text-slate-500 leading-relaxed">
-                            この案件に特有の回答方針、背景、既知の論点をメモとして保持し、AIが回答を組み立てる前に参照します。
+                            この案件に特有の回答方針、背景、既知の論点をメモとして保持し、AIが回答を組み立てる前に参照します。現在は案件状態と直近会話に応じて自動更新され、次回の会話保存時にも再生成されます。
                         </p>
 
                         <?php if ($can_manage_project_memory): ?>
-                            <form method="post" class="space-y-4">
-                                <input type="hidden" name="action" value="save_project_memory">
-                                <input type="hidden" name="csrf_token" value="<?= h($csrfToken) ?>">
-                                <input type="hidden" name="project_id" value="<?= h((string)$selected_project_id) ?>">
-
+                            <div class="space-y-4">
                                 <div class="space-y-1.5">
-                                    <label for="memory-agents" class="block text-[10px] font-black text-slate-400 uppercase tracking-wider">AGENTS</label>
-                                    <textarea id="memory-agents" name="memory_agents" rows="6" class="w-full border border-slate-200 rounded-xl p-3 text-xs bg-slate-50/50 focus:bg-white focus:border-indigo-400/80 transition-all duration-200 resize-y font-medium text-slate-700 outline-none" placeholder="回答方針、禁止事項、優先ルールなど"><?= h((string)($project_memory_docs['agents']['content'] ?? '')) ?></textarea>
+                                    <label for="memory-readme" class="block text-[10px] font-black text-slate-400 tracking-wider">案件内容</label>
+                                    <textarea id="memory-readme" name="memory_readme" rows="8" class="w-full min-h-[11rem] border border-slate-200 rounded-xl p-3 text-xs leading-5 bg-slate-50/50 focus:bg-white focus:border-indigo-400/80 transition-all duration-200 resize-y font-mono text-slate-700 outline-none" placeholder="案件の背景、用語、前提、構成など"><?= h((string)($project_memory_docs['readme']['content'] ?? '')) ?></textarea>
                                 </div>
 
                                 <div class="space-y-1.5">
-                                    <label for="memory-readme" class="block text-[10px] font-black text-slate-400 uppercase tracking-wider">README</label>
-                                    <textarea id="memory-readme" name="memory_readme" rows="6" class="w-full border border-slate-200 rounded-xl p-3 text-xs bg-slate-50/50 focus:bg-white focus:border-indigo-400/80 transition-all duration-200 resize-y font-medium text-slate-700 outline-none" placeholder="案件の背景、用語、前提、構成など"><?= h((string)($project_memory_docs['readme']['content'] ?? '')) ?></textarea>
+                                    <label for="memory-agents" class="block text-[10px] font-black text-slate-400 tracking-wider">AIエージェント</label>
+                                    <textarea id="memory-agents" name="memory_agents" rows="8" class="w-full min-h-[11rem] border border-slate-200 rounded-xl p-3 text-xs leading-5 bg-slate-50/50 focus:bg-white focus:border-indigo-400/80 transition-all duration-200 resize-y font-mono text-slate-700 outline-none" placeholder="回答方針、禁止事項、優先ルールなど"><?= h((string)($project_memory_docs['agents']['content'] ?? '')) ?></textarea>
                                 </div>
 
                                 <div class="space-y-1.5">
-                                    <label for="memory-todo" class="block text-[10px] font-black text-slate-400 uppercase tracking-wider">TODO</label>
-                                    <textarea id="memory-todo" name="memory_todo" rows="6" class="w-full border border-slate-200 rounded-xl p-3 text-xs bg-slate-50/50 focus:bg-white focus:border-indigo-400/80 transition-all duration-200 resize-y font-medium text-slate-700 outline-none" placeholder="既知の課題、次に見るべき点、現在の運用メモなど"><?= h((string)($project_memory_docs['todo']['content'] ?? '')) ?></textarea>
+                                    <label for="memory-todo" class="block text-[10px] font-black text-slate-400 tracking-wider">タスク一覧</label>
+                                    <textarea id="memory-todo" name="memory_todo" rows="8" class="w-full min-h-[11rem] border border-slate-200 rounded-xl p-3 text-xs leading-5 bg-slate-50/50 focus:bg-white focus:border-indigo-400/80 transition-all duration-200 resize-y font-mono text-slate-700 outline-none" placeholder="既知の課題、次に見るべき点、現在の運用メモなど"><?= h((string)($project_memory_docs['todo']['content'] ?? '')) ?></textarea>
                                 </div>
-
-                                <div class="flex justify-end">
-                                    <button type="submit" class="text-[11px] bg-[#4F5D95] text-white border border-[#4F5D95] px-4 py-2 rounded-xl font-bold shadow-sm hover:bg-[#3f4a7a] transition-all duration-200 ease-in-out transform active:scale-95">メモを保存</button>
-                                </div>
-                            </form>
+                            </div>
                         <?php else: ?>
                             <div class="space-y-4">
-                                <?php foreach (['agents', 'readme', 'todo'] as $memoryType): ?>
+                                <?php foreach (['readme', 'agents', 'todo'] as $memoryType): ?>
                                     <?php $memoryContent = trim((string)($project_memory_docs[$memoryType]['content'] ?? '')); ?>
                                     <?php if ($memoryContent === '') continue; ?>
                                     <div class="border border-slate-200 rounded-xl overflow-hidden">
-                                        <div class="px-4 py-2 bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-wider"><?= h((string)($project_memory_docs[$memoryType]['label'] ?? strtoupper($memoryType))) ?></div>
+                                        <div class="px-4 py-2 bg-slate-50 text-[10px] font-black text-slate-400 tracking-wider"><?= h((string)($project_memory_docs[$memoryType]['label'] ?? strtoupper($memoryType))) ?></div>
                                         <div class="px-4 py-3 text-xs text-slate-600 leading-relaxed whitespace-pre-wrap"><?= h($memoryContent) ?></div>
                                     </div>
                                 <?php endforeach; ?>
@@ -243,6 +246,9 @@ if (!function_exists('h')) {
                             </div>
                         <?php endif; ?>
                     </div>
+                    <?php if ($can_manage_project_memory): ?>
+                        </form>
+                    <?php endif; ?>
                 </div>
             </div>
 
@@ -528,7 +534,7 @@ if (!function_exists('h')) {
             <div class="mb-2 flex items-center justify-between gap-2 px-1">
                 <div>
                     <p class="text-[9px] font-black uppercase tracking-wider text-slate-400">Conversation Threads</p>
-                    <p class="text-[11px] font-bold text-slate-600"><?= h((string)($selected_thread['title'] ?? '会話 1')) ?></p>
+                    <p id="active-thread-title" class="text-[11px] font-bold text-slate-600"><?= h((string)($selected_thread['title'] ?? '会話 1')) ?></p>
                 </div>
                 <span class="rounded-full bg-slate-100 px-2 py-1 text-[9px] font-bold text-slate-500"><?= count($chat_threads) ?>件</span>
             </div>
@@ -543,11 +549,13 @@ if (!function_exists('h')) {
                     <div class="group flex items-center gap-1.5">
                         <button
                             type="button"
+                            data-thread-switch
+                            data-thread-id="<?= $threadId ?>"
                             onclick="if(typeof window.switchProjectChatThread === 'function') window.switchProjectChatThread(<?= $threadId ?>)"
                             class="flex min-w-0 flex-1 items-start justify-between rounded-2xl border px-3 py-2 text-left transition-all duration-200 ease-in-out <?= $isActiveThread ? 'border-indigo-200 bg-indigo-50 text-indigo-700 shadow-2xs' : 'border-slate-200 bg-slate-50/70 text-slate-600 hover:border-slate-300 hover:bg-white' ?>"
                         >
                             <span class="min-w-0">
-                                <span class="block truncate text-[11px] font-bold"><?= h($threadTitle) ?></span>
+                                <span data-thread-title class="block truncate text-[11px] font-bold"><?= h($threadTitle) ?></span>
                                 <span class="mt-1 block text-[9px] font-medium <?= $isActiveThread ? 'text-indigo-500' : 'text-slate-400' ?>">
                                     <?= h($threadMetaAt !== '' ? date('m/d H:i', strtotime($threadMetaAt)) : '履歴なし') ?>
                                     ・ <?= (int)($thread['message_count'] ?? 0) ?>件

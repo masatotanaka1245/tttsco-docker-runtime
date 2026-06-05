@@ -18,6 +18,7 @@ class ChatRouteSelector
         $message = (string)($context['message'] ?? '');
         $projectId = $context['project_id'] ?? null;
         $factorizedQuery = (array)($context['factorized_query'] ?? []);
+        $factorizedRoute = (string)($factorizedQuery['route'] ?? '');
         $explicitAdvanced = (bool)($context['explicit_advanced'] ?? false);
         $reportMode = (bool)($context['report_mode'] ?? false);
 
@@ -36,7 +37,7 @@ class ChatRouteSelector
         $hasHistorySummaryRequest = preg_match($historySummaryPattern, $message) === 1;
         $hasHistoryReportRequest = preg_match($historyReportPattern, $message) === 1;
 
-        if ($hasHistorySummaryRequest && $reportMode && $projectId !== null) {
+        if (($hasHistoryReportRequest || ($hasHistorySummaryRequest && $reportMode)) && $projectId !== null) {
             $explicitAdvanced = true;
             if ($hasHistoryReportRequest) {
                 $this->log("[SMART-ROUTER] 会話履歴の報告書化要求を検知。軽量履歴要約ではなく報告書向けフル思考ルートを優先します。");
@@ -93,10 +94,19 @@ class ChatRouteSelector
                 $isAnalysisMode = true;
                 $this->log("[SMART-ROUTER] 質問因数分解によりCSV要約ルートを優先します。file=" . ($factorizedQuery['target_file_name'] ?? 'unknown'));
 
-            } elseif ($projectId !== null && ($factorizedQuery['route'] ?? null) === 'advanced_hybrid.doc_extract') {
+            } elseif ($projectId !== null && $factorizedRoute === 'advanced_hybrid.doc_extract') {
                 $advancedReasoning = true;
                 $isAnalysisMode = false;
                 $this->log("[SMART-ROUTER] 質問因数分解により資料PDF抽出ルートを優先します。target=" . ($factorizedQuery['target'] ?? 'unknown'));
+
+            } elseif ($projectId !== null && $factorizedRoute !== '' && str_starts_with($factorizedRoute, 'advanced_hybrid.')) {
+                $advancedReasoning = true;
+                $isAnalysisMode = false;
+                $this->log("[SMART-ROUTER] 質問因数分解によりハイブリッド分析ルートを優先します。route={$factorizedRoute} | target=" . ($factorizedQuery['target'] ?? 'unknown'));
+
+            } elseif ($projectId !== null && $factorizedRoute !== '' && str_starts_with($factorizedRoute, 'normal_rag.')) {
+                $preferNormalRag = true;
+                $this->log("[SMART-ROUTER] 質問因数分解により案件運用メモを踏まえた相談ルートを優先します。route={$factorizedRoute}");
 
             } elseif ($projectId !== null && preg_match($csvEvidencePattern, $message)) {
                 $isAnalysisMode = true;
@@ -124,7 +134,7 @@ class ChatRouteSelector
             $projectId !== null &&
             !$advancedReasoning &&
             !$isHistorySummaryMode &&
-            ($factorizedQuery['route'] ?? null) !== 'advanced_hybrid.doc_extract'
+            $factorizedRoute !== 'advanced_hybrid.doc_extract'
         ) {
             try {
                 $mentionedCsv = $this->csvContextResolver !== null

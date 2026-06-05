@@ -22,6 +22,7 @@ require_once __DIR__ . '/../src/Parsedown.php';
 require_once __DIR__ . '/../src/ProjectAccess.php';
 require_once __DIR__ . '/../src/ModelRoleResolver.php';
 require_once __DIR__ . '/../src/ProjectContextMemory.php';
+require_once __DIR__ . '/../src/ProjectMemoryAutoUpdater.php';
 require_once __DIR__ . '/../src/ChatThreadManager.php';
 
 $parsedown = new Parsedown();
@@ -302,6 +303,14 @@ if ($selected_project_id) {
                 $csv_files = $stmtCsv->fetchAll(PDO::FETCH_ASSOC);
 
                 $project_memory_docs = ProjectContextMemory::load($pdo, (int)$selected_project_id);
+                if (ProjectContextMemory::totalChars($project_memory_docs) === 0) {
+                    $project_memory_docs = ProjectMemoryAutoUpdater::refresh(
+                        $pdo,
+                        (int)$selected_project_id,
+                        $selected_thread_id !== null ? (int)$selected_thread_id : null,
+                        (int)$user_id
+                    );
+                }
             }
         }
     } catch (PDOException $e) {

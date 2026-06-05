@@ -6,11 +6,13 @@ class ChatRouteFactorizer
 {
     private $csvContextResolver;
     private $logger;
+    private string $projectMemoryText;
 
-    public function __construct(?ChatHistoryContextResolver $csvContextResolver = null, $logger = null)
+    public function __construct(?ChatHistoryContextResolver $csvContextResolver = null, $logger = null, array $projectMemoryDocs = [])
     {
         $this->csvContextResolver = $csvContextResolver;
         $this->logger = is_callable($logger) ? $logger : null;
+        $this->projectMemoryText = $this->buildProjectMemoryText($projectMemoryDocs);
     }
 
     public function factorize(string $message, array $recentHistory = []): array
@@ -31,11 +33,19 @@ class ChatRouteFactorizer
         $hasAggregateIntent = preg_match('/(集計|件数|合計|平均|表に|一覧|推移|時系列|別に|グループ|何種類|ユニーク|distinct|重複なし|分布|分類|カテゴリ|抽出して件数|抽出して、件数|若い順|古い順|昇順|降順)/iu', $message) === 1;
         $hasSummaryIntent = preg_match('/(要約|まとめ|概要|内容を要約|内容をまとめ|どんな内容|内容を教えて)/u', $message) === 1;
         $hasDateIntent = preg_match('/(日付|日時|年月日|年月|月別|月ごと|年別|年ごと|日別|date|timestamp|時刻|日時は不要|月単位)/iu', $message) === 1;
+        $hasHistorySummaryRequest = preg_match('/((これまで|今まで|過去|直近).*(会話|やりとり|チャット|履歴).*(まとめ|要約|整理)|((会話|やりとり|チャット|履歴).*(まとめ|要約|整理)))/u', $message) === 1;
+        $hasHistoryReportRequest = preg_match('/((会話|やりとり|チャット|履歴).*(報告書|レポート|PDF).*(作成|作って|出力|生成)|((報告書|レポート|PDF).*(作成|作って|出力|生成).*(会話|やりとり|チャット|履歴)))/u', $message) === 1;
         $hasDocReference = preg_match('/(PDF|pdf|資料|図面|仕様書|文書|設計書|報告書)/u', $message) === 1;
         $hasDocActionIntent = preg_match('/(留意点|注意点|確認すべき|確認事項|法規|基準|安全面|設計上|施工前|不明点|見落とし|箇条書きで抽出|箇条書きで|抽出してください)/u', $message) === 1;
+        $hasRecommendationIntent = preg_match('/(おすすめ|オススメ|提案|分析方法|集計方法|どう分析|どう集計|見るべき|観点|切り口|方針)/u', $message) === 1;
         $hasDistinctIntent = preg_match('/(何種類|ユニーク|distinct|重複なし|種類数)/iu', $message) === 1;
         $hasColumnExplainIntent = preg_match('/(どういう|どのような|説明|意味|何を表|どんなイベント|イベント.*説明|イベント.*意味|それぞれ.*説明)/u', $message) === 1;
+        $hasNamingOrFramingIntent = preg_match('/(案件名|名前|名称|呼び方|強調したい|打ち出したい|表現|言い換え|一緒に検討|相談|どうでしょう|候補)/u', $message) === 1;
+        $hasAppVerificationIntent = preg_match('/(動作確認|検証中|検証|デバッグ|テスト|試験|ログ確認|回帰確認)/u', $message) === 1;
         $hasCsvContext = preg_match('/(CSV|csv|ファイル|データ|レコード|行)/u', $message) === 1;
+        $hasMixedDocumentAndCsvContext = $hasDocReference && $hasCsvContext;
+        $memorySuggestsAppVerification = $this->projectMemoryText !== ''
+            && preg_match('/(動作確認|検証中|検証|デバッグ|テスト|試験|ログ確認|回帰確認|アプリ|チャット|ルート|報告書|図解|Mermaid|CSV|PDF)/u', $this->projectMemoryText) === 1;
         $targetsAllCsv = preg_match('/(全て|すべて|全部|全件)/u', $message) === 1
             && $hasCsvContext;
 
@@ -71,7 +81,31 @@ class ChatRouteFactorizer
         $outputFormat = preg_match('/(表に|表形式|テーブル|一覧で|一覧にして)/u', $message) === 1 ? 'table' : 'prose';
         $route = null;
 
-        if ($hasAggregateIntent && $hasDateIntent && $mentionedCsv !== null) {
+        if ($hasHistoryReportRequest) {
+            $intent = 'summarize';
+            $target = 'chat_history';
+            $scope = 'conversation_thread';
+            $operation = 'report';
+            $route = 'advanced_hybrid.history_report';
+        } elseif ($hasNamingOrFramingIntent || ($hasAppVerificationIntent && $memorySuggestsAppVerification)) {
+            $intent = 'consult';
+            $target = 'project_memory';
+            $scope = 'project_wide';
+            $operation = $hasNamingOrFramingIntent ? 'framing' : 'status_alignment';
+            $route = 'normal_rag.project_memory_consultation';
+        } elseif ($hasMixedDocumentAndCsvContext && $hasRecommendationIntent) {
+            $intent = 'analyze';
+            $target = 'project_assets';
+            $scope = 'project_wide';
+            $operation = 'analysis_recommendation';
+            $route = 'advanced_hybrid.multi_source_advice';
+        } elseif ($hasHistorySummaryRequest) {
+            $intent = 'summarize';
+            $target = 'chat_history';
+            $scope = 'conversation_thread';
+            $operation = 'summarize';
+            $route = 'history_summary';
+        } elseif ($hasAggregateIntent && $hasDateIntent && $mentionedCsv !== null) {
             $intent = 'aggregate';
             $target = 'single_csv';
             $scope = 'records_with_date';
@@ -155,5 +189,18 @@ class ChatRouteFactorizer
         if ($this->logger !== null) {
             call_user_func($this->logger, $message);
         }
+    }
+
+    private function buildProjectMemoryText(array $projectMemoryDocs): string
+    {
+        $parts = [];
+        foreach (['readme', 'agents', 'todo'] as $memoryType) {
+            $content = trim((string)($projectMemoryDocs[$memoryType]['content'] ?? ''));
+            if ($content !== '') {
+                $parts[] = $content;
+            }
+        }
+
+        return implode("\n\n", $parts);
     }
 }

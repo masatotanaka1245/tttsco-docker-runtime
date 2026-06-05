@@ -17,6 +17,7 @@ class ChatRouteDispatcher
     {
         $message = (string)($context['message'] ?? '');
         $projectId = $context['project_id'] ?? null;
+        $routeDetail = (string)($context['route_detail'] ?? '');
         $isHistorySummaryMode = (bool)($context['is_history_summary_mode'] ?? false);
         $isAnalysisMode = (bool)($context['is_analysis_mode'] ?? false);
         $advancedReasoning = (bool)($context['advanced_reasoning'] ?? false);
@@ -32,7 +33,7 @@ class ChatRouteDispatcher
 
         if ($isHistorySummaryMode) {
             $routeName = 'history_summary';
-            $this->log("[SMART-ROUTER] 最終ルート決定: {$routeName}");
+            $this->logFinalRouteDecision($routeName, $routeDetail);
             $this->logModelRoles($routeName, $mainModel, $subModel, $embeddingModel);
             require_once $this->apiBasePath . '/chat_history_summary.php';
             runHistorySummaryRoute(
@@ -54,7 +55,7 @@ class ChatRouteDispatcher
         if (preg_match($globalCrossPattern, $message)) {
             $routeName = 'global_cross';
             $this->log("[SMART-ROUTER] 明示的な全社横断キーワードを検出。強制的に「グローバル調査エージェント(ReAct)」をキックします。");
-            $this->log("[SMART-ROUTER] 最終ルート決定: {$routeName}");
+            $this->logFinalRouteDecision($routeName, $routeDetail);
             $this->logModelRoles($routeName, $mainModel, $subModel, $embeddingModel);
             require_once $this->apiBasePath . '/chat_global.php';
             runGlobalChatRoute(
@@ -74,7 +75,7 @@ class ChatRouteDispatcher
 
         if ($projectId === null) {
             $routeName = 'global_no_project';
-            $this->log("[SMART-ROUTER] 最終ルート決定: {$routeName}");
+            $this->logFinalRouteDecision($routeName, $routeDetail);
             $this->logModelRoles($routeName, $mainModel, $subModel, $embeddingModel);
             require_once $this->apiBasePath . '/chat_global.php';
             runGlobalChatRoute(
@@ -94,7 +95,7 @@ class ChatRouteDispatcher
 
         if ($isAnalysisMode && !$advancedReasoning) {
             $routeName = 'data_analysis';
-            $this->log("[SMART-ROUTER] 最終ルート決定: {$routeName}");
+            $this->logFinalRouteDecision($routeName, $routeDetail);
             $this->logModelRoles($routeName, $mainModel, $subModel, $embeddingModel);
             require_once $this->apiBasePath . '/chat_analysis.php';
             runAdvancedReasoningRoute(
@@ -119,7 +120,7 @@ class ChatRouteDispatcher
 
         if ($advancedReasoning) {
             $routeName = 'advanced_hybrid';
-            $this->log("[SMART-ROUTER] 最終ルート決定: {$routeName}");
+            $this->logFinalRouteDecision($routeName, $routeDetail);
             $this->logModelRoles($routeName, $mainModel, $subModel, $embeddingModel);
             require_once $this->apiBasePath . '/chat_advanced.php';
             runAdvancedReasoningRoute(
@@ -145,7 +146,7 @@ class ChatRouteDispatcher
         }
 
         $routeName = 'normal_rag';
-        $this->log("[SMART-ROUTER] 最終ルート決定: {$routeName}");
+        $this->logFinalRouteDecision($routeName, $routeDetail);
         $this->logModelRoles($routeName, $mainModel, $subModel, $embeddingModel);
         require_once $this->apiBasePath . '/chat_normal.php';
 
@@ -157,6 +158,7 @@ class ChatRouteDispatcher
             $context['ollama_host'],
             $projectId,
             $message,
+            $routeDetail,
             $context['search_query'],
             $mainModel,
             $subModel,
@@ -186,5 +188,13 @@ class ChatRouteDispatcher
     private function logModelRoles(string $routeName, string $mainModel, string $subModel, string $embeddingModel): void
     {
         $this->log("[MODEL-ROLES] route={$routeName} | main_model={$mainModel} | sub_model={$subModel} | embedding_model={$embeddingModel}");
+    }
+
+    private function logFinalRouteDecision(string $routeName, string $routeDetail = ''): void
+    {
+        $suffix = ($routeDetail !== '' && $routeDetail !== $routeName)
+            ? " | detail={$routeDetail}"
+            : '';
+        $this->log("[SMART-ROUTER] 最終ルート決定: {$routeName}{$suffix}");
     }
 }

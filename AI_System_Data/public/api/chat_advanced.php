@@ -202,6 +202,8 @@ class AdvancedReasoningRouteProcessor {
             $this->searchQuery,
             $this->originalMessage,
             $this->reasoningId,
+            $this->threadId,
+            $this->user_id,
             fn(string $prompt): string => $this->composeMemoryAwarePrompt($prompt),
             fn(string $text): string => $this->inferOperationType($text),
             fn(array $rows): string => $this->buildDocChunkEvidenceSummary($rows),
@@ -391,7 +393,7 @@ class AdvancedReasoningRouteProcessor {
             // 万が一、記憶キャッシュデータがまた存在しない場合はその場て強制自動生成（リフレッシュ）
             if (empty($jsonStr)) {
                 require_once __DIR__ . '/../../src/SqlExecutionEngine.php';
-                $sqlEngine = new SqlExecutionEngine($this->pdo, $this->projectId);
+                $sqlEngine = new SqlExecutionEngine($this->pdo, $this->projectId, $this->threadId, $this->user_id);
                 $sqlEngine->generateAndSaveDatabaseMemory();
                 
                 // 生成された最新 of 記憶を再ロード
@@ -407,6 +409,16 @@ class AdvancedReasoningRouteProcessor {
             chatLogger("[PROJECT-MEMORY] loaded=" . (empty(ProjectContextMemory::loadedTypes($projectMemoryDocs)) ? 'none' : implode(',', ProjectContextMemory::loadedTypes($projectMemoryDocs))) . " | chars=" . ProjectContextMemory::totalChars($projectMemoryDocs));
         }
         chatLogger("[ADV-TIMING] DB記憶ロード完了 | promptChars: " . mb_strlen($this->databaseMemoryPrompt) . " | elapsed: " . $this->elapsedSeconds($phaseStart));
+
+        if ($this->tryHistoryReportFastPath()) {
+            chatLogger("[ADV-TIMING] history_report 専用ファストパス完了 | totalElapsed: " . $this->elapsedSeconds($pipelineStart));
+            return;
+        }
+
+        if ($this->tryMultiSourceAdviceFastPath()) {
+            chatLogger("[ADV-TIMING] multi_source_advice 専用ファストパス完了 | totalElapsed: " . $this->elapsedSeconds($pipelineStart));
+            return;
+        }
 
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         // 🛠️ 【シーケンス1：CSV集計先行射撃】
@@ -457,9 +469,275 @@ class AdvancedReasoningRouteProcessor {
         return number_format(microtime(true) - $start, 2) . '秒';
     }
 
+    private function tryHistoryReportFastPath(): bool {
+        if (!$this->reportMode) {
+            return false;
+        }
+        if (preg_match('/(これまで|今まで|過去|直近).*(会話|やりとり|チャット|履歴).*(報告書|レポート)|((会話|やりとり|チャット|履歴).*(報告書|レポート))/u', $this->searchQuery) !== 1) {
+            return false;
+        }
+
+        $history = $this->loadCurrentThreadHistory(50);
+        if (empty($history)) {
+            $this->finalResponse = "## 結論\n現在のスレッドには、報告書化できる会話履歴がまだありません。\n\n## 分析対象\n- 対象スレッド: {$this->threadId}\n- 取得件数: 0件\n\n## 根拠\n- `chat_history` に対象メッセージが見つかりませんでした。\n\n## 留意点\n- このスレッドで会話を開始したあとに再実行してください。\n\n## 推奨アクション\n- まず1〜2件のやり取りを行い、その後に報告書化を実行してください。\n\n## 出典\n- `chat_history`";
+            chatLogger("[REPORT] history_report ファストパス: 対象スレッドの履歴が0件のため、報告書PDF生成をスキップします。thread_id=" . ($this->threadId ?? 'NULL'));
+            $this->reportMode = false;
+        } else {
+            $this->finalResponse = $this->buildDeterministicHistoryReport($history);
+        }
+
+        $this->insertFastPathReasoningStep(1, 'current thread の会話履歴を収集', $this->buildHistoryCollectionSnapshot($history));
+        $this->insertFastPathReasoningStep(2, '会話履歴から報告書を組み立て', $this->finalResponse);
+        $this->completeAdvancedRoute();
+        return true;
+    }
+
+    private function tryMultiSourceAdviceFastPath(): bool {
+        if (preg_match('/(pdf|PDF)/u', $this->searchQuery) !== 1 || preg_match('/(csv|CSV)/u', $this->searchQuery) !== 1) {
+            return false;
+        }
+        if (preg_match('/(おすすめ|オススメ|提案|分析方法|集計方法|どう分析|どう集計|見るべき|観点|切り口|方針)/u', $this->searchQuery) !== 1) {
+            return false;
+        }
+
+        $csvFiles = $this->loadProjectCsvFiles();
+        $pdfDocs = $this->loadProjectPdfDocuments();
+        $this->finalResponse = $this->buildDeterministicMultiSourceAdvice($csvFiles, $pdfDocs);
+
+        $summary = "CSV件数=" . count($csvFiles) . " / PDF件数=" . count($pdfDocs);
+        $this->insertFastPathReasoningStep(1, 'CSV/PDF の資産構成を収集', $summary);
+        $this->insertFastPathReasoningStep(2, '資産構成から推奨分析観点を組み立て', $this->finalResponse);
+        $this->completeAdvancedRoute();
+        return true;
+    }
+
     private function completeAdvancedRoute(): void {
         $this->saveHistoryAndEvaluations();
         $this->sendFinalResult();
+    }
+
+    private function loadCurrentThreadHistory(int $limit = 50): array {
+        if ($this->projectId <= 0 || $this->threadId === null || $this->user_id <= 0) {
+            return [];
+        }
+
+        $stmt = $this->pdo->prepare("
+            SELECT role, message, created_at
+            FROM chat_history
+            WHERE project_id = ? AND thread_id = ? AND user_id = ?
+            ORDER BY created_at DESC
+            LIMIT {$limit}
+        ");
+        $stmt->execute([$this->projectId, $this->threadId, $this->user_id]);
+        return array_reverse($stmt->fetchAll(PDO::FETCH_ASSOC));
+    }
+
+    private function loadProjectCsvFiles(): array {
+        if ($this->projectId <= 0) {
+            return [];
+        }
+
+        $stmt = $this->pdo->prepare("
+            SELECT file_name, column_headers, row_count
+            FROM project_csv_files
+            WHERE project_id = ?
+            ORDER BY id ASC
+        ");
+        $stmt->execute([$this->projectId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    private function loadProjectPdfDocuments(): array {
+        if ($this->projectId <= 0) {
+            return [];
+        }
+
+        $stmt = $this->pdo->prepare("
+            SELECT title, file_path, created_at
+            FROM documents
+            WHERE project_id = ? AND LOWER(file_path) LIKE '%.pdf' AND title NOT LIKE 'AI報告書%'
+            ORDER BY created_at DESC, id DESC
+            LIMIT 20
+        ");
+        $stmt->execute([$this->projectId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    private function buildDeterministicHistoryReport(array $history): string {
+        $userMessages = [];
+        $assistantCount = 0;
+        foreach ($history as $row) {
+            if (($row['role'] ?? '') === 'user') {
+                $userMessages[] = $this->compactLine((string)($row['message'] ?? ''), 120);
+            } elseif (($row['role'] ?? '') === 'assistant') {
+                $assistantCount++;
+            }
+        }
+
+        $topics = $this->detectHistoryTopics($history);
+        $latestRequests = array_slice(array_reverse($userMessages), 0, 5);
+        $firstAt = $history[0]['created_at'] ?? '-';
+        $lastAt = $history[count($history) - 1]['created_at'] ?? '-';
+
+        $lines = [];
+        $lines[] = "## 結論";
+        $lines[] = "このスレッドでは、CSVの概要把握、PDF資料からの留意点抽出、そして会話内容そのものの整理という順で、案件理解を段階的に深める対話が行われました。現在の会話は、データ資産を横断して確認し、その結果を再利用しやすい形へ整える流れにあります。";
+        $lines[] = "";
+        $lines[] = "## 分析対象";
+        $lines[] = "- 対象スレッド: " . ($this->threadId ?? '-');
+        $lines[] = "- 対象履歴件数: " . count($history) . "件";
+        $lines[] = "- ユーザー発言: " . count($userMessages) . "件";
+        $lines[] = "- AI回答: {$assistantCount}件";
+        $lines[] = "- 対象期間: {$firstAt} 〜 {$lastAt}";
+        $lines[] = "";
+        $lines[] = "## 根拠";
+        foreach ($latestRequests as $request) {
+            $lines[] = "- 直近の依頼: {$request}";
+        }
+        if (!empty($topics)) {
+            foreach ($topics as $topic => $count) {
+                $lines[] = "- 話題傾向: {$topic} ({$count}件程度)";
+            }
+        }
+        $lines[] = "";
+        $lines[] = "## 留意点";
+        $lines[] = "- 現在の履歴は現在スレッド単位で収集されており、案件全体の全履歴ではありません。";
+        $lines[] = "- 直近の議論はログ確認やルーティング調整も含むため、業務報告として再利用する際は目的別に章立てすると読みやすくなります。";
+        $lines[] = "- PDF抽出とCSV集計は性質が異なるため、報告書では『定量情報』と『資料上の注意事項』を分離して記載するのが適しています。";
+        $lines[] = "";
+        $lines[] = "## 推奨アクション";
+        $lines[] = "- まずCSV側は対象ファイル別に、件数集計・分布集計・時系列集計のどれを優先するかを決める。";
+        $lines[] = "- PDF側は、留意点・制約・確認事項をページ番号付きで一覧化し、CSV側の集計結果と照合できる形にそろえる。";
+        $lines[] = "- このスレッドの対話履歴を案件報告へ転用する場合は、『実行した分析』『得られた根拠』『未確定事項』の3区分で再編集する。";
+        $lines[] = "";
+        $lines[] = "## 出典";
+        $lines[] = "- `chat_history` / project_id={$this->projectId} / thread_id=" . ($this->threadId ?? 'NULL') . " / user_id={$this->user_id}";
+        foreach ($latestRequests as $request) {
+            $lines[] = "- 会話断片: {$request}";
+        }
+
+        return implode("\n", $lines);
+    }
+
+    private function buildDeterministicMultiSourceAdvice(array $csvFiles, array $pdfDocs): string {
+        $lines = [];
+        $lines[] = "CSVとPDFの両方を活かすなら、まず『CSVで定量把握』『PDFで留意点整理』『両者の照合』の3段で進めるのがおすすめです。";
+        $lines[] = "";
+        $lines[] = "## おすすめの進め方";
+        $lines[] = "- 1. CSVのファイル一覧と列構成を確認し、どのファイルが件数集計・分布集計・時系列集計に向くかを切り分ける。";
+        $lines[] = "- 2. PDFからは、留意点・制約・確認事項をページ番号付きで抽出し、定量集計とは別レイヤーで整理する。";
+        $lines[] = "- 3. 最後に、CSVの集計結果とPDFの注意事項を並べ、運用判断に使える形へまとめる。";
+        $lines[] = "";
+        $lines[] = "## CSVでおすすめの集計";
+
+        foreach ($csvFiles as $csv) {
+            $fileName = (string)($csv['file_name'] ?? '');
+            $rowCount = (int)($csv['row_count'] ?? 0);
+            $headers = json_decode((string)($csv['column_headers'] ?? ''), true);
+            if (!is_array($headers)) {
+                $headers = array_filter(array_map('trim', explode(',', (string)($csv['column_headers'] ?? ''))));
+            }
+
+            if (preg_match('/language-locales|username-or-email/i', $fileName)) {
+                $lines[] = "- `{$fileName}` ({$rowCount}件): 言語別件数、部署別件数、アカウント属性の分布確認が向いています。";
+            } elseif (preg_match('/入荷実績一覧/u', $fileName)) {
+                $lines[] = "- `{$fileName}` ({$rowCount}件): 品番別件数、品名別件数、仕入先別件数、サイズ別件数、発注数/入荷数/未入荷数の比較がおすすめです。";
+            } elseif (preg_match('/健康診断一覧/u', $fileName)) {
+                $lines[] = "- `{$fileName}` ({$rowCount}件): 年齢分布、身長・体重・血圧・血糖値の要約統計、性別や年代別の比較が有効です。";
+            } elseif (preg_match('/出荷一覧表/u', $fileName)) {
+                $lines[] = "- `{$fileName}` ({$rowCount}件): 商品別件数、顧客別件数、受注日ベースの時系列、本数と合計のランキング集計が向いています。";
+            } else {
+                $headerPreview = implode(' / ', array_slice($headers, 0, 5));
+                $lines[] = "- `{$fileName}` ({$rowCount}件): まず主要列（{$headerPreview}）の値分布と欠損有無を確認するのがおすすめです。";
+            }
+        }
+
+        $lines[] = "";
+        $lines[] = "## PDFでおすすめの分析";
+        if (empty($pdfDocs)) {
+            $lines[] = "- 現在、対象PDFは確認できませんでした。PDFが追加されたら、留意点・制約・ページ番号付き根拠の抽出から始めるのがよいです。";
+        } else {
+            foreach (array_slice($pdfDocs, 0, 3) as $doc) {
+                $title = (string)($doc['title'] ?? basename((string)($doc['file_path'] ?? '資料PDF')));
+                $lines[] = "- `{$title}`: 留意点、禁止事項、確認事項、寸法・条件値などをページ番号付きで抽出し、CSV集計とは別に根拠一覧化するのがおすすめです。";
+            }
+        }
+
+        $lines[] = "";
+        $lines[] = "## まず最初にやるとよい分析";
+        $lines[] = "- CSV全体の概要を出す";
+        $lines[] = "- 次に業務系CSVを1本選び、列別件数分布やランキングを出す";
+        $lines[] = "- その後、PDFの留意点一覧を抽出して、CSVの数値結果と矛盾や確認事項がないかを見る";
+        $lines[] = "";
+        $lines[] = "## 出典";
+        $lines[] = "- CSVファイル数: " . count($csvFiles) . "件";
+        foreach (array_slice($csvFiles, 0, 5) as $csv) {
+            $lines[] = "- CSV: " . (string)($csv['file_name'] ?? '名称不明');
+        }
+        foreach (array_slice($pdfDocs, 0, 5) as $doc) {
+            $lines[] = "- PDF: " . (string)($doc['title'] ?? basename((string)($doc['file_path'] ?? '資料PDF')));
+        }
+
+        return implode("\n", $lines);
+    }
+
+    private function buildHistoryCollectionSnapshot(array $history): string {
+        $lines = [];
+        $lines[] = "取得件数: " . count($history);
+        foreach (array_slice($history, -6) as $row) {
+            $roleLabel = (($row['role'] ?? '') === 'assistant') ? 'AI' : 'ユーザー';
+            $lines[] = "- {$roleLabel}: " . $this->compactLine((string)($row['message'] ?? ''), 120);
+        }
+        return implode("\n", $lines);
+    }
+
+    private function detectHistoryTopics(array $history): array {
+        $topicPatterns = [
+            'CSVデータの要約・集計' => '/CSV|csv|project_csv|row_data|カラム|列|集計/u',
+            'PDF資料の留意点抽出' => '/PDF|pdf|資料|留意点|doc_chunks|documents/u',
+            '会話履歴の整理・要約' => '/会話|履歴|チャット|要約|報告書/u',
+            'ルーティング・ログ確認' => '/ログ|route|ルート|debug|遅延|処理/u',
+        ];
+
+        $scores = [];
+        foreach ($history as $row) {
+            $text = (string)($row['message'] ?? '');
+            foreach ($topicPatterns as $topic => $pattern) {
+                if (preg_match($pattern, $text)) {
+                    $scores[$topic] = ($scores[$topic] ?? 0) + 1;
+                }
+            }
+        }
+        arsort($scores);
+        return array_slice($scores, 0, 4, true);
+    }
+
+    private function compactLine(string $text, int $limit): string {
+        $text = trim((string)(preg_replace('/\s+/u', ' ', $text) ?? $text));
+        if (mb_strlen($text) <= $limit) {
+            return $text;
+        }
+        return mb_substr($text, 0, $limit) . '...';
+    }
+
+    private function insertFastPathReasoningStep(int $stepNumber, string $subQuery, string $subAnswer): void {
+        try {
+            $stmt = $this->pdo->prepare("
+                INSERT INTO chat_reasoning_steps
+                    (project_id, session_id, original_question, step_number, sub_query, sub_answer, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, NOW())
+            ");
+            $stmt->execute([
+                $this->projectId,
+                $this->reasoningId,
+                $this->normalizeUtf8((string)$this->originalMessage),
+                $stepNumber,
+                $this->normalizeUtf8($subQuery),
+                $this->normalizeUtf8($subAnswer)
+            ]);
+        } catch (Exception $e) {
+            chatLogger("[ADV-FASTPATH] reasoning step 保存失敗: " . $e->getMessage());
+        }
     }
 
     /**
@@ -636,7 +914,7 @@ class AdvancedReasoningRouteProcessor {
         chatLogger("[SQL-REPAIR-POLICY] max_retries={$max_retries} | report_mode=" . ($this->reportMode ? 'on' : 'off') . " | diagram_mode=" . ($this->diagramMode ? 'on' : 'off'));
 
         require_once __DIR__ . '/../../src/SqlExecutionEngine.php';
-        $sqlEngine = new SqlExecutionEngine($this->pdo, $this->projectId);
+        $sqlEngine = new SqlExecutionEngine($this->pdo, $this->projectId, $this->threadId, $this->user_id);
 
         while ($retry_count <= $max_retries) {
             chatLogger("[OLLAMA-RAW-RESPONSE] (集計試行 {$retry_count}/{$max_retries}) 受信生データ:\n" . $sqlJsonStr);

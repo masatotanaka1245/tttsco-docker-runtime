@@ -9,9 +9,15 @@
 class SqlExecutionEngine {
     /** @var PDO */
     private $pdo;
-    
+
     /** @var int */
     private $projectId;
+
+    /** @var int|null */
+    private $threadId;
+
+    /** @var int|null */
+    private $userId;
 
     /** @var array 許可テーブルのホワイトリスト */
     private static $allowedTables = [
@@ -32,10 +38,14 @@ class SqlExecutionEngine {
      *
      * @param PDO $pdo
      * @param int|string|null $projectId
+     * @param int|string|null $threadId
+     * @param int|string|null $userId
      */
-    public function __construct($pdo, $projectId) {
+    public function __construct($pdo, $projectId, $threadId = null, $userId = null) {
         $this->pdo       = $pdo;
         $this->projectId = (int)$projectId;
+        $this->threadId  = $threadId !== null ? (int)$threadId : null;
+        $this->userId    = $userId !== null ? (int)$userId : null;
     }
 
     /**
@@ -242,6 +252,12 @@ class SqlExecutionEngine {
             // 🔒 C. chat_history が含まれる場合
             if (strpos($lowerSql, 'chat_history') !== false) {
                 $conditions[] = "{$histAlias}.project_id = " . $this->projectId;
+                if ($this->threadId !== null) {
+                    $conditions[] = "{$histAlias}.thread_id = " . $this->threadId;
+                }
+                if ($this->userId !== null && $this->userId > 0) {
+                    $conditions[] = "{$histAlias}.user_id = " . $this->userId;
+                }
             }
 
             // 🔒 D. doc_chunks が含まれる場合
@@ -476,6 +492,8 @@ class SqlExecutionEngine {
             }
         }
 
+        $historyScopedSql = $this->buildScopedChatHistorySql();
+
         return "【SQL自己修復ガイダンス】\n"
             . "目的: {$task}\n"
             . "前回エラー: {$error}\n"
@@ -486,7 +504,7 @@ class SqlExecutionEngine {
             . "- CSVファイル数と実データ行数: SELECT COUNT(DISTINCT f.id) AS total_csv_files, COUNT(r.id) AS total_csv_rows FROM project_csv_files f LEFT JOIN project_csv_rows r ON f.id = r.csv_file_id\n"
             . "- CSV本文のキー抽出: JSON_UNQUOTE(JSON_EXTRACT(r.row_data, '$.\"実在キー名\"'))\n"
             . "- CSVキー別集計: SELECT JSON_UNQUOTE(JSON_EXTRACT(r.row_data, '$.\"実在キー名\"')) AS item, COUNT(*) AS cnt FROM project_csv_rows r GROUP BY item ORDER BY cnt DESC\n"
-            . "- 会話履歴要約用抽出: SELECT role, message, created_at FROM chat_history ORDER BY created_at ASC LIMIT 50\n"
+            . "- 会話履歴要約用抽出: {$historyScopedSql}\n"
             . "- PDF本文抽出: SELECT d.title, c.page_number, c.chunk_text, c.image_description FROM doc_chunks c JOIN documents d ON c.doc_id = d.id ORDER BY d.id, c.page_number LIMIT 30\n\n"
             . "【禁止】\n"
             . "- 許可リスト外の架空テーブル・架空カラムを作らない。\n"
@@ -516,7 +534,7 @@ class SqlExecutionEngine {
         }
 
         if (preg_match('/(会話|履歴|チャット|これまで|まとめ|要約)/u', $text)) {
-            return "SELECT role, message, created_at FROM chat_history ORDER BY created_at ASC LIMIT 50";
+            return $this->buildScopedChatHistorySql();
         }
 
         if (preg_match('/(PDF|資料|文書|留意点|抽出|内容)/u', $text)) {
@@ -524,6 +542,24 @@ class SqlExecutionEngine {
         }
 
         return null;
+    }
+
+    private function buildScopedChatHistorySql(): string
+    {
+        $conditions = [];
+
+        if ($this->projectId > 0) {
+            $conditions[] = "project_id = {$this->projectId}";
+        }
+        if ($this->threadId !== null) {
+            $conditions[] = "thread_id = {$this->threadId}";
+        }
+        if ($this->userId !== null && $this->userId > 0) {
+            $conditions[] = "user_id = {$this->userId}";
+        }
+
+        $where = empty($conditions) ? '' : ' WHERE ' . implode(' AND ', $conditions);
+        return "SELECT role, message, created_at FROM chat_history{$where} ORDER BY created_at ASC LIMIT 50";
     }
 
     /**

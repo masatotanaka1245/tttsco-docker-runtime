@@ -31,7 +31,9 @@
 
 require_once __DIR__ . '/../../src/AppLogger.php';
 require_once __DIR__ . '/../../src/ProjectContextMemory.php';
+require_once __DIR__ . '/../../src/ProjectMemoryAutoUpdater.php';
 require_once __DIR__ . '/../../src/ChatModelRolePayload.php';
+require_once __DIR__ . '/../../src/ChatThreadManager.php';
 
 if (!function_exists('chatLogger')) {
     function chatLogger($msg) {
@@ -198,7 +200,7 @@ class AdvancedReasoningRouteProcessor {
             // 万が一、記憶キャッシュデータがまだ存在しない場合はその場で強制自動生成（リフレッシュ）
             if (empty($jsonStr)) {
                 require_once __DIR__ . '/../../src/SqlExecutionEngine.php';
-                $sqlEngine = new SqlExecutionEngine($this->pdo, $this->projectId);
+                $sqlEngine = new SqlExecutionEngine($this->pdo, $this->projectId, $this->threadId, $this->user_id);
                 $sqlEngine->generateAndSaveDatabaseMemory();
                 
                 // 生成された最新の記憶を再ロード
@@ -495,15 +497,28 @@ class AdvancedReasoningRouteProcessor {
         }
 
         try {
-            $stmt = $this->pdo->prepare(
-                "SELECT role, message
-                   FROM chat_history
-                  WHERE project_id = ?
-                    AND user_id = ?
-               ORDER BY created_at DESC
-                  LIMIT 8"
-            );
-            $stmt->execute([$this->projectId, $this->user_id]);
+            if ($this->threadId !== null) {
+                $stmt = $this->pdo->prepare(
+                    "SELECT role, message
+                       FROM chat_history
+                      WHERE project_id = ?
+                        AND thread_id = ?
+                        AND user_id = ?
+                   ORDER BY created_at DESC
+                      LIMIT 8"
+                );
+                $stmt->execute([$this->projectId, $this->threadId, $this->user_id]);
+            } else {
+                $stmt = $this->pdo->prepare(
+                    "SELECT role, message
+                       FROM chat_history
+                      WHERE project_id = ?
+                        AND user_id = ?
+                   ORDER BY created_at DESC
+                      LIMIT 8"
+                );
+                $stmt->execute([$this->projectId, $this->user_id]);
+            }
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
             return is_array($rows) ? array_reverse($rows) : [];
         } catch (Throwable $e) {
@@ -1278,7 +1293,7 @@ class AdvancedReasoningRouteProcessor {
         chatLogger("[SQL-REPAIR-POLICY] max_retries={$max_retries} | report_mode=" . ($this->reportMode ? 'on' : 'off') . " | diagram_mode=" . ($this->diagramMode ? 'on' : 'off'));
 
         require_once __DIR__ . '/../../src/SqlExecutionEngine.php';
-        $sqlEngine = new SqlExecutionEngine($this->pdo, $this->projectId);
+        $sqlEngine = new SqlExecutionEngine($this->pdo, $this->projectId, $this->threadId, $this->user_id);
 
         while ($retry_count <= $max_retries) {
             // 📢 [超詳細ログ1] Ollamaから届いた「パース前」の生JSONレスポンスをそのまま完全可視化
@@ -1701,6 +1716,13 @@ class AdvancedReasoningRouteProcessor {
             $historyId = $this->pdo->lastInsertId();
             chatLogger("[DEBUG] chat_history 登録成功. ID: {$historyId}");
 
+            ChatThreadManager::updateTitleFromMessage(
+                $this->pdo,
+                (int)$this->projectId,
+                $this->threadId !== null ? (int)$this->threadId : null,
+                $this->originalMessage
+            );
+
             $updHist = $this->pdo->prepare("UPDATE chat_reasoning_steps SET chat_history_id = ? WHERE session_id = ?");
             $updHist->execute([$historyId, $this->reasoningId]);
             chatLogger("[DEBUG] chat_reasoning_steps のセッションを chat_history_id: {$historyId} にバインド完了。");
@@ -1737,6 +1759,13 @@ class AdvancedReasoningRouteProcessor {
 
             $this->pdo->commit();
             chatLogger("[DEBUG] DBトランザクションコミット成功。すべての書き込みデータ整合性を完全保護しました。");
+            ProjectMemoryAutoUpdater::refresh(
+                $this->pdo,
+                (int)$this->projectId,
+                $this->threadId !== null ? (int)$this->threadId : null,
+                (int)$this->user_id,
+                fn(string $message) => chatLogger($message)
+            );
             $this->createReportDocumentIfRequested((int)$historyId);
         } catch (Exception $e) {
             if ($this->pdo->inTransaction()) {

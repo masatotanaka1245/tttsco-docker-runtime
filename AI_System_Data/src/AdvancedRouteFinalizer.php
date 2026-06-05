@@ -3,6 +3,8 @@
 require_once __DIR__ . '/ChatModelRolePayload.php';
 require_once __DIR__ . '/FaqAutoRegistrar.php';
 require_once __DIR__ . '/ReportGenerator.php';
+require_once __DIR__ . '/ChatThreadManager.php';
+require_once __DIR__ . '/ProjectMemoryAutoUpdater.php';
 
 final class AdvancedRouteFinalizer
 {
@@ -100,6 +102,13 @@ final class AdvancedRouteFinalizer
             $historyId = (int)$this->pdo->lastInsertId();
             $this->log("[DEBUG] chat_history 登録成功。ID: {$historyId}");
 
+            ChatThreadManager::updateTitleFromMessage(
+                $this->pdo,
+                $this->projectId,
+                $this->threadId,
+                $this->originalMessage
+            );
+
             if ($this->reasoningId !== '') {
                 $updHist = $this->pdo->prepare("UPDATE chat_reasoning_steps SET chat_history_id = ? WHERE session_id = ?");
                 $updHist->execute([$historyId, $this->reasoningId]);
@@ -140,6 +149,13 @@ final class AdvancedRouteFinalizer
 
             $this->pdo->commit();
             $this->log("[DEBUG] DBトランザクションコミット成功。すべての書き込みデータ整合性を完全保護しました。");
+            ProjectMemoryAutoUpdater::refresh(
+                $this->pdo,
+                $this->projectId,
+                $this->threadId,
+                $this->userId,
+                fn(string $message) => $this->log($message)
+            );
             $reportDocument = $this->createReportDocumentIfRequested($historyId);
         } catch (Exception $e) {
             if ($this->pdo->inTransaction()) {

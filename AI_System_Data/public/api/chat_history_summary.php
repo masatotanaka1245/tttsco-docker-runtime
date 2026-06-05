@@ -7,6 +7,8 @@
  */
 
 require_once __DIR__ . '/../../src/ChatModelRolePayload.php';
+require_once __DIR__ . '/../../src/ChatThreadManager.php';
+require_once __DIR__ . '/../../src/ProjectMemoryAutoUpdater.php';
 
 function runHistorySummaryRoute($pdo, $ollamaHost, $projectId, $originalMessage, $model, $subModel, $embeddingModel, $promptKey, $user_id, $role, $threadId = null): void {
     $processor = new HistorySummaryRouteProcessor($pdo, $ollamaHost, $projectId, $originalMessage, $model, $subModel, $embeddingModel, $promptKey, $user_id, $role, $threadId);
@@ -223,6 +225,15 @@ class HistorySummaryRouteProcessor {
             $stmtAi->execute([$this->projectId, $this->threadId, $this->user_id, $this->finalResponse]);
             $historyId = (int)$this->pdo->lastInsertId();
 
+            if ($this->projectId !== null) {
+                ChatThreadManager::updateTitleFromMessage(
+                    $this->pdo,
+                    (int)$this->projectId,
+                    $this->threadId,
+                    $this->originalMessage
+                );
+            }
+
             if ($this->evalResult) {
                 $stmtEval = $this->pdo->prepare("
                     INSERT INTO chat_evaluations
@@ -254,6 +265,15 @@ class HistorySummaryRouteProcessor {
 
             $this->pdo->commit();
             chatLogger("[HISTORY-SUMMARY] chat_history 保存成功。ID: {$historyId}");
+            if ($this->projectId !== null) {
+                ProjectMemoryAutoUpdater::refresh(
+                    $this->pdo,
+                    (int)$this->projectId,
+                    $this->threadId,
+                    $this->user_id,
+                    fn(string $message) => chatLogger($message)
+                );
+            }
             return $historyId;
         } catch (Throwable $e) {
             if ($this->pdo->inTransaction()) {

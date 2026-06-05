@@ -138,9 +138,26 @@ class CsvAggregationPlanner
         $isDateLikeColumn = $targetColumn !== null && $this->isDateLikeColumnName($targetColumn);
         $isAggregationFollowUp = $this->isAggregationFollowUpIntent($question);
         $recentAggregationMode = (string)($recentAggregationContext['aggregation_mode'] ?? '');
+        $recentDateGranularity = (string)($recentAggregationContext['date_granularity'] ?? '');
         $usedRecentAggregationMode = false;
         $usesValueOrdering = $hasExplicitSortIntent
             || ($isAggregationFollowUp && !empty($recentAggregationContext['uses_value_ordering']));
+        $wantsChart = preg_match('/(グラフ|グラフ化|チャート|可視化)/u', $question) === 1;
+        if (
+            !$wantsChart
+            && $isAggregationFollowUp
+            && !empty($recentAggregationContext['wants_chart'])
+        ) {
+            $wantsChart = true;
+        }
+        $wantsTable = preg_match('/(表|一覧)/u', $question) === 1;
+        if (
+            !$wantsTable
+            && $isAggregationFollowUp
+            && !empty($recentAggregationContext['wants_table'])
+        ) {
+            $wantsTable = true;
+        }
 
         if ($wantsExactCount) {
             $aggregationMode = 'exact_value_count';
@@ -165,7 +182,9 @@ class CsvAggregationPlanner
             && $targetValue === null
         ) {
             $aggregationMode = $recentAggregationMode;
-            $dateGranularity = $recentAggregationMode === 'date_histogram' ? $dateGranularity : 'none';
+            $dateGranularity = $recentAggregationMode === 'date_histogram'
+                ? ($recentDateGranularity !== '' ? $recentDateGranularity : $dateGranularity)
+                : 'none';
             $aggregateType = $recentAggregationMode === 'date_histogram' ? 'count' : $recentAggregationMode;
             $usedRecentAggregationMode = true;
         } elseif ($targetColumn !== null && $isDateLikeColumn && ($hasDateIntent || preg_match('/(若い順|古い順|昇順|降順)/u', $question) === 1)) {
@@ -200,8 +219,8 @@ class CsvAggregationPlanner
             'date_granularity' => $dateGranularity,
             'sort_order' => $sortOrder,
             'uses_value_ordering' => $usesValueOrdering,
-            'wants_chart' => preg_match('/(グラフ|グラフ化|チャート|可視化)/u', $question) === 1,
-            'wants_table' => preg_match('/(表|一覧)/u', $question) === 1,
+            'wants_chart' => $wantsChart,
+            'wants_table' => $wantsTable,
             'wants_all_values' => preg_match('/(全ての値|すべての値|各値|値ごとの件数|各レコード数|それぞれの件数|全件)/u', $question) === 1,
             'wants_detail' => preg_match('/(どのような情報|内容|項目|レコードを特定)/u', $question) === 1,
         ];
@@ -333,6 +352,14 @@ class CsvAggregationPlanner
             $hasValueDistributionIntent = preg_match('/(全ての値|すべての値|各値|値ごとの件数|各レコード数|それぞれの件数|内訳|分布|一覧|表に)/u', $historyMessage) === 1;
             $sortOrder = preg_match('/(若い順|降順|新しい順|新しいものから)/u', $historyMessage) === 1 ? 'desc' : 'asc';
             $usesValueOrdering = preg_match('/(若い順|古い順|昇順|降順|新しい順|新しいものから|古いものから)/u', $historyMessage) === 1;
+            $wantsChart = preg_match('/(グラフ|グラフ化|チャート|可視化)/u', $historyMessage) === 1;
+            $wantsTable = preg_match('/(表|一覧)/u', $historyMessage) === 1;
+            $dateGranularity = 'day';
+            if (preg_match('/(月別|月ごと|年月|日時は不要|月単位)/u', $historyMessage) === 1) {
+                $dateGranularity = 'month';
+            } elseif (preg_match('/(年別|年ごと)/u', $historyMessage) === 1) {
+                $dateGranularity = 'year';
+            }
 
             $aggregationMode = 'value_distribution';
             if ($targetColumn !== null && $targetValue !== null && preg_match('/(件数|何件|件ありますか|件ある|集計)/u', $historyMessage) === 1) {
@@ -351,8 +378,11 @@ class CsvAggregationPlanner
                 'target_file_name' => $mentionedCsv,
                 'target_column' => $targetColumn,
                 'aggregation_mode' => $aggregationMode,
+                'date_granularity' => $aggregationMode === 'date_histogram' ? $dateGranularity : 'none',
                 'sort_order' => $sortOrder,
                 'uses_value_ordering' => $usesValueOrdering,
+                'wants_chart' => $wantsChart,
+                'wants_table' => $wantsTable,
             ];
         }
 

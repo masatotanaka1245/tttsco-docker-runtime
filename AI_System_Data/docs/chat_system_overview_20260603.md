@@ -212,16 +212,17 @@
 | --- | --- | --- | --- | --- | --- |
 | CSV 概要把握 | `登録済みのCSVデータを集計して概要を教えてください。` | `data_analysis.csv_summary` | 案件内 CSV 一覧 | `diagram_mode=on` でも軽量 route は維持し、必要なら deterministic な `json:chart` を足す | 大きなズレは少ない |
 | CSV 集計 | `YearMonth カラムの分布を集計してグラフ化してください。` | `data_analysis.csv_agg` | `target_file_name`, `target_column`, `aggregation_mode=value_distribution` | `diagram_mode=on` は route を変えず、出力へ chart を加える | 概ね安定している |
-| CSV follow-up | `若い順でグラフ化してください。` | 直前の `data_analysis.csv_agg` を継続 | CSV 名、列名に加え、直前の `aggregation_mode`, `sort_order`, 図表意図 | `diagram_mode` が未指定でも、直前がグラフ化なら chart を継続候補として扱う | 現状は CSV 名と列名だけ補完し、`CSV-OVERVIEW` へ落ちることがある |
-| 履歴要約 | `これまでの会話内容を簡潔にまとめてください。` | `history_summary` | 直近の `chat_history` | `report_mode=off` なら軽量最優先 | 概ね安定している |
-| 履歴の報告書化 | `これまでの会話内容を簡潔にまとめて報告書を作成してください。` または `report_mode=on` 付きの履歴要約 | `advanced_hybrid` もしくは報告書専用フロー | 直近の `chat_history`, 報告書モード, 章立て意図 | `report_mode=on` は履歴要約 intent より強く扱い、報告書化へ進める | ここを優先する方針へ修正中 |
+| CSV follow-up | `若い順でグラフ化してください。` | 直前の `data_analysis.csv_agg` を継続 | 現在スレッド内の CSV 名、列名、直前の `aggregation_mode`, `sort_order`, 図表意図 | `diagram_mode` が未指定でも、直前がグラフ化なら chart を継続候補として扱う | 直前のグラフ意図継承を強化中 |
+| 履歴要約 | `これまでの会話内容を簡潔にまとめてください。` | `history_summary` | 現在スレッド内の `chat_history` | `report_mode=off` なら軽量最優先 | 概ね安定している |
+| 履歴の報告書化 | `これまでの会話内容を簡潔にまとめて報告書を作成してください。` または `report_mode=on` 付きの履歴要約 | `advanced_hybrid` もしくは報告書専用フロー | 現在スレッド内の `chat_history`, 報告書モード, 章立て意図 | `report_mode=on` は履歴要約 intent より強く扱い、報告書化へ進める | ここを優先する方針へ修正中 |
 | PDF 留意点抽出 | `この案件に関連する資料PDFから主要な留意点を抽出してください。` | `advanced_hybrid.doc_extract` | project documents, `doc_chunks`, 軽量根拠整形 | `report_mode=off` なら lightweight doc final を許可 | route は安定、候補ノイズは残課題 |
 
 ### 6.2 route 優先順位の再確認ポイント
 
 - `report_mode=on` は常に「重い route へ送る」ではなく、「報告書として保存・出荷したい依頼」で route を押し上げる
 - ただし履歴要約については、UI で `report_mode=on` が付いている時点で、文面に `報告書` がなくても `history_summary` より報告書化を優先してよい
-- CSV follow-up では、`target_file_name` と `target_column` だけでなく、直前の `aggregation_mode`, `sort_order`, `output_format`, `diagram_mode` まで引き継ぐ
+- CSV follow-up では、`target_file_name` と `target_column` だけでなく、直前の `aggregation_mode`, `sort_order`, `output_format`, `diagram_mode`, `wants_chart` まで引き継ぐ
+- スレッド導入後の follow-up と履歴要約は、案件全体ではなく現在の会話スレッドを優先して文脈継続する
 - `diagram_mode=on` は原則として route を変えず、軽量 route のまま deterministic な chart を足す方向で扱う
 - `advanced_reasoning=on` でも、CSV 要約・CSV 集計・履歴要約の軽量 route は維持してよい
 
