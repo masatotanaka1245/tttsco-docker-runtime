@@ -66,6 +66,19 @@ class GlobalChatRouteProcessor {
     public $lastLoggedLen = 0;
     public $ollamaErrorMsg = "";
 
+    private function logPromptBudget(string $phase, array $parts, int $numCtx): void
+    {
+        $segments = [];
+        $totalChars = 0;
+        foreach ($parts as $label => $text) {
+            $chars = mb_strlen((string)$text);
+            $segments[] = "{$label}Chars={$chars}";
+            $totalChars += $chars;
+        }
+
+        chatLogger("[PROMPT-BUDGET] route={$this->routeName} | phase={$phase} | num_ctx={$numCtx} | totalChars={$totalChars} | " . implode(' | ', $segments));
+    }
+
     /**
      * コンストラクタ (完全DI化への整流)
      */
@@ -429,6 +442,12 @@ class GlobalChatRouteProcessor {
                         . "集計結果を視覚的に表現できる場合は、Mermaidではなく " . $fence . "json:chart のChart.js用JSONブロックを使用してください。";
 
         $prompt_user = "【ユーザーの質問】\n{$this->originalMessage}\n\n【これまでの調査履歴（検索結果）】\n{$this->observationHistory}";
+
+        $this->logPromptBudget('final_generate', [
+            'system' => $system_prompt,
+            'question' => $this->originalMessage,
+            'observation' => $this->observationHistory,
+        ], 8192);
 
         chatLogger("[DEBUG] Ollama最終統合ストリーミング(api/generate)接続処理を開始します...");
         $ch = curl_init("{$this->ollama_host}/api/generate");

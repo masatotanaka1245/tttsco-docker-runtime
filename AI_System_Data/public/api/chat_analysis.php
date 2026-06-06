@@ -286,6 +286,17 @@ class AdvancedReasoningRouteProcessor {
                     $sqlHint = trim((string)($this->evalResult['sql_hint'] ?? ''));
                     chatLogger("[EVAL-NG] 門番による差し戻し。verdict={$verdict} | next_action=" . ($nextAction !== '' ? $nextAction : 'none') . " | sql_hint=" . ($sqlHint !== '' ? $sqlHint : 'none') . " | フィードバック: {$feedback}");
 
+                    if ($evaluator->shouldAskUserClarification($this->evalResult, $this->originalMessage)) {
+                        $clarificationQuestion = $evaluator->buildClarificationQuestion($this->originalMessage, $this->evalResult);
+                        if ($clarificationQuestion !== '') {
+                            $this->finalResponse = $clarificationQuestion;
+                            $this->evalResult['needs_revision'] = false;
+                            $this->evalResult['feedback'] = $feedback . "\n[ASK-USER-CLARIFICATION] 差し戻し内容をユーザー向け確認質問へ変換し、追加情報の取得を優先しました。";
+                            chatLogger("[EVAL-ASK-USER] verdict={$verdict} のため追加抽出へ進まず、確認質問を返しました。");
+                            break;
+                        }
+                    }
+
                     if (in_array($verdict, ['revise_text_only', 'reject'], true)) {
                         sendSSE('status', [
                             'step'    => 4,
@@ -1036,6 +1047,19 @@ class AdvancedReasoningRouteProcessor {
         return $cleaned !== null ? $cleaned : $text;
     }
 
+    private function logPromptBudget(string $phase, array $parts, int $numCtx): void
+    {
+        $segments = [];
+        $totalChars = 0;
+        foreach ($parts as $label => $text) {
+            $chars = mb_strlen((string)$text);
+            $segments[] = "{$label}Chars={$chars}";
+            $totalChars += $chars;
+        }
+
+        chatLogger("[PROMPT-BUDGET] route=data_analysis | phase={$phase} | num_ctx={$numCtx} | totalChars={$totalChars} | " . implode(' | ', $segments));
+    }
+
     /**
      * 実在構造（SHOW TABLES / DESCRIBE）の取得、およびプロジェクト内全データの動的カウント
      */
@@ -1138,7 +1162,15 @@ class AdvancedReasoningRouteProcessor {
                       . "分析観点リスト(JSON):";
         
         chatLogger("[DEBUG] Ollama因数分解API呼び出し送信前...");
-        $decomp_res = callOllamaChat($this->ollama_host, $this->model, $this->composeMemoryAwarePrompt($decompPrompt), "", 'json', ["temperature" => 0.0, "top_p" => 0.1, "num_ctx" => 4096]);
+        $decompSystemPrompt = $this->composeMemoryAwarePrompt($decompPrompt);
+        $this->logPromptBudget('decompose_question', [
+            'system' => $decompSystemPrompt,
+            'schema' => $this->schemaInfo,
+            'question' => $this->searchQuery,
+            'projectMemory' => $this->projectOperatingMemoryPrompt,
+            'databaseMemory' => $this->databaseMemoryPrompt,
+        ], 4096);
+        $decomp_res = callOllamaChat($this->ollama_host, $this->model, $decompSystemPrompt, "", 'json', ["temperature" => 0.0, "top_p" => 0.1, "num_ctx" => 4096]);
         chatLogger("[DEBUG] Ollama因数分解API応答受信 raw: " . $decomp_res);
         
         $fence = str_repeat("\x60", 3);
@@ -1554,6 +1586,16 @@ class AdvancedReasoningRouteProcessor {
                      . "【ユーザーの質問】\n{$this->originalMessage}\n\n"
                      . "【各観点の中間考察結果】\n" . $mergedReasoningText;
 
+        $this->logPromptBudget('final_generate_stream', [
+            'system' => $system_prompt,
+            'project' => $this->projectContext,
+            'history' => $this->historySummaryText,
+            'question' => $this->originalMessage,
+            'reasoning' => $mergedReasoningText,
+            'projectMemory' => $this->projectOperatingMemoryPrompt,
+            'databaseMemory' => $this->databaseMemoryPrompt,
+        ], 8192);
+
         chatLogger("[DEBUG] cURLによるOllama最終ストリーミング(api/generate)接続処理を開始します...");
         $get_ch = curl_init("{$this->ollama_host}/api/generate");
         
@@ -1684,6 +1726,16 @@ class AdvancedReasoningRouteProcessor {
                      . (!empty($this->historySummaryText) ? "【これまでの会話の文脈】\n{$this->historySummaryText}\n\n" : "")
                      . "【ユーザーの質問】\n{$this->originalMessage}\n\n"
                      . "【各観点の中間考察結果（追加抽出分を含む）】\n" . $mergedReasoningText;
+
+        $this->logPromptBudget('final_generate_background', [
+            'system' => $system_prompt,
+            'project' => $this->projectContext,
+            'history' => $this->historySummaryText,
+            'question' => $this->originalMessage,
+            'reasoning' => $mergedReasoningText,
+            'projectMemory' => $this->projectOperatingMemoryPrompt,
+            'databaseMemory' => $this->databaseMemoryPrompt,
+        ], 8192);
 
         $thoughtDummy = "";
         $finalRes = callOllamaChat($this->ollama_host, $this->model, $system_prompt, $prompt_user . "\n\n回答（日本語で詳細に）:", null, ['temperature' => 0.0, 'top_p' => 0.1, 'num_ctx' => 8192], $thoughtDummy);

@@ -96,6 +96,19 @@ class NormalStreamingRouteProcessor {
         return $cleaned !== null ? $cleaned : $text;
     }
 
+    private function logPromptBudget(string $phase, array $parts, int $numCtx): void
+    {
+        $segments = [];
+        $totalChars = 0;
+        foreach ($parts as $label => $text) {
+            $chars = mb_strlen((string)$text);
+            $segments[] = "{$label}Chars={$chars}";
+            $totalChars += $chars;
+        }
+
+        chatLogger("[PROMPT-BUDGET] route=normal | phase={$phase} | num_ctx={$numCtx} | totalChars={$totalChars} | " . implode(' | ', $segments));
+    }
+
     public function execute(): void {
         chatLogger(">>> [通常ルート] 通常ストリーミングルートを起動します");
         sendSSE('status', ['message' => '🔍 関連ドキュメントのベクトル類似度検索を実行しています...']);
@@ -158,6 +171,19 @@ class NormalStreamingRouteProcessor {
                 $forbiddenActions = $this->evalResult['forbidden_actions'] ?? [];
                 if (!is_array($forbiddenActions)) {
                     $forbiddenActions = [$forbiddenActions];
+                }
+
+                if ($evaluator->shouldAskUserClarification($this->evalResult, $this->originalMessage)) {
+                    $clarificationQuestion = $evaluator->buildClarificationQuestion($this->originalMessage, $this->evalResult);
+                    if ($clarificationQuestion !== '') {
+                        $this->fullResponse = $clarificationQuestion;
+                        $this->evalResult['needs_revision'] = false;
+                        $this->evalResult['feedback'] = $feedback . "\n[ASK-USER-CLARIFICATION] 差し戻し内容をユーザー向け確認質問へ変換し、追加情報の取得を優先しました。";
+                        chatLogger("[JUDGE-NORMAL-CLARIFY] verdict={$verdict} のため回答再生成へ進まず、確認質問を返しました。");
+                        chatLogger("[JUDGE-NORMAL-EVAL] 通常RAG回答品質管理審査結果マトリクス:\n" . print_r($this->evalResult, true));
+                        chatLogger("[DEBUG] ChatEvaluator による通常RAG最終回答品質審査が正常開通しました。");
+                        return;
+                    }
                 }
 
                 sendSSE('status', ['message' => '📝 品質確認の指摘を反映し、既存根拠だけで回答を整えています...']);
@@ -341,13 +367,26 @@ class NormalStreamingRouteProcessor {
 
         $system_prompt = $this->buildSystemPrompt();
         $dialogue_context_prompt = $this->buildDialogueContextPrompt();
-        $prompt_user = $this->buildProjectContextPrompt() . $dialogue_context_prompt;
+        $project_context_prompt = $this->buildProjectContextPrompt();
+        $prompt_user = $project_context_prompt . $dialogue_context_prompt;
+        $reference_context_prompt = '';
         if ($this->isProjectMemoryConsultationRoute()) {
-            $prompt_user .= $this->contextText . "\n";
+            $reference_context_prompt = $this->contextText . "\n";
         } else {
-            $prompt_user .= "【参考資料情報】\n" . (!empty($this->contextText) ? $this->contextText : "（指定された資料データは見つかりませんでした）") . "\n";
+            $reference_context_prompt = "【参考資料情報】\n" . (!empty($this->contextText) ? $this->contextText : "（指定された資料データは見つかりませんでした）") . "\n";
         }
-        $prompt_user .= "質問：" . $this->originalMessage;
+        $prompt_user .= $reference_context_prompt;
+        $question_prompt = "質問：" . $this->originalMessage;
+        $prompt_user .= $question_prompt;
+
+        $this->logPromptBudget('final_generate', [
+            'system' => $system_prompt,
+            'project' => $project_context_prompt,
+            'history' => $dialogue_context_prompt,
+            'context' => $reference_context_prompt,
+            'question' => $question_prompt,
+            'projectMemory' => $this->projectOperatingMemoryPrompt,
+        ], 8192);
 
         chatLogger("Ollama接続開始。モデル: {$this->model} | プロンプト総文字数: " . mb_strlen($prompt_user) . "文字");
 

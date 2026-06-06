@@ -123,6 +123,375 @@ if (!function_exists('getChatBubbleClasses')) {
     }
 }
 
+if (!function_exists('getChatReasoningJson')) {
+    function getChatReasoningJson(array $reasoningSteps): string {
+        return json_encode(
+            $reasoningSteps,
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
+        ) ?: '[]';
+    }
+}
+
+if (!function_exists('renderSavedChatMessageContent')) {
+    function renderSavedChatMessageContent(array $chat, array $reasoningStepsByChatId): void {
+        $role = (string)($chat['role'] ?? '');
+        $message = (string)($chat['message'] ?? '');
+
+        if ($role === 'assistant') {
+            $reasoningSteps = $reasoningStepsByChatId[(int)($chat['id'] ?? 0)] ?? [];
+            $reasoningJson = getChatReasoningJson($reasoningSteps);
+            ?>
+            <div class="chat-raw-message-source hidden"><?= h($message) ?></div>
+            <script type="application/json" class="chat-reasoning-source"><?= $reasoningJson ?></script>
+            <div class="ai-text-body markdown-body chat-markdown w-full"></div>
+            <?php
+            return;
+        }
+        ?>
+        <div class="chat-raw-message-source hidden"><?= h($message) ?></div>
+        <div class="user-text-body w-full break-words"><?= h($message) ?></div>
+        <?php
+    }
+}
+
+if (!function_exists('renderChatThreadTabs')) {
+    function renderChatThreadTabs(array $chatThreads, int $selectedThreadId): void {
+        foreach ($chatThreads as $thread) {
+            $threadId = (int)($thread['id'] ?? 0);
+            $isActiveThread = $threadId === $selectedThreadId;
+            $threadTitle = (string)($thread['title'] ?? ('会話 ' . $threadId));
+            $threadMetaAt = (string)($thread['last_message_at'] ?: $thread['updated_at'] ?: $thread['created_at'] ?: '');
+            ?>
+            <div class="chat-thread-tab-group group">
+                <button
+                    type="button"
+                    data-thread-switch
+                    data-thread-id="<?= $threadId ?>"
+                    aria-current="<?= $isActiveThread ? 'page' : 'false' ?>"
+                    <?= $isActiveThread ? 'disabled' : '' ?>
+                    onclick="<?= $isActiveThread ? 'return false;' : "if(typeof window.switchProjectChatThread === 'function') window.switchProjectChatThread($threadId)" ?>"
+                    class="<?= h(getChatThreadButtonClasses($isActiveThread)) ?>"
+                >
+                    <span class="min-w-0">
+                        <span data-thread-title class="chat-thread-tab__title text-[11px] font-bold"><?= h($threadTitle) ?></span>
+                        <span class="<?= h(getChatThreadMetaClasses($isActiveThread)) ?>">
+                            <?= h(formatChatThreadMeta($threadMetaAt, $thread['message_count'] ?? 0)) ?>
+                        </span>
+                    </span>
+                </button>
+                <?php if (count($chatThreads) > 1): ?>
+                    <button
+                        type="button"
+                        onclick="if(typeof window.deleteProjectChatThread === 'function') window.deleteProjectChatThread(<?= $threadId ?>)"
+                        class="chat-thread-tab-delete inline-flex items-center justify-center border border-transparent text-[13px] font-bold leading-none text-slate-300 transition-all duration-200 ease-in-out hover:border-red-100 hover:bg-red-50 hover:text-red-500"
+                        title="このスレッドを削除"
+                        aria-label="このスレッドを削除"
+                    >×</button>
+                <?php endif; ?>
+            </div>
+            <?php
+        }
+        ?>
+        <button
+            type="button"
+            onclick="if(typeof window.createProjectChatThread === 'function') window.createProjectChatThread()"
+            class="chat-thread-tab-create inline-flex items-center justify-center border border-dashed border-slate-300 px-3 text-[11px] font-black text-slate-500 transition-all duration-200 ease-in-out hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 active:scale-95"
+            title="新しい会話スレッドを作成"
+            aria-label="新しい会話スレッドを作成"
+        >＋</button>
+        <?php
+    }
+}
+
+if (!function_exists('renderProjectMemoryFlash')) {
+    function renderProjectMemoryFlash(string $memoryFlash): void {
+        if ($memoryFlash === '1') {
+            echo '<div class="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">案件運用メモを更新しました。</div>';
+            return;
+        }
+        if ($memoryFlash === 'error') {
+            echo '<div class="text-[11px] font-bold text-red-700 bg-red-50 border border-red-200 rounded-xl px-4 py-3">案件運用メモの保存に失敗しました。</div>';
+            return;
+        }
+        if ($memoryFlash === 'csrf_error' || $memoryFlash === 'forbidden') {
+            echo '<div class="text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">案件運用メモを更新する権限がありません。</div>';
+        }
+    }
+}
+
+if (!function_exists('renderProjectMemoryEditors')) {
+    function renderProjectMemoryEditors(array $projectMemoryDocs): void {
+        $fields = [
+            ['type' => 'readme', 'id' => 'memory-readme', 'name' => 'memory_readme', 'label' => '案件内容', 'placeholder' => '案件の背景、用語、前提、構成など'],
+            ['type' => 'agents', 'id' => 'memory-agents', 'name' => 'memory_agents', 'label' => 'AIエージェント', 'placeholder' => '回答方針、禁止事項、優先ルールなど'],
+            ['type' => 'todo', 'id' => 'memory-todo', 'name' => 'memory_todo', 'label' => 'タスク一覧', 'placeholder' => '既知の課題、次に見るべき点、現在の運用メモなど'],
+        ];
+
+        foreach ($fields as $field) {
+            $content = (string)($projectMemoryDocs[$field['type']]['content'] ?? '');
+            ?>
+            <div class="space-y-1.5">
+                <label for="<?= h($field['id']) ?>" class="block text-[10px] font-black text-slate-400 tracking-wider"><?= h($field['label']) ?></label>
+                <textarea id="<?= h($field['id']) ?>" name="<?= h($field['name']) ?>" rows="8" class="w-full min-h-[11rem] border border-slate-200 rounded-xl p-3 text-xs leading-5 bg-slate-50/50 focus:bg-white focus:border-indigo-400/80 transition-all duration-200 resize-y font-mono text-slate-700 outline-none" placeholder="<?= h($field['placeholder']) ?>"><?= h($content) ?></textarea>
+            </div>
+            <?php
+        }
+    }
+}
+
+if (!function_exists('renderProjectMemoryReadonly')) {
+    function renderProjectMemoryReadonly(array $projectMemoryDocs): void {
+        $hasContent = false;
+        foreach (['readme', 'agents', 'todo'] as $memoryType) {
+            $memoryContent = trim((string)($projectMemoryDocs[$memoryType]['content'] ?? ''));
+            if ($memoryContent === '') {
+                continue;
+            }
+            $hasContent = true;
+            ?>
+            <div class="border border-slate-200 rounded-xl overflow-hidden">
+                <div class="px-4 py-2 bg-slate-50 text-[10px] font-black text-slate-400 tracking-wider"><?= h((string)($projectMemoryDocs[$memoryType]['label'] ?? strtoupper($memoryType))) ?></div>
+                <div class="px-4 py-3 text-xs text-slate-600 leading-relaxed whitespace-pre-wrap"><?= h($memoryContent) ?></div>
+            </div>
+            <?php
+        }
+
+        if (!$hasContent) {
+            ?>
+            <div class="text-center py-10 bg-slate-50/60 rounded-xl border border-dashed border-slate-200">
+                <p class="text-xs text-slate-400 font-medium italic">案件運用メモはまだ登録されていません。</p>
+            </div>
+            <?php
+        }
+    }
+}
+
+if (!function_exists('renderProjectOverviewRows')) {
+    function renderProjectOverviewRows(array $currentProject): void {
+        $projectPeriod = (!empty($currentProject['start_date']) || !empty($currentProject['end_date']))
+            ? h((string)$currentProject['start_date']) . ' ～ ' . h((string)$currentProject['end_date'])
+            : '<span class="text-slate-400 italic font-normal">未設定</span>';
+        ?>
+        <tr>
+            <th class="p-4 bg-slate-50/40 w-36 font-bold text-slate-400 text-[11px] tracking-wider uppercase">業務名</th>
+            <td class="p-4 font-black text-slate-800 text-sm"><?= h((string)$currentProject['project_name']) ?></td>
+        </tr>
+        <tr>
+            <th class="p-4 bg-slate-50/40 font-bold text-slate-400 text-[11px] tracking-wider uppercase">業務期間</th>
+            <td class="p-4 font-semibold text-slate-600"><?= $projectPeriod ?></td>
+        </tr>
+        <tr>
+            <th class="p-4 bg-slate-50/40 font-bold text-slate-400 text-[11px] tracking-wider uppercase">業務概要</th>
+            <td class="p-4 leading-relaxed whitespace-pre-wrap font-medium text-slate-600"><?= h((string)($currentProject['description'] ?? '') ?: '未入力') ?></td>
+        </tr>
+        <tr>
+            <th class="p-4 bg-slate-50/40 align-top font-bold text-slate-400 text-[11px] tracking-wider uppercase">場所・住所</th>
+            <td class="p-4">
+                <div class="mb-3 font-semibold text-slate-700"><?= h((string)($currentProject['address'] ?? '') ?: '未登録') ?></div>
+                <?php if (!empty($currentProject['latitude']) && !empty($currentProject['longitude'])): ?>
+                    <div id="overview-map" class="w-full h-52 rounded-xl border border-slate-200 overview-map-container mt-2 shadow-inner"></div>
+                <?php endif; ?>
+            </td>
+        </tr>
+        <?php
+    }
+}
+
+if (!function_exists('getMemberRoleBadgeClasses')) {
+    function getMemberRoleBadgeClasses(string $memberRole): string {
+        return $memberRole === 'manager'
+            ? 'bg-purple-50 text-purple-700 border border-purple-200'
+            : 'bg-emerald-50 text-emerald-700 border border-emerald-200';
+    }
+}
+
+if (!function_exists('renderProjectMemberRows')) {
+    function renderProjectMemberRows(array $members): void {
+        if (empty($members)) {
+            ?>
+            <tr><td colspan="4" class="p-12 text-center text-slate-400 italic font-medium">アサインされたメンバーはいません。</td></tr>
+            <?php
+            return;
+        }
+
+        foreach ($members as $member) {
+            $memberRole = (string)($member['role'] ?? '');
+            ?>
+            <tr class="hover:bg-slate-50/50 transition-colors duration-150 group">
+                <td class="p-4 font-bold text-slate-700 flex items-center gap-2.5">
+                    <div class="w-6 h-6 rounded-full bg-slate-100 border border-slate-200/50 flex items-center justify-center text-[10px]">👤</div>
+                    <?= h((string)($member['username'] ?? '')) ?>
+                </td>
+                <td class="p-4 text-slate-500 font-medium"><?= h((string)($member['department'] ?? '未設定')) ?></td>
+                <td class="p-4">
+                    <span class="px-2.5 py-1 rounded-md text-[9px] font-black uppercase tracking-wider <?= h(getMemberRoleBadgeClasses($memberRole)) ?>">
+                        <?= h($memberRole) ?>
+                    </span>
+                </td>
+                <td class="p-4 text-center">
+                    <button type="button" onclick="if(typeof window.handleRemoveMember === 'function') window.handleRemoveMember(<?= (int)($member['user_id'] ?? 0) ?>)" class="text-slate-300 hover:text-red-500 hover:bg-red-50 w-7 h-7 rounded-lg flex items-center justify-center mx-auto opacity-0 group-hover:opacity-100 transition-all duration-200 ease-in-out transform active:scale-90" title="プロジェクトから外す">🗑️</button>
+                </td>
+            </tr>
+            <?php
+        }
+    }
+}
+
+if (!function_exists('renderProjectCommentItems')) {
+    function renderProjectCommentItems(array $comments, int $userId, string $role): void {
+        if (empty($comments)) {
+            ?>
+            <div class="text-center py-12 bg-white rounded-2xl border border-dashed border-slate-200 shadow-2xs">
+                <p class="text-3xl mb-2 opacity-30">💭</p>
+                <p class="text-xs text-slate-400 font-medium italic">まだコメントはありません。<br>プロジェクトに関するメモや進捗を共有しましょう。</p>
+            </div>
+            <?php
+            return;
+        }
+
+        foreach ($comments as $comment) {
+            ?>
+            <div id="comment-container-<?= (int)$comment['id'] ?>" class="bg-white p-4 px-5 rounded-2xl border border-slate-200 shadow-2xs animate-fadeIn hover:shadow-sm transition-shadow duration-200">
+                <div class="flex justify-between items-start mb-2">
+                    <div class="flex items-center gap-2.5">
+                        <div class="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-black text-slate-500 border border-slate-200/60 shadow-2xs">
+                            <?= mb_substr(h((string)$comment['username']), 0, 1) ?>
+                        </div>
+                        <span class="font-bold text-xs text-slate-700"><?= h((string)$comment['username']) ?></span>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <span class="text-[10px] font-mono font-medium text-slate-400"><?= date('Y/m/d H:i', strtotime((string)$comment['created_at'])) ?></span>
+                        <?php if ((int)$comment['user_id'] === $userId || $role === 'admin'): ?>
+                            <button type="button" onclick="if(typeof window.handleRemoveComment === 'function') window.handleRemoveComment(<?= (int)$comment['id'] ?>)" class="text-slate-300 hover:text-red-500 hover:bg-red-50 w-6 h-6 rounded-lg flex items-center justify-center transition-all duration-200 ease-in-out transform active:scale-90" title="コメントを削除">🗑️</button>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                <div class="text-xs text-slate-600 font-medium pt-1 leading-relaxed pl-8"><?= makeClickableLinks((string)$comment['comment_text']) ?></div>
+            </div>
+            <?php
+        }
+    }
+}
+
+if (!function_exists('renderFaqCards')) {
+    function renderFaqCards(array $faqs, int $userId, string $role): void {
+        foreach ($faqs as $faq) {
+            ?>
+            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs relative group hover:shadow-sm transition-shadow duration-200">
+                <?php if ((int)$faq['created_by'] === $userId || $role === 'admin'): ?>
+                    <button type="button" onclick="if(typeof window.handleDeleteFaq === 'function') window.handleDeleteFaq(<?= (int)$faq['id'] ?>)" class="absolute top-3 right-3 text-slate-300 hover:text-red-500 hover:bg-red-50 w-7 h-7 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 ease-in-out transform active:scale-90" title="ナレッジを削除">🗑️</button>
+                <?php endif; ?>
+                <div class="font-extrabold text-slate-800 text-xs mb-3 pb-2 border-b border-slate-100 pr-8 leading-relaxed">Q. <?= h((string)$faq['question_summary']) ?></div>
+                <div class="text-xs text-slate-600 font-medium leading-loose whitespace-pre-wrap"><?= h((string)$faq['answer_summary']) ?></div>
+            </div>
+            <?php
+        }
+    }
+}
+
+if (!function_exists('renderFaqEmptyState')) {
+    function renderFaqEmptyState(): void {
+        ?>
+        <div id="faq-empty-state" class="text-center py-16 bg-white rounded-2xl border border-dashed border-slate-200 shadow-2xs">
+            <p class="text-3xl mb-3 opacity-40">💡</p>
+            <p class="text-xs text-slate-400 font-bold leading-relaxed">チャットの回答にある「📌 ナレッジとして共有」ボタンから、<br>得られた有益な知見をチーム全体へシェアできます。</p>
+        </div>
+        <?php
+    }
+}
+
+if (!function_exists('renderPdfAnalysisModeOptions')) {
+    function renderPdfAnalysisModeOptions(): void {
+        $options = [
+            ['value' => 'auto', 'label' => '⚡ 自動判定 (本文高速 + 図表補足)'],
+            ['value' => 'tiles', 'label' => '🔲 標準 (2x2タイル分割)'],
+            ['value' => 'slices', 'label' => '🥞 水平スライス (8分割)'],
+            ['value' => 'full', 'label' => '📄 全体のみ (高速・軽量)'],
+            ['value' => 'all', 'label' => '🧠 フル解析 (高精度)'],
+        ];
+
+        foreach ($options as $option) {
+            ?>
+            <option value="<?= h((string)$option['value']) ?>" <?= $option['value'] === 'auto' ? 'selected' : '' ?>><?= h((string)$option['label']) ?></option>
+            <?php
+        }
+    }
+}
+
+if (!function_exists('renderPdfDocumentItems')) {
+    function renderPdfDocumentItems(array $documents): void {
+        foreach ($documents as $doc) {
+            $docId = (int)($doc['id'] ?? 0);
+            $docTitle = (string)($doc['title'] ?? '');
+            ?>
+            <details class="bg-white border border-slate-200 rounded-2xl shadow-2xs group overflow-hidden transition-all duration-300 ease-in-out hover:shadow-sm">
+                <summary class="p-3.5 px-5 flex justify-between items-center cursor-pointer hover:bg-slate-50/50 transition-colors duration-200 ease-in-out outline-none select-none">
+                    <div class="flex items-center gap-2.5 overflow-hidden pr-2">
+                        <span class="group-open:rotate-90 transition-transform duration-200 ease-in-out text-slate-400 text-[10px] w-4 text-center">▶</span>
+                        <span class="text-xs font-bold text-slate-700 group-hover:text-[#4F5D95] transition-colors duration-200 truncate">📄 <?= h($docTitle) ?></span>
+                    </div>
+                    <div class="flex items-center gap-2 flex-shrink-0">
+                        <button onclick="event.stopPropagation(); if(typeof window.openPdfTab === 'function') { window.openPdfTab(<?= $docId ?>, '<?= h(str_replace("'", "\\'", $docTitle)) ?>', 1); }" class="text-[9px] text-[#4F5D95] hover:bg-indigo-50 border border-slate-200 px-2.5 py-1 rounded-lg font-bold transition-all duration-200 ease-in-out mr-1 shadow-2xs transform active:scale-95">↗ 別タブで開く</button>
+                        <span class="text-[9px] bg-slate-100 border border-slate-200 px-2 py-0.5 rounded font-mono text-slate-400 font-bold">PDF</span>
+                        <button data-doc-id="<?= $docId ?>" class="btn-delete-pdf text-slate-440 hover:text-red-500 hover:bg-red-50 w-7 h-7 rounded-lg flex items-center justify-center transition-all duration-200 ease-in-out transform active:scale-90" title="この資料を完全に削除">🗑️</button>
+                    </div>
+                </summary>
+                <div class="h-[580px] border-t border-slate-100 bg-slate-50 p-2">
+                    <iframe src="viewer.php?id=<?= h((string)$docId) ?>&page=1" class="w-full h-full border-none rounded-xl shadow-inner bg-white" loading="lazy"></iframe>
+                </div>
+            </details>
+            <?php
+        }
+    }
+}
+
+if (!function_exists('renderPdfEmptyState')) {
+    function renderPdfEmptyState(): void {
+        ?>
+        <div id="pdf-empty-state" class="text-center py-12 bg-white rounded-2xl border border-dashed border-slate-200 shadow-2xs">
+            <p class="text-3xl mb-2 opacity-35">📭</p>
+            <p class="text-xs text-slate-400 font-medium italic">登録されているPDF資料はありません。<br>上部のアプローダーから資料を追加してください。</p>
+        </div>
+        <?php
+    }
+}
+
+if (!function_exists('renderCsvHistoryItems')) {
+    function renderCsvHistoryItems(array $csvFiles): void {
+        if (empty($csvFiles)) {
+            ?>
+            <p class="text-[10px] text-slate-400 text-center py-8 italic font-medium">登録済みのCSVはありません。</p>
+            <?php
+            return;
+        }
+
+        foreach ($csvFiles as $csvFile) {
+            $csvId = (int)($csvFile['id'] ?? 0);
+            $csvName = (string)($csvFile['file_name'] ?? '');
+            ?>
+            <div id="csv-item-<?= $csvId ?>" onclick="if(typeof window.loadCsvData === 'function') window.loadCsvData(<?= $csvId ?>, '<?= h(str_replace("'", "\\'", $csvName)) ?>')" class="p-3 bg-white border border-slate-200 rounded-xl hover:border-[#00758F] hover:shadow-md cursor-pointer shadow-2xs transition-all duration-200 ease-in-out group transform hover:-translate-y-0.5 active:scale-98">
+                <div class="text-xs font-bold text-slate-700 truncate group-hover:text-[#00758F] transition-colors duration-150 mb-1.5" title="📄 <?= h($csvName) ?>">📄 <?= h($csvName) ?></div>
+                <div class="flex justify-between items-center text-[9px] text-slate-400 font-medium">
+                    <span class="font-mono bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100 font-bold"><?= number_format((int)($csvFile['row_count'] ?? 0)) ?> rows</span>
+                    <span><?= date('m/d H:i', strtotime((string)$csvFile['created_at'])) ?></span>
+                </div>
+            </div>
+            <?php
+        }
+    }
+}
+
+if (!function_exists('renderCsvViewerPlaceholder')) {
+    function renderCsvViewerPlaceholder(): void {
+        ?>
+        <div class="text-center py-20 bg-white rounded-2xl border border-dashed border-slate-200 shadow-2xs h-full flex flex-col justify-center items-center">
+            <p class="text-4xl mb-3 opacity-25">📊</p>
+            <p class="text-xs text-slate-400 font-bold leading-relaxed">左側のインポート一覧からCSVファイルを選択するか、<br>上部の接続メニューからデータを取り込んでください。</p>
+        </div>
+        <?php
+    }
+}
+
 $chatQuickActions = [
     [
         'icon' => '📊',
@@ -686,18 +1055,7 @@ $projectCenterTabs = [
                     <div class="p-2 text-xs text-slate-800">
                         <table class="w-full text-left border-collapse">
                             <tbody class="divide-y divide-slate-100">
-                                <tr><th class="p-4 bg-slate-50/40 w-36 font-bold text-slate-400 text-[11px] tracking-wider uppercase">業務名</th><td class="p-4 font-black text-slate-800 text-sm"><?= h($current_project['project_name']) ?></td></tr>
-                                <tr><th class="p-4 bg-slate-50/40 font-bold text-slate-400 text-[11px] tracking-wider uppercase">業務期間</th><td class="p-4 font-semibold text-slate-600"><?= (!empty($current_project['start_date']) || !empty($current_project['end_date'])) ? h((string)$current_project['start_date']) . " ～ " . h((string)$current_project['end_date']) : '<span class="text-slate-400 italic font-normal">未設定</span>' ?></td></tr>
-                                <tr><th class="p-4 bg-slate-50/40 font-bold text-slate-400 text-[11px] tracking-wider uppercase">業務概要</th><td class="p-4 leading-relaxed whitespace-pre-wrap font-medium text-slate-600"><?= h((string)$current_project['description'] ?: '未入力') ?></td></tr>
-                                <tr>
-                                    <th class="p-4 bg-slate-50/40 align-top font-bold text-slate-400 text-[11px] tracking-wider uppercase">場所・住所</th>
-                                    <td class="p-4">
-                                        <div class="mb-3 font-semibold text-slate-700"><?= h((string)$current_project['address'] ?: '未登録') ?></div>
-                                        <?php if (!empty($current_project['latitude']) && !empty($current_project['longitude'])): ?>
-                                            <div id="overview-map" class="w-full h-52 rounded-xl border border-slate-200 overview-map-container mt-2 shadow-inner"></div>
-                                        <?php endif; ?>
-                                    </td>
-                                </tr>
+                                <?php renderProjectOverviewRows($current_project); ?>
                             </tbody>
                         </table>
                     </div>
@@ -721,11 +1079,7 @@ $projectCenterTabs = [
                                 <span class="text-[9px] font-black text-[#4F5D95] uppercase tracking-wider block mb-1">AI Engine Analysis Mode</span>
                                 <label for="analysis-mode" class="block text-[10px] font-bold text-slate-400 mb-1.5">解析モード（OCR分割数設定）</label>
                                 <select id="analysis-mode" class="w-full text-[11px] border border-slate-200 rounded-xl px-2.5 py-2 bg-white outline-none focus:ring-4 focus:ring-indigo-500/5 shadow-2xs font-bold text-slate-700 transition-all duration-200 ease-in-out cursor-pointer">
-                                    <option value="auto" selected>⚡ 自動判定 (本文高速 + 図表補足)</option>
-                                    <option value="tiles">🔲 標準 (2x2タイル分割)</option>
-                                    <option value="slices">🥞 水平スライス (8分割)</option>
-                                    <option value="full">📄 全体のみ (高速・軽量)</option>
-                                    <option value="all">🧠 フル解析 (高精度)</option>
+                                    <?php renderPdfAnalysisModeOptions(); ?>
                                 </select>
                             </div>
                             <div class="text-[9px] text-slate-400 leading-normal flex items-start gap-1 font-medium">
@@ -745,30 +1099,9 @@ $projectCenterTabs = [
                     </div>
 
                     <div id="pdf-document-list" class="space-y-2.5" role="list">
-                        <?php foreach ($documents as $doc): ?>
-                            <details class="bg-white border border-slate-200 rounded-2xl shadow-2xs group overflow-hidden transition-all duration-300 ease-in-out hover:shadow-sm">
-                                <summary class="p-3.5 px-5 flex justify-between items-center cursor-pointer hover:bg-slate-50/50 transition-colors duration-200 ease-in-out outline-none select-none">
-                                    <div class="flex items-center gap-2.5 overflow-hidden pr-2">
-                                        <span class="group-open:rotate-90 transition-transform duration-200 ease-in-out text-slate-400 text-[10px] w-4 text-center">▶</span>
-                                        <span class="text-xs font-bold text-slate-700 group-hover:text-[#4F5D95] transition-colors duration-200 truncate">📄 <?= h($doc['title']) ?></span>
-                                    </div>
-                                    <div class="flex items-center gap-2 flex-shrink-0">
-                                        <button onclick="event.stopPropagation(); if(typeof window.openPdfTab === 'function') { window.openPdfTab(<?= (int)$doc['id'] ?>, '<?= h(str_replace("'", "\\'", $doc['title'])) ?>', 1); }" class="text-[9px] text-[#4F5D95] hover:bg-indigo-50 border border-slate-200 px-2.5 py-1 rounded-lg font-bold transition-all duration-200 ease-in-out mr-1 shadow-2xs transform active:scale-95">↗ 別タブで開く</button>
-                                        <span class="text-[9px] bg-slate-100 border border-slate-200 px-2 py-0.5 rounded font-mono text-slate-400 font-bold">PDF</span>
-                                        <button data-doc-id="<?= (int)$doc['id'] ?>" class="btn-delete-pdf text-slate-440 hover:text-red-500 hover:bg-red-50 w-7 h-7 rounded-lg flex items-center justify-center transition-all duration-200 ease-in-out transform active:scale-90" title="この資料を完全に削除">🗑️</button>
-                                    </div>
-                                </summary>
-                                <div class="h-[580px] border-t border-slate-100 bg-slate-50 p-2">
-                                    <iframe src="viewer.php?id=<?= h((string)$doc['id']) ?>&page=1" class="w-full h-full border-none rounded-xl shadow-inner bg-white" loading="lazy"></iframe>
-                                </div>
-                            </details>
-                        <?php endforeach; ?>
-                        
+                        <?php renderPdfDocumentItems($documents); ?>
                         <?php if (empty($documents)): ?>
-                            <div id="pdf-empty-state" class="text-center py-12 bg-white rounded-2xl border border-dashed border-slate-200 shadow-2xs">
-                                <p class="text-3xl mb-2 opacity-35">📭</p>
-                                <p class="text-xs text-slate-400 font-medium italic">登録されているPDF資料はありません。<br>上部のアプローダーから資料を追加してください。</p>
-                            </div>
+                            <?php renderPdfEmptyState(); ?>
                         <?php endif; ?>
                     </div>
                 </div>
@@ -790,32 +1123,7 @@ $projectCenterTabs = [
                 </form>
 
                 <div class="space-y-4" id="comment-list-container">
-                    <?php foreach($comments as $c): ?>
-                    <div id="comment-container-<?= (int)$c['id'] ?>" class="bg-white p-4 px-5 rounded-2xl border border-slate-200 shadow-2xs animate-fadeIn hover:shadow-sm transition-shadow duration-200">
-                        <div class="flex justify-between items-start mb-2">
-                            <div class="flex items-center gap-2.5">
-                                <div class="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-black text-slate-500 border border-slate-200/60 shadow-2xs">
-                                    <?= mb_substr(h($c['username']), 0, 1) ?>
-                                </div>
-                                <span class="font-bold text-xs text-slate-700"><?= h($c['username']) ?></span>
-                            </div>
-                            <div class="flex items-center gap-3">
-                                <span class="text-[10px] font-mono font-medium text-slate-400"><?= date('Y/m/d H:i', strtotime($c['created_at'])) ?></span>
-                                <?php if ((int)$c['user_id'] === (int)$user_id || $role === 'admin'): ?>
-                                    <button type="button" onclick="if(typeof window.handleRemoveComment === 'function') window.handleRemoveComment(<?= (int)$c['id'] ?>)" class="text-slate-300 hover:text-red-500 hover:bg-red-50 w-6 h-6 rounded-lg flex items-center justify-center transition-all duration-200 ease-in-out transform active:scale-90" title="コメントを削除">🗑️</button>
-                                <?php endif; ?>
-                            </div>
-                        </div>
-                        <div class="text-xs text-slate-600 font-medium pt-1 leading-relaxed pl-8"><?= makeClickableLinks($c['comment_text']) ?></div>
-                    </div>
-                    <?php endforeach; ?>
-                    
-                    <?php if(empty($comments)): ?>
-                        <div class="text-center py-12 bg-white rounded-2xl border border-dashed border-slate-200 shadow-2xs">
-                            <p class="text-3xl mb-2 opacity-30">💭</p>
-                            <p class="text-xs text-slate-400 font-medium italic">まだコメントはありません。<br>プロジェクトに関するメモや進捗を共有しましょう。</p>
-                        </div>
-                    <?php endif; ?>
+                    <?php renderProjectCommentItems($comments, (int)$user_id, (string)$role); ?>
                 </div>
             </div>
 
@@ -841,27 +1149,13 @@ $projectCenterTabs = [
                     <div class="col-span-1 border border-slate-200 rounded-2xl bg-slate-50/60 p-4 space-y-3 shadow-sm">
                         <h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest pb-1.5 border-b border-slate-200/60">インポート履歴 (<?= count($csv_files) ?>)</h4>
                         <div class="space-y-2 max-h-[400px] overflow-y-auto pr-1 no-scrollbar">
-                            <?php foreach ($csv_files as $cf): ?>
-                                <div id="csv-item-<?= (int)$cf['id'] ?>" onclick="if(typeof window.loadCsvData === 'function') window.loadCsvData(<?= (int)$cf['id'] ?>, '<?= h(str_replace("'", "\\'", $cf['file_name'])) ?>')" class="p-3 bg-white border border-slate-200 rounded-xl hover:border-[#00758F] hover:shadow-md cursor-pointer shadow-2xs transition-all duration-200 ease-in-out group transform hover:-translate-y-0.5 active:scale-98">
-                                    <div class="text-xs font-bold text-slate-700 truncate group-hover:text-[#00758F] transition-colors duration-150 mb-1.5" title="📄 <?= h($cf['file_name']) ?>">📄 <?= h($cf['file_name']) ?></div>
-                                    <div class="flex justify-between items-center text-[9px] text-slate-400 font-medium">
-                                        <span class="font-mono bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100 font-bold"><?= number_format($cf['row_count']) ?> rows</span>
-                                        <span><?= date('m/d H:i', strtotime($cf['created_at'])) ?></span>
-                                    </div>
-                                </div>
-                            <?php endforeach; ?>
-                            <?php if (empty($csv_files)): ?>
-                                <p class="text-[10px] text-slate-400 text-center py-8 italic font-medium">登録済みのCSVはありません。</p>
-                            <?php endif; ?>
+                            <?php renderCsvHistoryItems($csv_files); ?>
                         </div>
                     </div>
 
                     <div class="col-span-1 md:col-span-3 h-full">
                         <div id="csv-viewer-container" class="h-full min-h-[400px]">
-                            <div class="text-center py-20 bg-white rounded-2xl border border-dashed border-slate-200 shadow-2xs h-full flex flex-col justify-center items-center">
-                                <p class="text-4xl mb-3 opacity-25">📊</p>
-                                <p class="text-xs text-slate-400 font-bold leading-relaxed">左側のインポート一覧からCSVファイルを選択するか、<br>上部の接続メニューからデータを取り込んでください。</p>
-                            </div>
+                            <?php renderCsvViewerPlaceholder(); ?>
                         </div>
                     </div>
                 </div>
@@ -873,22 +1167,10 @@ $projectCenterTabs = [
                     <button onclick="if(typeof window.openFaqModal === 'function') window.openFaqModal('', '')" class="text-[10px] bg-amber-50 text-amber-700 border border-amber-200 px-3 py-1.5 rounded-xl font-bold shadow-2xs hover:bg-amber-100/80 transition-all duration-200 ease-in-out transform active:scale-95">➕ 手動でナレッジを追加</button>
                 </div>
                 <div id="faq-list-container" class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <?php foreach($faqs as $f): ?>
-                        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs relative group hover:shadow-sm transition-shadow duration-200">
-                            <?php if ((int)$f['created_by'] === (int)$user_id || $role === 'admin'): ?>
-                                <button type="button" onclick="if(typeof window.handleDeleteFaq === 'function') window.handleDeleteFaq(<?= (int)$f['id'] ?>)" class="absolute top-3 right-3 text-slate-300 hover:text-red-500 hover:bg-red-50 w-7 h-7 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 ease-in-out transform active:scale-90" title="ナレッジを削除">🗑️</button>
-                            <?php endif; ?>
-                            
-                            <div class="font-extrabold text-slate-800 text-xs mb-3 pb-2 border-b border-slate-100 pr-8 leading-relaxed">Q. <?= h($f['question_summary']) ?></div>
-                            <div class="text-xs text-slate-600 font-medium leading-loose whitespace-pre-wrap"><?= h($f['answer_summary']) ?></div>
-                        </div>
-                    <?php endforeach; ?>
+                    <?php renderFaqCards($faqs, (int)$user_id, (string)$role); ?>
                 </div>
                 <?php if(empty($faqs)): ?>
-                    <div id="faq-empty-state" class="text-center py-16 bg-white rounded-2xl border border-dashed border-slate-200 shadow-2xs">
-                        <p class="text-3xl mb-3 opacity-40">💡</p>
-                        <p class="text-xs text-slate-400 font-bold leading-relaxed">チャットの回答にある「📌 ナレッジとして共有」ボタンから、<br>得られた有益な知見をチーム全体へシェアできます。</p>
-                    </div>
+                    <?php renderFaqEmptyState(); ?>
                 <?php endif; ?>
             </div>
 
@@ -908,26 +1190,7 @@ $projectCenterTabs = [
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-slate-100">
-                        <?php foreach($members as $m): ?>
-                            <tr class="hover:bg-slate-50/50 transition-colors duration-150 group">
-                                <td class="p-4 font-bold text-slate-700 flex items-center gap-2.5">
-                                    <div class="w-6 h-6 rounded-full bg-slate-100 border border-slate-200/50 flex items-center justify-center text-[10px]">👤</div>
-                                    <?= h($m['username']) ?>
-                                </td>
-                                <td class="p-4 text-slate-500 font-medium"><?= h($m['department'] ?? '未設定') ?></td>
-                                <td class="p-4">
-                                    <span class="px-2.5 py-1 rounded-md text-[9px] font-black uppercase tracking-wider <?= $m['role'] === 'manager' ? 'bg-purple-50 text-purple-700 border border-purple-200' : 'bg-emerald-50 text-emerald-700 border border-emerald-200' ?>">
-                                        <?= h($m['role']) ?>
-                                    </span>
-                                </td>
-                                <td class="p-4 text-center">
-                                    <button type="button" onclick="if(typeof window.handleRemoveMember === 'function') window.handleRemoveMember(<?= (int)$m['user_id'] ?>)" class="text-slate-300 hover:text-red-500 hover:bg-red-50 w-7 h-7 rounded-lg flex items-center justify-center mx-auto opacity-0 group-hover:opacity-100 transition-all duration-200 ease-in-out transform active:scale-90" title="プロジェクトから外す">🗑️</button>
-                                </td>
-                            </tr>
-                        <?php endforeach; ?>
-                        <?php if(empty($members)): ?>
-                            <tr><td colspan="4" class="p-12 text-center text-slate-400 italic font-medium">アサインされたメンバーはいません。</td></tr>
-                        <?php endif; ?>
+                        <?php renderProjectMemberRows($members); ?>
                         </tbody>
                     </table>
                 </div>
@@ -951,13 +1214,7 @@ $projectCenterTabs = [
                         <span class="text-[10px] text-slate-400 font-bold tracking-wider">案件内容 / AIエージェント / タスク一覧</span>
                     </div>
                     <div class="p-5 space-y-4">
-                        <?php if ($memory_flash === '1'): ?>
-                            <div class="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">案件運用メモを更新しました。</div>
-                        <?php elseif ($memory_flash === 'error'): ?>
-                            <div class="text-[11px] font-bold text-red-700 bg-red-50 border border-red-200 rounded-xl px-4 py-3">案件運用メモの保存に失敗しました。</div>
-                        <?php elseif ($memory_flash === 'csrf_error' || $memory_flash === 'forbidden'): ?>
-                            <div class="text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">案件運用メモを更新する権限がありません。</div>
-                        <?php endif; ?>
+                        <?php renderProjectMemoryFlash((string)$memory_flash); ?>
 
                         <p class="text-[11px] text-slate-500 leading-relaxed">
                             この案件に特有の回答方針、背景、既知の論点をメモとして保持し、AIが回答を組み立てる前に参照します。現在は案件状態と直近会話に応じて自動更新され、次回の会話保存時にも再生成されます。
@@ -965,40 +1222,11 @@ $projectCenterTabs = [
 
                         <?php if ($can_manage_project_memory): ?>
                             <div class="space-y-4">
-                                <div class="space-y-1.5">
-                                    <label for="memory-readme" class="block text-[10px] font-black text-slate-400 tracking-wider">案件内容</label>
-                                    <textarea id="memory-readme" name="memory_readme" rows="8" class="w-full min-h-[11rem] border border-slate-200 rounded-xl p-3 text-xs leading-5 bg-slate-50/50 focus:bg-white focus:border-indigo-400/80 transition-all duration-200 resize-y font-mono text-slate-700 outline-none" placeholder="案件の背景、用語、前提、構成など"><?= h((string)($project_memory_docs['readme']['content'] ?? '')) ?></textarea>
-                                </div>
-
-                                <div class="space-y-1.5">
-                                    <label for="memory-agents" class="block text-[10px] font-black text-slate-400 tracking-wider">AIエージェント</label>
-                                    <textarea id="memory-agents" name="memory_agents" rows="8" class="w-full min-h-[11rem] border border-slate-200 rounded-xl p-3 text-xs leading-5 bg-slate-50/50 focus:bg-white focus:border-indigo-400/80 transition-all duration-200 resize-y font-mono text-slate-700 outline-none" placeholder="回答方針、禁止事項、優先ルールなど"><?= h((string)($project_memory_docs['agents']['content'] ?? '')) ?></textarea>
-                                </div>
-
-                                <div class="space-y-1.5">
-                                    <label for="memory-todo" class="block text-[10px] font-black text-slate-400 tracking-wider">タスク一覧</label>
-                                    <textarea id="memory-todo" name="memory_todo" rows="8" class="w-full min-h-[11rem] border border-slate-200 rounded-xl p-3 text-xs leading-5 bg-slate-50/50 focus:bg-white focus:border-indigo-400/80 transition-all duration-200 resize-y font-mono text-slate-700 outline-none" placeholder="既知の課題、次に見るべき点、現在の運用メモなど"><?= h((string)($project_memory_docs['todo']['content'] ?? '')) ?></textarea>
-                                </div>
+                                <?php renderProjectMemoryEditors($project_memory_docs); ?>
                             </div>
                         <?php else: ?>
                             <div class="space-y-4">
-                                <?php foreach (['readme', 'agents', 'todo'] as $memoryType): ?>
-                                    <?php $memoryContent = trim((string)($project_memory_docs[$memoryType]['content'] ?? '')); ?>
-                                    <?php if ($memoryContent === '') continue; ?>
-                                    <div class="border border-slate-200 rounded-xl overflow-hidden">
-                                        <div class="px-4 py-2 bg-slate-50 text-[10px] font-black text-slate-400 tracking-wider"><?= h((string)($project_memory_docs[$memoryType]['label'] ?? strtoupper($memoryType))) ?></div>
-                                        <div class="px-4 py-3 text-xs text-slate-600 leading-relaxed whitespace-pre-wrap"><?= h($memoryContent) ?></div>
-                                    </div>
-                                <?php endforeach; ?>
-                                <?php if (
-                                    trim((string)($project_memory_docs['agents']['content'] ?? '')) === '' &&
-                                    trim((string)($project_memory_docs['readme']['content'] ?? '')) === '' &&
-                                    trim((string)($project_memory_docs['todo']['content'] ?? '')) === ''
-                                ): ?>
-                                    <div class="text-center py-10 bg-slate-50/60 rounded-xl border border-dashed border-slate-200">
-                                        <p class="text-xs text-slate-400 font-medium italic">案件運用メモはまだ登録されていません。</p>
-                                    </div>
-                                <?php endif; ?>
+                                <?php renderProjectMemoryReadonly($project_memory_docs); ?>
                             </div>
                         <?php endif; ?>
                     </div>
@@ -1042,48 +1270,7 @@ $projectCenterTabs = [
 
         <div class="border-b border-slate-200/70 bg-white px-3 pt-2">
             <div id="chat-thread-list" class="chat-thread-tabs">
-                <?php foreach ($chat_threads as $thread): ?>
-                    <?php
-                        $threadId = (int)($thread['id'] ?? 0);
-                        $isActiveThread = $threadId === (int)$selected_thread_id;
-                        $threadTitle = (string)($thread['title'] ?? ('会話 ' . $threadId));
-                        $threadMetaAt = (string)($thread['last_message_at'] ?: $thread['updated_at'] ?: $thread['created_at'] ?: '');
-                    ?>
-                    <div class="chat-thread-tab-group group">
-                        <button
-                            type="button"
-                            data-thread-switch
-                            data-thread-id="<?= $threadId ?>"
-                            aria-current="<?= $isActiveThread ? 'page' : 'false' ?>"
-                            <?= $isActiveThread ? 'disabled' : '' ?>
-                            onclick="<?= $isActiveThread ? 'return false;' : "if(typeof window.switchProjectChatThread === 'function') window.switchProjectChatThread($threadId)" ?>"
-                            class="<?= h(getChatThreadButtonClasses($isActiveThread)) ?>"
-                        >
-                            <span class="min-w-0">
-                                <span data-thread-title class="chat-thread-tab__title text-[11px] font-bold"><?= h($threadTitle) ?></span>
-                                <span class="<?= h(getChatThreadMetaClasses($isActiveThread)) ?>">
-                                    <?= h(formatChatThreadMeta($threadMetaAt, $thread['message_count'] ?? 0)) ?>
-                                </span>
-                            </span>
-                        </button>
-                        <?php if (count($chat_threads) > 1): ?>
-                            <button
-                                type="button"
-                                onclick="if(typeof window.deleteProjectChatThread === 'function') window.deleteProjectChatThread(<?= $threadId ?>)"
-                                class="chat-thread-tab-delete inline-flex items-center justify-center border border-transparent text-[13px] font-bold leading-none text-slate-300 transition-all duration-200 ease-in-out hover:border-red-100 hover:bg-red-50 hover:text-red-500"
-                                title="このスレッドを削除"
-                                aria-label="このスレッドを削除"
-                            >×</button>
-                        <?php endif; ?>
-                    </div>
-                <?php endforeach; ?>
-                <button
-                    type="button"
-                    onclick="if(typeof window.createProjectChatThread === 'function') window.createProjectChatThread()"
-                    class="chat-thread-tab-create inline-flex items-center justify-center border border-dashed border-slate-300 px-3 text-[11px] font-black text-slate-500 transition-all duration-200 ease-in-out hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 active:scale-95"
-                    title="新しい会話スレッドを作成"
-                    aria-label="新しい会話スレッドを作成"
-                >＋</button>
+                <?php renderChatThreadTabs($chat_threads, (int)$selected_thread_id); ?>
             </div>
         </div>
 
@@ -1115,22 +1302,7 @@ $projectCenterTabs = [
                                 <span class="text-[8px] text-slate-400 font-mono tracking-tighter"><?= $timeStr ?></span>
                             </div>
                             <div class="<?= h(getChatBubbleClasses((string)$chat['role'])) ?>">
-
-                                <?php if ($chat['role'] === 'assistant'): ?>
-                                    <?php
-                                        $reasoningSteps = $chat_reasoning_steps_by_chat_id[(int)$chat['id']] ?? [];
-                                        $reasoningJson = json_encode(
-                                            $reasoningSteps,
-                                            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
-                                        );
-                                    ?>
-                                    <div class="chat-raw-message-source hidden"><?= h($chat['message']) ?></div>
-                                    <script type="application/json" class="chat-reasoning-source"><?= $reasoningJson ?: '[]' ?></script>
-                                    <div class="ai-text-body markdown-body chat-markdown w-full"></div>
-                                <?php else: ?>
-                                    <div class="chat-raw-message-source hidden"><?= h($chat['message']) ?></div>
-                                    <div class="user-text-body w-full break-words"><?= h($chat['message']) ?></div>
-                                <?php endif; ?>
+                                <?php renderSavedChatMessageContent($chat, $chat_reasoning_steps_by_chat_id); ?>
                             </div>
                         </div>
                     </div>

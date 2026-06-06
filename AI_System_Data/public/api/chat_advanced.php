@@ -328,6 +328,19 @@ class AdvancedReasoningRouteProcessor {
         return $cleaned !== null ? $cleaned : $text;
     }
 
+    private function logPromptBudget(string $phase, array $parts, int $numCtx): void
+    {
+        $segments = [];
+        $totalChars = 0;
+        foreach ($parts as $label => $text) {
+            $chars = mb_strlen((string)$text);
+            $segments[] = "{$label}Chars={$chars}";
+            $totalChars += $chars;
+        }
+
+        chatLogger("[PROMPT-BUDGET] route=advanced_hybrid | phase={$phase} | num_ctx={$numCtx} | totalChars={$totalChars} | " . implode(' | ', $segments));
+    }
+
     // 対象 of 8テーブル（静的定義：概要と詳細スキーマの分離による脳内パンク防止シールド）
     private static $tablesBrief = [
         'chat_history'          => 'ユーザーとAIの過去の対話履歴が格納されているテーブル',
@@ -768,12 +781,20 @@ class AdvancedReasoningRouteProcessor {
         $userContextPrompt = $this->schemaInfo . "\n\n【ユーザーの最初の質問】\n{$this->searchQuery}\n\n分析観点リスト(JSON):";
         
         // 引数を整流：第3引数にシステムプロンプト、第4引数に構築したユーザープロンプトを正確に引き渡す
+        $decompSystemPrompt = $this->composeMemoryAwarePrompt($decompPrompt);
+        $this->logPromptBudget('decompose_question', [
+            'system' => $decompSystemPrompt,
+            'schema' => $this->schemaInfo,
+            'question' => $this->searchQuery,
+            'projectMemory' => $this->projectOperatingMemoryPrompt,
+            'databaseMemory' => $this->databaseMemoryPrompt,
+        ], 8192);
         $decomp_res = callOllamaChat(
             $this->ollama_host,
             $this->mainModel,
-            $this->composeMemoryAwarePrompt($decompPrompt),
-            $userContextPrompt, 
-            'json', 
+            $decompSystemPrompt,
+            $userContextPrompt,
+            'json',
             ["temperature" => 0.0, "top_p" => 0.1, "num_ctx" => 8192] // スキーマ長に対応するためnum_ctxを8192へ超拡張
         );
         
@@ -1383,6 +1404,15 @@ class AdvancedReasoningRouteProcessor {
             . "【サブクエリごとの回答・根拠】\n{$mergedReasoningForDraft}\n\n"
             . "【初期ドラフト】\n{$currentDraft}\n\n"
             . "上記を根拠として、ユーザーに提示する最終回答だけを日本語Markdownで作成してください。";
+
+        $this->logPromptBudget('final_generate', [
+            'system' => $sysPrompt,
+            'question' => $this->originalMessage,
+            'reasoning' => $mergedReasoningForDraft,
+            'draft' => $currentDraft,
+            'projectMemory' => $this->projectOperatingMemoryPrompt,
+            'databaseMemory' => $this->databaseMemoryPrompt,
+        ], 4096);
 
         $get_ch = curl_init("{$this->ollama_host}/api/generate");
         $self = $this;
