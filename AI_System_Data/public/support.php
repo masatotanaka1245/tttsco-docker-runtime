@@ -8,6 +8,182 @@ if (!function_exists('h')) {
         return htmlspecialchars((string)$str, ENT_QUOTES, 'UTF-8');
     }
 }
+
+if (!function_exists('formatChatThreadMeta')) {
+    function formatChatThreadMeta($threadMetaAt, $messageCount) {
+        $timestamp = trim((string)$threadMetaAt);
+        $count = (int)$messageCount;
+        $label = $timestamp !== '' ? date('m/d H:i', strtotime($timestamp)) : '履歴なし';
+        return $label . ' ・ ' . $count . '件';
+    }
+}
+
+if (!function_exists('getChatThreadButtonClasses')) {
+    function getChatThreadButtonClasses(bool $isActiveThread): string {
+        $base = 'chat-thread-tab flex min-w-0 items-start justify-between text-left transition-all duration-200 ease-in-out';
+        $state = $isActiveThread
+            ? 'border-slate-200 bg-white text-indigo-700 shadow-sm cursor-default'
+            : 'border-slate-200 bg-slate-100/90 text-slate-600 hover:bg-slate-50 hover:text-slate-700';
+        return $base . ' ' . $state;
+    }
+}
+
+if (!function_exists('getChatThreadMetaClasses')) {
+    function getChatThreadMetaClasses(bool $isActiveThread): string {
+        $base = 'chat-thread-tab__meta text-[9px] font-medium';
+        $state = $isActiveThread ? 'text-indigo-500' : 'text-slate-400';
+        return $base . ' ' . $state;
+    }
+}
+
+if (!function_exists('renderChatModeSwitches')) {
+    function renderChatModeSwitches(array $options): void {
+        foreach ($options as $option) {
+            ?>
+            <label class="chat-mode-switch" title="<?= h((string)$option['title']) ?>">
+                <input type="checkbox" id="<?= h((string)$option['id']) ?>" class="sr-only peer">
+                <span class="chat-mode-pill w-full justify-start <?= h((string)$option['checkedClass']) ?>">
+                    <span class="text-[12px]" aria-hidden="true"><?= h((string)$option['icon']) ?></span>
+                    <span><?= h((string)$option['label']) ?></span>
+                </span>
+            </label>
+            <?php
+        }
+    }
+}
+
+if (!function_exists('renderPromptModeOptions')) {
+    function renderPromptModeOptions(array $options, string $selectedMode): void {
+        foreach ($options as $modeValue => $modeLabel) {
+            ?>
+            <option value="<?= h((string)$modeValue) ?>" <?= $selectedMode === (string)$modeValue ? 'selected' : '' ?>><?= h((string)$modeLabel) ?></option>
+            <?php
+        }
+    }
+}
+
+if (!function_exists('renderModelOptions')) {
+    function renderModelOptions(array $installedModels, string $activeModel): void {
+        if (empty($installedModels)) {
+            ?>
+            <option value="">LLM未取得</option>
+            <?php
+            return;
+        }
+
+        foreach ($installedModels as $modelName) {
+            ?>
+            <option value="<?= h((string)$modelName) ?>" <?= $activeModel === (string)$modelName ? 'selected' : '' ?>><?= h((string)$modelName) ?></option>
+            <?php
+        }
+    }
+}
+
+if (!function_exists('getChatMessageRowClasses')) {
+    function getChatMessageRowClasses(string $role): string {
+        return 'flex gap-3 items-start ' . ($role === 'assistant' ? '' : 'flex-row-reverse') . ' animate-fadeIn';
+    }
+}
+
+if (!function_exists('getChatAvatarClasses')) {
+    function getChatAvatarClasses(string $role): string {
+        $base = 'w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 shadow-2xs border select-none';
+        $state = $role === 'assistant'
+            ? 'bg-amber-50 text-amber-700 border-amber-200/40'
+            : 'bg-indigo-50 text-indigo-700 border-indigo-200/40';
+        return $base . ' ' . $state;
+    }
+}
+
+if (!function_exists('getChatAvatarIcon')) {
+    function getChatAvatarIcon(string $role): string {
+        return $role === 'assistant' ? '🤖' : '👤';
+    }
+}
+
+if (!function_exists('getChatMessageStackClasses')) {
+    function getChatMessageStackClasses(string $role): string {
+        return 'chat-message-stack flex flex-col ' . ($role === 'assistant' ? 'items-start' : 'items-end') . ' gap-0.5 w-full';
+    }
+}
+
+if (!function_exists('getChatRoleLabel')) {
+    function getChatRoleLabel(string $role): string {
+        return $role === 'assistant' ? 'AI Assistant' : 'You';
+    }
+}
+
+if (!function_exists('getChatBubbleClasses')) {
+    function getChatBubbleClasses(string $role): string {
+        $base = 'chat-message-bubble chat-message-body p-4 markdown-body chat-markdown shadow-2xs border';
+        $state = $role === 'assistant'
+            ? 'chat-assistant rounded-tl-none border-slate-100'
+            : 'chat-user rounded-tr-none border-[#3b4773] shadow-xs';
+        return $base . ' ' . $state;
+    }
+}
+
+$chatQuickActions = [
+    [
+        'icon' => '📊',
+        'label' => 'データ集計',
+        'prompt' => 'CSVデータを集計して詳細を教えてください。',
+    ],
+    [
+        'icon' => '🔍',
+        'label' => '資料抽出',
+        'prompt' => 'PDFから概要を抽出し、詳細をまとめてください。',
+    ],
+    [
+        'icon' => '📝',
+        'label' => '文脈総括',
+        'prompt' => 'これまでの会話内容を詳しくまとめてください。',
+    ],
+];
+
+$promptModeOptions = [
+    'construction_consultant' => '🏗️ 建設',
+    'technical_expert' => '🔬 技術',
+    'proofreader' => '📝 校正',
+    'general_chat' => '💬 会話',
+];
+
+$chatOutputOptions = [
+    [
+        'id' => 'diagram-mode',
+        'icon' => '📈',
+        'label' => '図解',
+        'title' => '必要に応じてMermaidやChart.jsの図表を回答に含めます',
+        'checkedClass' => 'peer-checked:border-emerald-300 peer-checked:bg-emerald-50 peer-checked:text-emerald-700 peer-checked:shadow-sm',
+    ],
+    [
+        'id' => 'report-mode',
+        'icon' => '📄',
+        'label' => '報告書',
+        'title' => '回答をHTML/CSS報告書としてPDF化し、PDFタブと検索対象へ登録します',
+        'checkedClass' => 'peer-checked:border-amber-300 peer-checked:bg-amber-50 peer-checked:text-amber-700 peer-checked:shadow-sm',
+    ],
+];
+
+$adminOutputOptions = [
+    [
+        'id' => 'advanced-reasoning-mode',
+        'icon' => '🧠',
+        'label' => 'フル思考',
+        'title' => 'AIが質問を要素分解し、個別に資料を精読してから統合回答を作成します',
+        'checkedClass' => 'peer-checked:border-indigo-300 peer-checked:bg-indigo-50 peer-checked:text-indigo-700 peer-checked:shadow-sm',
+    ],
+];
+
+$projectCenterTabs = [
+    ['key' => 'overview', 'icon' => '🏠', 'label' => '概要', 'full_label' => '概要', 'count' => null],
+    ['key' => 'pdf', 'icon' => '📄', 'label' => 'PDF', 'full_label' => '資料PDF', 'count' => count($documents ?? [])],
+    ['key' => 'comments', 'icon' => '💬', 'label' => 'コメント', 'full_label' => 'コメント', 'count' => count($comments ?? [])],
+    ['key' => 'csv', 'icon' => '📊', 'label' => 'CSV', 'full_label' => 'CSVデータ', 'count' => count($csv_files ?? [])],
+    ['key' => 'faqs', 'icon' => '📚', 'label' => 'ナレッジ', 'full_label' => 'AIナレッジ・FAQ', 'count' => null],
+    ['key' => 'members', 'icon' => '👥', 'label' => 'メンバー', 'full_label' => 'メンバー設定', 'count' => null],
+    ['key' => 'memory', 'icon' => '🗂️', 'label' => '運用メモ', 'full_label' => '案件運用メモ', 'count' => null],
+];
 ?>
 <!DOCTYPE html>
 <html lang="ja">
@@ -181,11 +357,36 @@ if (!function_exists('h')) {
         }
         #tab-header::-webkit-scrollbar { display: none; }
         #tab-header .tab-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.45rem;
             flex: 0 0 auto;
-            max-width: clamp(72px, 14vw, 136px);
-            white-space: nowrap;
+            min-width: 0;
+            max-width: clamp(78px, 12vw, 126px);
+        }
+        #tab-header .tab-btn__icon {
+            flex: 0 0 auto;
+            width: 0.9rem;
+            text-align: center;
+        }
+        #tab-header .tab-btn__label {
+            min-width: 0;
             overflow: hidden;
             text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        #tab-header .tab-btn__count {
+            flex: 0 0 auto;
+            min-width: 1.15rem;
+            padding: 0 0.25rem;
+            border-radius: 999px;
+            border: 1px solid #e2e8f0;
+            background: rgba(255, 255, 255, 0.72);
+            color: #94a3b8;
+            font-size: 9px;
+            font-weight: 800;
+            line-height: 1.35;
+            text-align: center;
         }
 
         .chat-thread-tabs {
@@ -329,7 +530,7 @@ if (!function_exists('h')) {
 
         @media (max-width: 1280px) {
             #tab-header .tab-btn {
-                max-width: 108px;
+                max-width: 112px;
             }
             .chat-thread-tab {
                 max-width: 148px;
@@ -338,9 +539,12 @@ if (!function_exists('h')) {
 
         @media (max-width: 1024px) {
             #tab-header .tab-btn {
-                max-width: 74px;
-                padding-left: 0.75rem;
-                padding-right: 0.75rem;
+                max-width: 88px;
+                padding-left: 0.65rem;
+                padding-right: 0.65rem;
+            }
+            #tab-header .tab-btn__count {
+                display: none;
             }
             .chat-thread-tab {
                 max-width: 126px;
@@ -352,8 +556,15 @@ if (!function_exists('h')) {
 
         @media (max-width: 860px) {
             #tab-header .tab-btn {
-                max-width: 58px;
+                max-width: 54px;
                 font-size: 10px;
+                justify-content: center;
+                padding-left: 0.55rem;
+                padding-right: 0.55rem;
+                gap: 0;
+            }
+            #tab-header .tab-btn__label {
+                display: none;
             }
             .chat-footer-toolbar {
                 flex-direction: column;
@@ -424,13 +635,29 @@ if (!function_exists('h')) {
     <div class="flex-1 bg-white flex flex-col overflow-hidden" role="region">
         <?php $threadQuery = $selected_thread_id ? '&thread_id=' . urlencode((string)$selected_thread_id) : ''; ?>
 
-        <div class="bg-slate-50/80 border-b border-slate-200/60 flex items-end gap-1 px-3 pt-3 flex-shrink-0" id="tab-header" role="tablist">
-            <button onclick="if(typeof window.switchTab === 'function') window.switchTab('tab-overview'); history.replaceState(null, '', '?project_id=<?= h((string)$selected_project_id) ?>&tab=overview<?= $threadQuery ?>')" id="btn-overview" role="tab" class="tab-btn <?= $active_tab === 'overview' ? 'active' : '' ?> px-4 py-2 text-[11px] font-bold text-slate-500 rounded-t-xl transition-all duration-200 ease-in-out transform active:scale-98">🏠 概要</button>
-            <button onclick="if(typeof window.switchTab === 'function') window.switchTab('tab-pdf'); history.replaceState(null, '', '?project_id=<?= h((string)$selected_project_id) ?>&tab=pdf<?= $threadQuery ?>')" id="btn-pdf" role="tab" class="tab-btn <?= $active_tab === 'pdf' ? 'active' : '' ?> px-4 py-2 text-[11px] font-bold text-slate-500 rounded-t-xl transition-all duration-200 ease-in-out transform active:scale-98">📄 PDF (<?= count($documents) ?>)</button>
-            <button onclick="if(typeof window.switchTab === 'function') window.switchTab('tab-comments'); history.replaceState(null, '', '?project_id=<?= h((string)$selected_project_id) ?>&tab=comments<?= $threadQuery ?>')" id="btn-comments" role="tab" class="tab-btn <?= $active_tab === 'comments' ? 'active' : '' ?> px-4 py-2 text-[11px] font-bold text-slate-500 rounded-t-xl transition-all duration-200 ease-in-out transform active:scale-98">💬 コメント (<?= count($comments) ?>)</button>
-            <button onclick="if(typeof window.switchTab === 'function') window.switchTab('tab-csv'); history.replaceState(null, '', '?project_id=<?= h((string)$selected_project_id) ?>&tab=csv<?= $threadQuery ?>')" id="btn-csv" role="tab" class="tab-btn <?= $active_tab === 'csv' ? 'active' : '' ?> px-4 py-2 text-[11px] font-bold text-slate-500 rounded-t-xl transition-all duration-200 ease-in-out transform active:scale-98">📊 CSVデータ (<?= count($csv_files) ?>)</button>
-            <button onclick="if(typeof window.switchTab === 'function') window.switchTab('tab-faqs'); history.replaceState(null, '', '?project_id=<?= h((string)$selected_project_id) ?>&tab=faqs<?= $threadQuery ?>')" id="btn-faqs" role="tab" class="tab-btn <?= $active_tab === 'faqs' ? 'active' : '' ?> px-4 py-2 text-[11px] font-bold text-slate-500 rounded-t-xl transition-all duration-200 ease-in-out transform active:scale-98">📚 AIナレッジ・FAQ</button>
-            <button onclick="if(typeof window.switchTab === 'function') window.switchTab('tab-members'); history.replaceState(null, '', '?project_id=<?= h((string)$selected_project_id) ?>&tab=members<?= $threadQuery ?>')" id="btn-members" role="tab" class="tab-btn <?= $active_tab === 'members' ? 'active' : '' ?> px-4 py-2 text-[11px] font-bold text-slate-500 rounded-t-xl transition-all duration-200 ease-in-out transform active:scale-98">👥 メンバー設定</button>
+        <div class="bg-slate-50/80 border-b border-slate-200/60 flex items-end gap-0.5 px-2.5 pt-2.5 flex-shrink-0" id="tab-header" role="tablist">
+            <?php foreach ($projectCenterTabs as $tabItem): ?>
+                <?php
+                    $tabKey = (string)$tabItem['key'];
+                    $tabCount = $tabItem['count'];
+                    $isActiveProjectTab = $active_tab === $tabKey;
+                    $tabFullLabel = (string)($tabItem['full_label'] ?? $tabItem['label']);
+                ?>
+                <button
+                    onclick="if(typeof window.switchTab === 'function') window.switchTab('tab-<?= h($tabKey) ?>'); history.replaceState(null, '', '?project_id=<?= h((string)$selected_project_id) ?>&tab=<?= h($tabKey) ?><?= $threadQuery ?>')"
+                    id="btn-<?= h($tabKey) ?>"
+                    role="tab"
+                    class="tab-btn <?= $isActiveProjectTab ? 'active' : '' ?> px-3 py-2 text-[11px] font-bold text-slate-500 rounded-t-xl transition-all duration-200 ease-in-out transform active:scale-98"
+                    title="<?= h($tabFullLabel) ?>"
+                    aria-label="<?= h($tabFullLabel) ?>"
+                >
+                    <span class="tab-btn__icon" aria-hidden="true"><?= h((string)$tabItem['icon']) ?></span>
+                    <span class="tab-btn__label"><?= h((string)$tabItem['label']) ?></span>
+                    <?php if ($tabCount !== null): ?>
+                        <span class="tab-btn__count"><?= (int)$tabCount ?></span>
+                    <?php endif; ?>
+                </button>
+            <?php endforeach; ?>
         </div>
 
         <div class="flex-1 overflow-hidden relative bg-[#f8fafc]" id="tab-container">
@@ -476,78 +703,6 @@ if (!function_exists('h')) {
                     </div>
                 </div>
 
-                <div class="bg-white border border-slate-200/80 rounded-2xl overflow-hidden shadow-sm transition-all duration-300 hover:shadow-md">
-                    <?php if ($can_manage_project_memory): ?>
-                        <form method="post">
-                            <input type="hidden" name="action" value="save_project_memory">
-                            <input type="hidden" name="csrf_token" value="<?= h($csrfToken) ?>">
-                            <input type="hidden" name="project_id" value="<?= h((string)$selected_project_id) ?>">
-                    <?php endif; ?>
-                    <div class="bg-slate-50/70 p-3.5 px-5 font-bold text-slate-700 flex justify-between items-center text-xs border-b border-slate-100">
-                        <div class="flex items-center gap-3">
-                            <span class="font-extrabold tracking-wide text-slate-600">案件運用メモ</span>
-                            <?php if ($can_manage_project_memory): ?>
-                                <button type="submit" class="text-[11px] bg-[#4F5D95] text-white border border-[#4F5D95] px-4 py-2 rounded-xl font-bold shadow-sm hover:bg-[#3f4a7a] transition-all duration-200 ease-in-out transform active:scale-95">メモを保存</button>
-                            <?php endif; ?>
-                        </div>
-                        <span class="text-[10px] text-slate-400 font-bold tracking-wider">案件内容 / AIエージェント / タスク一覧</span>
-                    </div>
-                    <div class="p-5 space-y-4">
-                        <?php if ($memory_flash === '1'): ?>
-                            <div class="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">案件運用メモを更新しました。</div>
-                        <?php elseif ($memory_flash === 'error'): ?>
-                            <div class="text-[11px] font-bold text-red-700 bg-red-50 border border-red-200 rounded-xl px-4 py-3">案件運用メモの保存に失敗しました。</div>
-                        <?php elseif ($memory_flash === 'csrf_error' || $memory_flash === 'forbidden'): ?>
-                            <div class="text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">案件運用メモを更新する権限がありません。</div>
-                        <?php endif; ?>
-
-                        <p class="text-[11px] text-slate-500 leading-relaxed">
-                            この案件に特有の回答方針、背景、既知の論点をメモとして保持し、AIが回答を組み立てる前に参照します。現在は案件状態と直近会話に応じて自動更新され、次回の会話保存時にも再生成されます。
-                        </p>
-
-                        <?php if ($can_manage_project_memory): ?>
-                            <div class="space-y-4">
-                                <div class="space-y-1.5">
-                                    <label for="memory-readme" class="block text-[10px] font-black text-slate-400 tracking-wider">案件内容</label>
-                                    <textarea id="memory-readme" name="memory_readme" rows="8" class="w-full min-h-[11rem] border border-slate-200 rounded-xl p-3 text-xs leading-5 bg-slate-50/50 focus:bg-white focus:border-indigo-400/80 transition-all duration-200 resize-y font-mono text-slate-700 outline-none" placeholder="案件の背景、用語、前提、構成など"><?= h((string)($project_memory_docs['readme']['content'] ?? '')) ?></textarea>
-                                </div>
-
-                                <div class="space-y-1.5">
-                                    <label for="memory-agents" class="block text-[10px] font-black text-slate-400 tracking-wider">AIエージェント</label>
-                                    <textarea id="memory-agents" name="memory_agents" rows="8" class="w-full min-h-[11rem] border border-slate-200 rounded-xl p-3 text-xs leading-5 bg-slate-50/50 focus:bg-white focus:border-indigo-400/80 transition-all duration-200 resize-y font-mono text-slate-700 outline-none" placeholder="回答方針、禁止事項、優先ルールなど"><?= h((string)($project_memory_docs['agents']['content'] ?? '')) ?></textarea>
-                                </div>
-
-                                <div class="space-y-1.5">
-                                    <label for="memory-todo" class="block text-[10px] font-black text-slate-400 tracking-wider">タスク一覧</label>
-                                    <textarea id="memory-todo" name="memory_todo" rows="8" class="w-full min-h-[11rem] border border-slate-200 rounded-xl p-3 text-xs leading-5 bg-slate-50/50 focus:bg-white focus:border-indigo-400/80 transition-all duration-200 resize-y font-mono text-slate-700 outline-none" placeholder="既知の課題、次に見るべき点、現在の運用メモなど"><?= h((string)($project_memory_docs['todo']['content'] ?? '')) ?></textarea>
-                                </div>
-                            </div>
-                        <?php else: ?>
-                            <div class="space-y-4">
-                                <?php foreach (['readme', 'agents', 'todo'] as $memoryType): ?>
-                                    <?php $memoryContent = trim((string)($project_memory_docs[$memoryType]['content'] ?? '')); ?>
-                                    <?php if ($memoryContent === '') continue; ?>
-                                    <div class="border border-slate-200 rounded-xl overflow-hidden">
-                                        <div class="px-4 py-2 bg-slate-50 text-[10px] font-black text-slate-400 tracking-wider"><?= h((string)($project_memory_docs[$memoryType]['label'] ?? strtoupper($memoryType))) ?></div>
-                                        <div class="px-4 py-3 text-xs text-slate-600 leading-relaxed whitespace-pre-wrap"><?= h($memoryContent) ?></div>
-                                    </div>
-                                <?php endforeach; ?>
-                                <?php if (
-                                    trim((string)($project_memory_docs['agents']['content'] ?? '')) === '' &&
-                                    trim((string)($project_memory_docs['readme']['content'] ?? '')) === '' &&
-                                    trim((string)($project_memory_docs['todo']['content'] ?? '')) === ''
-                                ): ?>
-                                    <div class="text-center py-10 bg-slate-50/60 rounded-xl border border-dashed border-slate-200">
-                                        <p class="text-xs text-slate-400 font-medium italic">案件運用メモはまだ登録されていません。</p>
-                                    </div>
-                                <?php endif; ?>
-                            </div>
-                        <?php endif; ?>
-                    </div>
-                    <?php if ($can_manage_project_memory): ?>
-                        </form>
-                    <?php endif; ?>
-                </div>
             </div>
 
             <div id="tab-pdf" role="tabpanel" class="tab-content <?= $active_tab === 'pdf' ? 'active' : '' ?> h-full overflow-y-auto p-6 space-y-6">
@@ -778,6 +933,81 @@ if (!function_exists('h')) {
                 </div>
             </div>
 
+            <div id="tab-memory" role="tabpanel" class="tab-content <?= $active_tab === 'memory' ? 'active' : '' ?> h-full overflow-y-auto p-6 space-y-6">
+                <div class="bg-white border border-slate-200/80 rounded-2xl overflow-hidden shadow-sm transition-all duration-300 hover:shadow-md">
+                    <?php if ($can_manage_project_memory): ?>
+                        <form method="post">
+                            <input type="hidden" name="action" value="save_project_memory">
+                            <input type="hidden" name="csrf_token" value="<?= h($csrfToken) ?>">
+                            <input type="hidden" name="project_id" value="<?= h((string)$selected_project_id) ?>">
+                    <?php endif; ?>
+                    <div class="bg-slate-50/70 p-3.5 px-5 font-bold text-slate-700 flex justify-between items-center text-xs border-b border-slate-100">
+                        <div class="flex items-center gap-3">
+                            <span class="font-extrabold tracking-wide text-slate-600">案件運用メモ</span>
+                            <?php if ($can_manage_project_memory): ?>
+                                <button type="submit" class="text-[11px] bg-[#4F5D95] text-white border border-[#4F5D95] px-4 py-2 rounded-xl font-bold shadow-sm hover:bg-[#3f4a7a] transition-all duration-200 ease-in-out transform active:scale-95">メモを保存</button>
+                            <?php endif; ?>
+                        </div>
+                        <span class="text-[10px] text-slate-400 font-bold tracking-wider">案件内容 / AIエージェント / タスク一覧</span>
+                    </div>
+                    <div class="p-5 space-y-4">
+                        <?php if ($memory_flash === '1'): ?>
+                            <div class="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">案件運用メモを更新しました。</div>
+                        <?php elseif ($memory_flash === 'error'): ?>
+                            <div class="text-[11px] font-bold text-red-700 bg-red-50 border border-red-200 rounded-xl px-4 py-3">案件運用メモの保存に失敗しました。</div>
+                        <?php elseif ($memory_flash === 'csrf_error' || $memory_flash === 'forbidden'): ?>
+                            <div class="text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">案件運用メモを更新する権限がありません。</div>
+                        <?php endif; ?>
+
+                        <p class="text-[11px] text-slate-500 leading-relaxed">
+                            この案件に特有の回答方針、背景、既知の論点をメモとして保持し、AIが回答を組み立てる前に参照します。現在は案件状態と直近会話に応じて自動更新され、次回の会話保存時にも再生成されます。
+                        </p>
+
+                        <?php if ($can_manage_project_memory): ?>
+                            <div class="space-y-4">
+                                <div class="space-y-1.5">
+                                    <label for="memory-readme" class="block text-[10px] font-black text-slate-400 tracking-wider">案件内容</label>
+                                    <textarea id="memory-readme" name="memory_readme" rows="8" class="w-full min-h-[11rem] border border-slate-200 rounded-xl p-3 text-xs leading-5 bg-slate-50/50 focus:bg-white focus:border-indigo-400/80 transition-all duration-200 resize-y font-mono text-slate-700 outline-none" placeholder="案件の背景、用語、前提、構成など"><?= h((string)($project_memory_docs['readme']['content'] ?? '')) ?></textarea>
+                                </div>
+
+                                <div class="space-y-1.5">
+                                    <label for="memory-agents" class="block text-[10px] font-black text-slate-400 tracking-wider">AIエージェント</label>
+                                    <textarea id="memory-agents" name="memory_agents" rows="8" class="w-full min-h-[11rem] border border-slate-200 rounded-xl p-3 text-xs leading-5 bg-slate-50/50 focus:bg-white focus:border-indigo-400/80 transition-all duration-200 resize-y font-mono text-slate-700 outline-none" placeholder="回答方針、禁止事項、優先ルールなど"><?= h((string)($project_memory_docs['agents']['content'] ?? '')) ?></textarea>
+                                </div>
+
+                                <div class="space-y-1.5">
+                                    <label for="memory-todo" class="block text-[10px] font-black text-slate-400 tracking-wider">タスク一覧</label>
+                                    <textarea id="memory-todo" name="memory_todo" rows="8" class="w-full min-h-[11rem] border border-slate-200 rounded-xl p-3 text-xs leading-5 bg-slate-50/50 focus:bg-white focus:border-indigo-400/80 transition-all duration-200 resize-y font-mono text-slate-700 outline-none" placeholder="既知の課題、次に見るべき点、現在の運用メモなど"><?= h((string)($project_memory_docs['todo']['content'] ?? '')) ?></textarea>
+                                </div>
+                            </div>
+                        <?php else: ?>
+                            <div class="space-y-4">
+                                <?php foreach (['readme', 'agents', 'todo'] as $memoryType): ?>
+                                    <?php $memoryContent = trim((string)($project_memory_docs[$memoryType]['content'] ?? '')); ?>
+                                    <?php if ($memoryContent === '') continue; ?>
+                                    <div class="border border-slate-200 rounded-xl overflow-hidden">
+                                        <div class="px-4 py-2 bg-slate-50 text-[10px] font-black text-slate-400 tracking-wider"><?= h((string)($project_memory_docs[$memoryType]['label'] ?? strtoupper($memoryType))) ?></div>
+                                        <div class="px-4 py-3 text-xs text-slate-600 leading-relaxed whitespace-pre-wrap"><?= h($memoryContent) ?></div>
+                                    </div>
+                                <?php endforeach; ?>
+                                <?php if (
+                                    trim((string)($project_memory_docs['agents']['content'] ?? '')) === '' &&
+                                    trim((string)($project_memory_docs['readme']['content'] ?? '')) === '' &&
+                                    trim((string)($project_memory_docs['todo']['content'] ?? '')) === ''
+                                ): ?>
+                                    <div class="text-center py-10 bg-slate-50/60 rounded-xl border border-dashed border-slate-200">
+                                        <p class="text-xs text-slate-400 font-medium italic">案件運用メモはまだ登録されていません。</p>
+                                    </div>
+                                <?php endif; ?>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                    <?php if ($can_manage_project_memory): ?>
+                        </form>
+                    <?php endif; ?>
+                </div>
+            </div>
+
         </div>
     </div>
 
@@ -797,20 +1027,11 @@ if (!function_exists('h')) {
 
             <div class="flex items-center gap-1.5 overflow-hidden">
                 <select id="support-prompt-select" class="text-[10px] border border-slate-200 rounded-xl px-2 py-1.5 bg-slate-50/50 hover:bg-white font-bold text-slate-600 tracking-wide max-w-[90px] truncate outline-none transition-all duration-200 ease-in-out cursor-pointer shadow-2xs relative shadow-inner focus:border-indigo-400">
-                    <option value="construction_consultant" <?= $default_prompt_mode == 'construction_consultant' ? 'selected' : '' ?>>🏗️ 建設</option>
-                    <option value="technical_expert" <?= $default_prompt_mode == 'technical_expert' ? 'selected' : '' ?>>🔬 技術</option>
-                    <option value="proofreader" <?= $default_prompt_mode == 'proofreader' ? 'selected' : '' ?>>📝 校正</option>
-                    <option value="general_chat" <?= $default_prompt_mode == 'general_chat' ? 'selected' : '' ?>>💬 会話</option>
+                    <?php renderPromptModeOptions($promptModeOptions, (string)$default_prompt_mode); ?>
                 </select>
                 
                 <select id="support-model-select" class="text-[10px] border border-slate-200 rounded-xl px-2 py-1.5 bg-slate-50/50 hover:bg-white font-mono max-w-[100px] truncate outline-none transition-all duration-200 ease-in-out cursor-pointer text-slate-600 shadow-2xs focus:border-indigo-400" title="現在のホスト: <?= h($ollama_host) ?>" <?= empty($installed_models) ? 'disabled' : '' ?>>
-                    <?php if (empty($installed_models)): ?>
-                        <option value="">LLM未取得</option>
-                    <?php else: ?>
-                        <?php foreach ($installed_models as $m): ?>
-                            <option value="<?= h($m) ?>" <?= $m == $active_model ? 'selected' : '' ?>><?= h($m) ?></option>
-                        <?php endforeach; ?>
-                    <?php endif; ?>
+                    <?php renderModelOptions($installed_models, (string)$active_model); ?>
                 </select>
             </div>
         </div>
@@ -836,13 +1057,12 @@ if (!function_exists('h')) {
                             aria-current="<?= $isActiveThread ? 'page' : 'false' ?>"
                             <?= $isActiveThread ? 'disabled' : '' ?>
                             onclick="<?= $isActiveThread ? 'return false;' : "if(typeof window.switchProjectChatThread === 'function') window.switchProjectChatThread($threadId)" ?>"
-                            class="chat-thread-tab flex min-w-0 items-start justify-between text-left transition-all duration-200 ease-in-out <?= $isActiveThread ? 'border-slate-200 bg-white text-indigo-700 shadow-sm cursor-default' : 'border-slate-200 bg-slate-100/90 text-slate-600 hover:bg-slate-50 hover:text-slate-700' ?>"
+                            class="<?= h(getChatThreadButtonClasses($isActiveThread)) ?>"
                         >
                             <span class="min-w-0">
                                 <span data-thread-title class="chat-thread-tab__title text-[11px] font-bold"><?= h($threadTitle) ?></span>
-                                <span class="chat-thread-tab__meta text-[9px] font-medium <?= $isActiveThread ? 'text-indigo-500' : 'text-slate-400' ?>">
-                                    <?= h($threadMetaAt !== '' ? date('m/d H:i', strtotime($threadMetaAt)) : '履歴なし') ?>
-                                    ・ <?= (int)($thread['message_count'] ?? 0) ?>件
+                                <span class="<?= h(getChatThreadMetaClasses($isActiveThread)) ?>">
+                                    <?= h(formatChatThreadMeta($threadMetaAt, $thread['message_count'] ?? 0)) ?>
                                 </span>
                             </span>
                         </button>
@@ -882,21 +1102,19 @@ if (!function_exists('h')) {
             <div id="chat-box" class="h-full p-4 space-y-5 overflow-y-auto bg-slate-50/40 no-scrollbar">
                 <?php foreach ($chat_history as $chat): ?>
                     <?php $timeStr = date('Y/m/d H:i', strtotime($chat['created_at'])); ?>
-                    <div class="flex gap-3 items-start <?= $chat['role'] === 'assistant' ? '' : 'flex-row-reverse' ?> animate-fadeIn">
-                        <div class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 shadow-2xs border select-none
-                            <?= $chat['role'] === 'assistant' ? 'bg-amber-50 text-amber-700 border-amber-200/40' : 'bg-indigo-50 text-indigo-700 border-indigo-200/40' ?>">
-                            <?= $chat['role'] === 'assistant' ? '🤖' : '👤' ?>
+                    <div class="<?= h(getChatMessageRowClasses((string)$chat['role'])) ?>">
+                        <div class="<?= h(getChatAvatarClasses((string)$chat['role'])) ?>">
+                            <?= h(getChatAvatarIcon((string)$chat['role'])) ?>
                         </div>
 
-                        <div class="chat-message-stack flex flex-col <?= $chat['role'] === 'assistant' ? 'items-start' : 'items-end' ?> gap-0.5 w-full">
+                        <div class="<?= h(getChatMessageStackClasses((string)$chat['role'])) ?>">
                             <div class="flex items-center gap-1.5 px-1">
                                 <span class="text-[9px] font-black text-slate-400 uppercase tracking-tight">
-                                    <?= $chat['role'] === 'assistant' ? 'AI Assistant' : 'You' ?>
+                                    <?= h(getChatRoleLabel((string)$chat['role'])) ?>
                                 </span>
                                 <span class="text-[8px] text-slate-400 font-mono tracking-tighter"><?= $timeStr ?></span>
                             </div>
-                            <div class="chat-message-bubble chat-message-body p-4 markdown-body chat-markdown shadow-2xs border
-                                <?= $chat['role'] === 'assistant' ? 'chat-assistant rounded-tl-none border-slate-100' : 'chat-user rounded-tr-none border-[#3b4773] shadow-xs' ?>">
+                            <div class="<?= h(getChatBubbleClasses((string)$chat['role'])) ?>">
 
                                 <?php if ($chat['role'] === 'assistant'): ?>
                                     <?php
@@ -924,9 +1142,13 @@ if (!function_exists('h')) {
             <div class="chat-footer-toolbar">
                 <div class="chat-footer-toolbar__left">
                     <div class="flex flex-wrap gap-1.5 overflow-x-auto no-scrollbar" id="quick-actions-bar">
-                        <button type="button" onclick="const input=document.getElementById('chat-input'); input.value='CSVデータを集計して詳細を教えてください。'; input.dispatchEvent(new Event('input')); input.focus();" class="text-[9px] bg-slate-50 hover:bg-indigo-50 border border-slate-200/80 rounded-full px-3 py-1 font-bold text-slate-500 shadow-2xs transition-colors duration-200 ease-in-out hover:border-indigo-200 hover:text-[#4F5D95]">📊 データ集計</button>
-                        <button type="button" onclick="const input=document.getElementById('chat-input'); input.value='PDFから概要を抽出し、詳細をまとめてください。'; input.dispatchEvent(new Event('input')); input.focus();" class="text-[9px] bg-slate-50 hover:bg-indigo-50 border border-slate-200/80 rounded-full px-3 py-1 font-bold text-slate-500 shadow-2xs transition-colors duration-200 ease-in-out hover:border-indigo-200 hover:text-[#4F5D95]">🔍 資料抽出</button>
-                        <button type="button" onclick="const input=document.getElementById('chat-input'); input.value='これまでの会話内容を詳しくまとめてください。'; input.dispatchEvent(new Event('input')); input.focus();" class="text-[9px] bg-slate-50 hover:bg-indigo-50 border border-slate-200/80 rounded-full px-3 py-1 font-bold text-slate-500 shadow-2xs transition-colors duration-200 ease-in-out hover:border-indigo-200 hover:text-[#4F5D95]">📝 文脈総括</button>
+                        <?php foreach ($chatQuickActions as $action): ?>
+                            <button
+                                type="button"
+                                onclick="const input=document.getElementById('chat-input'); input.value='<?= h($action['prompt']) ?>'; input.dispatchEvent(new Event('input')); input.focus();"
+                                class="text-[9px] bg-slate-50 hover:bg-indigo-50 border border-slate-200/80 rounded-full px-3 py-1 font-bold text-slate-500 shadow-2xs transition-colors duration-200 ease-in-out hover:border-indigo-200 hover:text-[#4F5D95]"
+                            ><?= h($action['icon']) ?> <?= h($action['label']) ?></button>
+                        <?php endforeach; ?>
                     </div>
                 </div>
 
@@ -938,33 +1160,14 @@ if (!function_exists('h')) {
                         </summary>
                         <div class="chat-output-options-panel px-3 py-3 space-y-3">
                             <div class="chat-output-options-group" role="group" aria-label="出力オプション">
-                                <label class="chat-mode-switch" title="必要に応じてMermaidやChart.jsの図表を回答に含めます">
-                                    <input type="checkbox" id="diagram-mode" class="sr-only peer">
-                                    <span class="chat-mode-pill w-full justify-start peer-checked:border-emerald-300 peer-checked:bg-emerald-50 peer-checked:text-emerald-700 peer-checked:shadow-sm">
-                                        <span class="text-[12px]" aria-hidden="true">📈</span>
-                                        <span>図解</span>
-                                    </span>
-                                </label>
-                                <label class="chat-mode-switch" title="回答をHTML/CSS報告書としてPDF化し、PDFタブと検索対象へ登録します">
-                                    <input type="checkbox" id="report-mode" class="sr-only peer">
-                                    <span class="chat-mode-pill w-full justify-start peer-checked:border-amber-300 peer-checked:bg-amber-50 peer-checked:text-amber-700 peer-checked:shadow-sm">
-                                        <span class="text-[12px]" aria-hidden="true">📄</span>
-                                        <span>報告書</span>
-                                    </span>
-                                </label>
+                                <?php renderChatModeSwitches($chatOutputOptions); ?>
                             </div>
 
                             <?php if ($role === 'admin'): ?>
                             <div class="space-y-1.5 border-t border-slate-100 pt-2">
                                 <p class="text-[9px] font-black text-slate-400 uppercase tracking-wider px-1">管理者向け高度推論</p>
                                 <div class="chat-output-options-group">
-                                    <label class="chat-mode-switch" title="AIが質問を要素分解し、個別に資料を精読してから統合回答を作成します">
-                                        <input type="checkbox" id="advanced-reasoning-mode" class="sr-only peer">
-                                        <span class="chat-mode-pill w-full justify-start peer-checked:border-indigo-300 peer-checked:bg-indigo-50 peer-checked:text-indigo-700 peer-checked:shadow-sm">
-                                            <span class="text-[12px]" aria-hidden="true">🧠</span>
-                                            <span>フル思考</span>
-                                        </span>
-                                    </label>
+                                    <?php renderChatModeSwitches($adminOutputOptions); ?>
                                 </div>
                             </div>
                             <?php endif; ?>

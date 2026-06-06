@@ -100,17 +100,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (string)($_POST['action'] ?? '') ==
     $proj_id = filter_input(INPUT_POST, 'project_id', FILTER_VALIDATE_INT);
 
     if (empty($token) || !isset($_SESSION['csrf_token']) || $token !== $_SESSION['csrf_token']) {
-        header('Location: support.php?project_id=' . urlencode((string)$proj_id) . '&tab=overview&memory_saved=csrf_error');
+        header('Location: support.php?project_id=' . urlencode((string)$proj_id) . '&tab=memory&memory_saved=csrf_error');
         exit;
     }
 
     if (!$proj_id || !canAccessProject($pdo, (int)$proj_id, $user_id, $role)) {
-        header('Location: support.php?project_id=' . urlencode((string)$proj_id) . '&tab=overview&memory_saved=forbidden');
+        header('Location: support.php?project_id=' . urlencode((string)$proj_id) . '&tab=memory&memory_saved=forbidden');
         exit;
     }
 
     if ($role !== 'admin') {
-        header('Location: support.php?project_id=' . urlencode((string)$proj_id) . '&tab=overview&memory_saved=forbidden');
+        header('Location: support.php?project_id=' . urlencode((string)$proj_id) . '&tab=memory&memory_saved=forbidden');
         exit;
     }
 
@@ -120,11 +120,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (string)($_POST['action'] ?? '') ==
             'readme' => (string)($_POST['memory_readme'] ?? ''),
             'todo' => (string)($_POST['memory_todo'] ?? ''),
         ]);
-        header('Location: support.php?project_id=' . urlencode((string)$proj_id) . '&tab=overview&memory_saved=1');
+        header('Location: support.php?project_id=' . urlencode((string)$proj_id) . '&tab=memory&memory_saved=1');
         exit;
     } catch (Throwable $e) {
         error_log('SupportController Memory Save Error: ' . $e->getMessage());
-        header('Location: support.php?project_id=' . urlencode((string)$proj_id) . '&tab=overview&memory_saved=error');
+        header('Location: support.php?project_id=' . urlencode((string)$proj_id) . '&tab=memory&memory_saved=error');
         exit;
     }
 }
