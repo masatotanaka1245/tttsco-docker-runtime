@@ -1147,7 +1147,8 @@ class AdvancedReasoningRouteProcessor {
      */
     private function decomposeQuestion(): void {
         chatLogger("[DEBUG] 質問の因数分解を開始します。質問: {$this->originalMessage}");
-        
+        $decomposeNumCtx = 8192;
+
         $decompPrompt = "あなたは極めて冷静で論理的なシニア・データアナリストです。\n"
                       . "提示された実在データベース構造を頭に入れた上で、ユーザーの【最初の質問】の意図・目的を完全に達成するために、データベースからどのような切り口で集計すべきか、1〜2つの「具体的な分析観点（サブクエリ）」に因数分解してください。\n\n"
                       . "【絶対厳守のアンカー・ルール（目的すり替えの完全禁止）】\n"
@@ -1169,8 +1170,8 @@ class AdvancedReasoningRouteProcessor {
             'question' => $this->searchQuery,
             'projectMemory' => $this->projectOperatingMemoryPrompt,
             'databaseMemory' => $this->databaseMemoryPrompt,
-        ], 4096);
-        $decomp_res = callOllamaChat($this->ollama_host, $this->model, $decompSystemPrompt, "", 'json', ["temperature" => 0.0, "top_p" => 0.1, "num_ctx" => 4096]);
+        ], $decomposeNumCtx);
+        $decomp_res = callOllamaChat($this->ollama_host, $this->model, $decompSystemPrompt, "", 'json', ["temperature" => 0.0, "top_p" => 0.1, "num_ctx" => $decomposeNumCtx]);
         chatLogger("[DEBUG] Ollama因数分解API応答受信 raw: " . $decomp_res);
         
         $fence = str_repeat("\x60", 3);
