@@ -39,7 +39,8 @@ class ChatRouteFactorizer
         $hasHistoryReportRequest = preg_match('/((会話|やりとり|チャット|履歴).*(報告書|レポート|PDF).*(作成|作って|出力|生成)|((報告書|レポート|PDF).*(作成|作って|出力|生成).*(会話|やりとり|チャット|履歴)))/u', $message) === 1;
         $hasDocReference = preg_match('/(PDF|pdf|資料|図面|仕様書|文書|設計書|報告書)/u', $message) === 1;
         $hasDocActionIntent = preg_match('/(留意点|注意点|確認すべき|確認事項|法規|基準|安全面|設計上|施工前|不明点|見落とし|箇条書きで抽出|箇条書きで|抽出してください)/u', $message) === 1;
-        $hasRecommendationIntent = preg_match('/(おすすめ|オススメ|提案|分析方法|集計方法|どう分析|どう集計|見るべき|観点|切り口|方針)/u', $message) === 1;
+        $hasRecommendationIntent = preg_match('/(おすすめ|オススメ|提案|分析方法|集計方法|どう分析|どう集計|どのように.*分析|分析したら.*よい|どう進め|見るべき|観点|切り口|方針)/u', $message) === 1;
+        $hasBroadDetailIntent = preg_match('/(詳細|詳しく|内訳|全体像|全体の傾向|どんなデータ|何がある)/u', $message) === 1;
         $hasDistinctIntent = preg_match('/(何種類|ユニーク|distinct|重複なし|種類数)/iu', $message) === 1;
         $hasColumnExplainIntent = preg_match('/(どういう|どのような|説明|意味|何を表|どんなイベント|イベント.*説明|イベント.*意味|それぞれ.*説明)/u', $message) === 1;
         $hasNamingOrFramingIntent = preg_match('/(案件名|名前|名称|呼び方|強調したい|打ち出したい|表現|言い換え|一緒に検討|相談|どうでしょう|候補)/u', $message) === 1;
@@ -95,18 +96,24 @@ class ChatRouteFactorizer
             $scope = 'conversation_thread';
             $operation = 'report';
             $route = 'advanced_hybrid.history_report';
-        } elseif ($hasNamingOrFramingIntent || ($hasAppVerificationIntent && $memorySuggestsAppVerification)) {
-            $intent = 'consult';
-            $target = 'project_memory';
-            $scope = 'project_wide';
-            $operation = $hasNamingOrFramingIntent ? 'framing' : 'status_alignment';
-            $route = 'normal_rag.project_memory_consultation';
         } elseif ($hasMixedDocumentAndCsvContext && $hasRecommendationIntent) {
             $intent = 'analyze';
             $target = 'project_assets';
             $scope = 'project_wide';
             $operation = 'analysis_recommendation';
             $route = 'advanced_hybrid.multi_source_advice';
+        } elseif ($hasRecommendationIntent && ($hasCsvContext || $hasDocReference || $this->hasRecentProjectAssetContext($recentHistory))) {
+            $intent = 'analyze';
+            $target = 'project_assets';
+            $scope = 'project_wide';
+            $operation = 'analysis_recommendation';
+            $route = 'advanced_hybrid.multi_source_advice';
+        } elseif ($hasNamingOrFramingIntent || ($hasAppVerificationIntent && $memorySuggestsAppVerification)) {
+            $intent = 'consult';
+            $target = 'project_memory';
+            $scope = 'project_wide';
+            $operation = $hasNamingOrFramingIntent ? 'framing' : 'status_alignment';
+            $route = 'normal_rag.project_memory_consultation';
         } elseif ($hasHistorySummaryRequest) {
             $intent = 'summarize';
             $target = 'chat_history';
@@ -169,6 +176,12 @@ class ChatRouteFactorizer
             $intent = 'summarize';
             $target = 'all_csv';
             $scope = 'project_wide';
+            $operation = 'summarize';
+            $route = 'data_analysis.csv_summary';
+        } elseif ($hasAggregateIntent && $hasCsvContext && $hasBroadDetailIntent && !$hasDateIntent && !$hasTimeBandIntent && $targetColumn === null) {
+            $intent = 'summarize';
+            $target = $mentionedCsv !== null ? 'single_csv' : 'all_csv';
+            $scope = $mentionedCsv !== null ? 'file_content' : 'project_wide';
             $operation = 'summarize';
             $route = 'data_analysis.csv_summary';
         } elseif (!$targetsAllCsv && $mentionedCsv === null && ($hasDocReference || $hasDocActionIntent)) {
@@ -291,5 +304,25 @@ class ChatRouteFactorizer
             return 'year';
         }
         return 'day';
+    }
+
+    private function hasRecentProjectAssetContext(array $recentHistory): bool
+    {
+        if (empty($recentHistory)) {
+            return false;
+        }
+
+        for ($i = count($recentHistory) - 1; $i >= 0; $i--) {
+            $historyMessage = trim((string)($recentHistory[$i]['message'] ?? ''));
+            if ($historyMessage === '') {
+                continue;
+            }
+
+            if (preg_match('/(CSV|csv|PDF|pdf|資料|図面|データ|集計|分析|ファイル|カラム|列)/u', $historyMessage) === 1) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

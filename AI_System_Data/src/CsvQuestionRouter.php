@@ -43,9 +43,15 @@ class CsvQuestionRouter
 
         $mentionsCsvFile = $this->findMentionedCsvFileName($question) !== null;
         $hasSummaryIntent = preg_match('/(内容|概要|まとめ|要約|どんな内容|内容を教えて|説明して)/u', $question) === 1;
+        $hasBroadDetailIntent = preg_match('/(詳細|詳しく|内訳|全体像|全体の傾向|どんなデータ|何がある)/u', $question) === 1;
+        $hasAggregateIntent = preg_match('/(集計|件数|分布|一覧|表|詳細|詳しく)/iu', $question) === 1;
         $hasChartIntent = preg_match('/(グラフ|チャート|chart)/iu', $question) === 1;
 
         if ($mentionsCsvFile && $hasSummaryIntent) {
+            return true;
+        }
+
+        if ($hasAggregateIntent && $hasBroadDetailIntent && preg_match('/(CSV|csv|データ|ファイル)/u', $question) === 1) {
             return true;
         }
 
@@ -86,10 +92,11 @@ class CsvQuestionRouter
 
     private function isStructuredAggregationIntent(string $question): bool
     {
-        $hasStructuredTarget = preg_match('/(csv|列|カラム|項目|datetime|timestamp|yearmonth|yearmonthdate|name|date|time|hour|日付|日時|年月|時間帯|時刻帯)/iu', $question) === 1;
+        $hasStructuredTarget = preg_match('/(列|カラム|項目|datetime|timestamp|yearmonth|yearmonthdate|name|date|time|hour|日付|日時|年月|時間帯|時刻帯)/iu', $question) === 1;
         $hasAggregationIntent = preg_match('/(集計|件数|分布|一覧|表|グラフ|チャート|抽出|多い時間帯|ピーク時間|ピーク帯|何件|何種類|ユニーク|distinct|月別|年別|日別|時間ごと|時ごと)/iu', $question) === 1;
+        $hasTemporalBucketIntent = preg_match('/(月別|年別|日別|時間帯|時刻帯|時間ごと|時ごと|多い時間帯|ピーク時間|ピーク帯)/iu', $question) === 1;
 
-        return $hasStructuredTarget && $hasAggregationIntent;
+        return ($hasStructuredTarget && $hasAggregationIntent) || $hasTemporalBucketIntent;
     }
 
     private function log(string $message): void

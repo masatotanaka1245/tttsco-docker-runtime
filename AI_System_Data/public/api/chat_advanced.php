@@ -506,15 +506,20 @@ class AdvancedReasoningRouteProcessor {
     }
 
     private function tryMultiSourceAdviceFastPath(): bool {
-        if (preg_match('/(pdf|PDF)/u', $this->searchQuery) !== 1 || preg_match('/(csv|CSV)/u', $this->searchQuery) !== 1) {
+        if (preg_match('/(おすすめ|オススメ|提案|分析方法|集計方法|どう分析|どう集計|どのように.*分析|分析したら.*よい|どう進め|見るべき|観点|切り口|方針)/u', $this->searchQuery) !== 1) {
             return false;
         }
-        if (preg_match('/(おすすめ|オススメ|提案|分析方法|集計方法|どう分析|どう集計|見るべき|観点|切り口|方針)/u', $this->searchQuery) !== 1) {
+
+        if (preg_match('/(分析|集計|データ|CSV|csv|PDF|pdf|資料|観点|切り口)/u', $this->searchQuery) !== 1) {
             return false;
         }
 
         $csvFiles = $this->loadProjectCsvFiles();
         $pdfDocs = $this->loadProjectPdfDocuments();
+        if (empty($csvFiles) && empty($pdfDocs)) {
+            return false;
+        }
+
         $this->finalResponse = $this->buildDeterministicMultiSourceAdvice($csvFiles, $pdfDocs);
 
         $summary = "CSV件数=" . count($csvFiles) . " / PDF件数=" . count($pdfDocs);
