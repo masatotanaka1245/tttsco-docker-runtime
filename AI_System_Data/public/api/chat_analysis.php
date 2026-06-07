@@ -34,6 +34,7 @@ require_once __DIR__ . '/../../src/ProjectContextMemory.php';
 require_once __DIR__ . '/../../src/ProjectMemoryAutoUpdater.php';
 require_once __DIR__ . '/../../src/ChatModelRolePayload.php';
 require_once __DIR__ . '/../../src/ChatThreadManager.php';
+require_once __DIR__ . '/../../src/ReportAnswerPolisher.php';
 
 if (!function_exists('chatLogger')) {
     function chatLogger($msg) {
@@ -361,6 +362,8 @@ class AdvancedReasoningRouteProcessor {
             chatLogger("品質評価エージェントキック中に例外検出(スキップ保護): " . $evalEx->getMessage());
         }
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+        $this->applyReportModeFinalPolishIfNeeded();
 
         // 5. チャット対話履歴、進行ステップ、品質評価スコアの安全な一括永続化
         $this->saveHistoryAndEvaluations();
@@ -690,6 +693,7 @@ class AdvancedReasoningRouteProcessor {
 
     private function completeCsvRoute(): void {
         $this->runLightweightFinalAnswerGuard('data_analysis_lightweight');
+        $this->applyReportModeFinalPolishIfNeeded();
         $this->insertReasoningStep(99, '最終報告書・グラフの統合生成', '完了');
         $this->saveHistoryAndEvaluations();
         $this->sendFinalResult();
@@ -711,6 +715,42 @@ class AdvancedReasoningRouteProcessor {
         return function (string $event, array $payload): void {
             sendSSE($event, $payload);
         };
+    }
+
+    private function applyReportModeFinalPolishIfNeeded(): void
+    {
+        if (!$this->reportMode) {
+            return;
+        }
+
+        $currentDraft = trim((string)$this->finalResponse);
+        if ($currentDraft === '') {
+            return;
+        }
+
+        chatLogger("[REPORT-POLISH] データ分析ルートの報告書向け最終整形を実行します。");
+        sendSSE('status', [
+            'step' => 6,
+            'message' => '📄 報告書として読みやすい構成へ最終整形しています...'
+        ]);
+
+        $reasoningText = implode("\n\n", $this->subAnswers);
+        if (trim($reasoningText) === '') {
+            $reasoningText = trim((string)$this->projectContext);
+        }
+
+        $polisher = new ReportAnswerPolisher(
+            $this->ollama_host,
+            $this->model,
+            fn(string $prompt): string => $this->composeMemoryAwarePrompt($prompt),
+            $this->createChatLoggerCallback()
+        );
+
+        $this->finalResponse = $polisher->polish(
+            $this->originalMessage,
+            $reasoningText,
+            $currentDraft
+        );
     }
 
     private function createFinalResponseSetter(): callable {

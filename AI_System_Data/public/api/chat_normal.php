@@ -10,6 +10,7 @@ require_once __DIR__ . '/../../src/ProjectContextMemory.php';
 require_once __DIR__ . '/../../src/ProjectMemoryAutoUpdater.php';
 require_once __DIR__ . '/../../src/ChatModelRolePayload.php';
 require_once __DIR__ . '/../../src/ChatThreadManager.php';
+require_once __DIR__ . '/../../src/ReportAnswerPolisher.php';
 
 function runNormalStreamingRoute($pdo, $ollama_host, $projectId, $originalMessage, $routeDetail, $searchQuery, $model, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $vectorSearch, $engine, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false) {
     $processor = new NormalStreamingRouteProcessor(
@@ -120,6 +121,7 @@ class NormalStreamingRouteProcessor {
         }
 
         $this->runQualityEvaluationIfNeeded();
+        $this->applyReportModeFinalPolishIfNeeded();
         // 履歴永続化処理の一元トランザクション保護近代化へ委譲
         $this->saveHistoryAndEvaluations();
         $this->sendFinalResult();
@@ -209,6 +211,41 @@ class NormalStreamingRouteProcessor {
         } catch (Exception $evalEx) {
             chatLogger("品質評価エージェントキック中に例外検出(スキップ保護): " . $evalEx->getMessage());
         }
+    }
+
+    private function applyReportModeFinalPolishIfNeeded(): void
+    {
+        if (!$this->reportMode) {
+            return;
+        }
+
+        $currentDraft = trim((string)$this->fullResponse);
+        if ($currentDraft === '') {
+            return;
+        }
+
+        chatLogger("[REPORT-POLISH] 通常ルートの報告書向け最終整形を実行します。");
+        sendSSE('status', ['message' => '📄 報告書として読みやすい構成へ最終整形しています...']);
+
+        $referenceContext = trim((string)$this->contextText);
+        if ($referenceContext === '') {
+            $referenceContext = "利用可能な参考資料は限定的です。現在の回答ドラフトを基に、断定を避けて整形してください。";
+        }
+
+        $polisher = new ReportAnswerPolisher(
+            $this->ollama_host,
+            $this->model,
+            fn(string $prompt): string => $this->buildSystemPrompt() . "\n" . $prompt,
+            function (string $message): void {
+                chatLogger($message);
+            }
+        );
+
+        $this->fullResponse = $polisher->polish(
+            $this->originalMessage,
+            $referenceContext,
+            $currentDraft
+        );
     }
 
     private function parseQuery(): void {

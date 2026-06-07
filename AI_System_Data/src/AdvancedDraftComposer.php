@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/ReportAnswerPolisher.php';
+
 final class AdvancedDraftComposer
 {
     private $originalMessage;
@@ -39,32 +41,13 @@ final class AdvancedDraftComposer
             $reasoningText = mb_substr($reasoningText, 0, 6500) . "\n...[制限超過による省略]";
         }
 
-        $systemPrompt = "あなたは技術報告書を仕上げる業務支援AIです。"
-            . "与えられた根拠だけを使い、推測や一般論に逃げず、この案件の報告書本文としてそのまま使える最終版を日本語Markdownで出力してください。"
-            . "必ず次の見出しをこの順で含めてください: "
-            . "## 結論 / ## 分析対象 / ## 根拠 / ## 留意点 / ## 推奨アクション / ## 出典。"
-            . "資料紹介や概要説明だけで終わらせず、ユーザーの質問に対する直接の答えを最初に述べてください。"
-            . "根拠に書かれていない資料名、建物名、用途、数値、法規名、結論を推測で補ってはいけません。"
-            . "根拠が弱い項目は断定せず、『要確認』として扱ってください。"
-            . "留意点と推奨アクションは、根拠に結び付く具体的な項目を優先し、冗長な一般論は避けてください。"
-            . "出典では、可能な限り資料名、ページ、CSV名、ステップ番号など識別できる情報を箇条書きで示してください。";
-
-        $userPrompt = "【ユーザーの質問】\n{$this->originalMessage}\n\n"
-            . "【利用可能な根拠】\n{$reasoningText}\n\n"
-            . "【現在のドラフト】\n{$currentDraft}\n\n"
-            . "上記だけを使い、報告書本文として完成した最終版のみを日本語Markdownで出力してください。";
-
-        $response = callOllamaChat(
+        $polisher = new ReportAnswerPolisher(
             $this->ollamaHost,
             $this->synthesisModel,
-            (string)call_user_func($this->composeMemoryAwarePrompt, $systemPrompt),
-            $userPrompt,
-            null,
-            ["temperature" => 0.0, "top_p" => 0.1, "num_ctx" => 4096]
+            fn(string $prompt): string => (string)call_user_func($this->composeMemoryAwarePrompt, $prompt)
         );
 
-        $response = trim((string)$response);
-        return $response !== '' ? $response : trim($currentDraft);
+        return $polisher->polish($this->originalMessage, $reasoningText, $currentDraft);
     }
 
     public function buildEvidenceDraft(array $stepResults): string
