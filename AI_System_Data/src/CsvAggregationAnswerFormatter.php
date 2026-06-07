@@ -395,14 +395,16 @@ class CsvAggregationAnswerFormatter
         $dateColumnCount = count(array_unique(array_map(fn($row) => $row['file_name'] . '|' . $row['date_column'], $aggregatedRows)));
         $totalCount = array_sum(array_map(fn($row) => (int)$row['record_count'], $aggregatedRows));
         $summaryLines = $this->buildDateAggregationSummaryLines($plan, $aggregatedRows);
+        $granularity = (string)($plan['date_granularity'] ?? 'day');
+        $requestLabel = $granularity === 'hour' ? '日時・時間帯に関する集計要求' : '日付に関する集計要求';
 
         $lines = [];
-        $lines[] = "日付に関する集計要求として解釈し、CSVサンプルから日付列を判定したうえで構造化集計を行いました。";
+        $lines[] = "{$requestLabel}として解釈し、CSVサンプルから日時列を判定したうえで構造化集計を行いました。";
         $lines[] = "";
         $lines[] = "- 対象CSVファイル数: {$targetFileCount}件";
         $lines[] = "- 判定した日付列数: {$dateColumnCount}件";
         $lines[] = "- 集計対象レコード数: {$totalCount}件";
-        $lines[] = "- 集計粒度: " . $this->granularityLabel((string)($plan['date_granularity'] ?? 'day'));
+        $lines[] = "- 集計粒度: " . $this->granularityLabel($granularity);
         $lines[] = "- 並び順: " . $this->sortOrderLabel((string)($plan['sort_order'] ?? 'asc'));
         $lines[] = "";
         $lines[] = "### 判定した日付列";
@@ -428,8 +430,8 @@ class CsvAggregationAnswerFormatter
         }
 
         $lines[] = "";
-        $lines[] = "今回はAI読解ではなく、日付候補列を検出してから件数集計SQLを実行しています。";
-        $lines[] = "そのため、`全ての` のような広い表現でも、まず日付列の有無を確認してから集計へ進む挙動になります。";
+        $lines[] = "今回はAI読解ではなく、日時候補列を検出してから件数集計SQLを実行しています。";
+        $lines[] = "そのため、`全ての` のような広い表現でも、まず日時列の有無を確認してから集計へ進む挙動になります。";
 
         if ($diagramMode) {
             $chartBlock = $this->buildAggregationChartBlock($plan, $aggregatedRows);
@@ -496,7 +498,7 @@ class CsvAggregationAnswerFormatter
         ];
 
         $fence = str_repeat("\x60", 3);
-        return $this->buildChartLeadText($chartType)
+        return $this->buildChartLeadText($chartType, (string)($plan['date_granularity'] ?? 'day'))
             . "\n" . $fence . "json:chart\n"
             . json_encode($chart, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
             . "\n" . $fence;
@@ -508,13 +510,24 @@ class CsvAggregationAnswerFormatter
         $scope = $this->isSingleFileScope($plan)
             ? '単一CSV'
             : '複数CSV';
-        $seriesLabel = $datasetCount > 1 ? '系列比較' : '件数推移';
+        $isHourGranularity = (string)($plan['date_granularity'] ?? 'day') === 'hour';
+        $seriesLabel = $datasetCount > 1
+            ? '系列比較'
+            : ($isHourGranularity ? '件数分布' : '件数推移');
 
         return "{$scope}の{$granularity}{$seriesLabel}";
     }
 
-    private function buildChartLeadText(string $chartType): string
+    private function buildChartLeadText(string $chartType, string $granularity = 'day'): string
     {
+        if ($granularity === 'hour') {
+            if ($chartType === 'bar') {
+                return "時間帯ごとの差を見比べやすいよう、棒グラフで可視化しました。";
+            }
+
+            return "時間帯ごとの件数分布が分かるよう、折れ線グラフで可視化しました。";
+        }
+
         if ($chartType === 'bar') {
             return "日付列の種類が複数あるため、系列ごとの差を見比べやすいよう棒グラフで可視化しました。";
         }
@@ -565,6 +578,10 @@ class CsvAggregationAnswerFormatter
 
     private function granularityLabel(string $granularity): string
     {
+        if ($granularity === 'hour') {
+            return '時間帯別';
+        }
+
         if ($granularity === 'month') {
             return '月別';
         }
@@ -625,6 +642,7 @@ class CsvAggregationAnswerFormatter
         }
 
         $label = match ($granularity) {
+            'hour' => '時間帯',
             'month' => '月',
             'year' => '年',
             default => '日付',
@@ -633,6 +651,11 @@ class CsvAggregationAnswerFormatter
         $lines = [];
         $lines[] = "対象列は {$firstRow['file_name']} / {$firstRow['date_column']} です。";
         $lines[] = "集計{$label}数は " . count($rows) . " 件です。";
+        if ($granularity === 'hour') {
+            $lines[] = "最も多い{$label}は {$maxRow['date']} ({$maxRow['record_count']}件)、最も少ない{$label}は {$minRow['date']} ({$minRow['record_count']}件) です。";
+            return $lines;
+        }
+
         $lines[] = "最も古い{$label}は {$firstRow['date']} ({$firstRow['record_count']}件)、最も新しい{$label}は {$lastRow['date']} ({$lastRow['record_count']}件) です。";
         $lines[] = "最大件数の{$label}は {$maxRow['date']} ({$maxRow['record_count']}件)、最小件数の{$label}は {$minRow['date']} ({$minRow['record_count']}件) です。";
 

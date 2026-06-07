@@ -137,7 +137,7 @@ class ChatHistoryContextResolver
             }
         }
 
-        if (preg_match('/(?:^|[\s　])([A-Za-z_][A-Za-z0-9_]*|[一-龠ぁ-んァ-ヶー]+)\s*から\s*(?:年月|月別|年別|日別|日時|日付|時刻)/u', $message, $matches) === 1) {
+        if (preg_match('/(?:^|[\s　])([A-Za-z_][A-Za-z0-9_]*|[一-龠ぁ-んァ-ヶー]+)\s*から\s*(?:年月|月別|年別|日別|日時|日付|時刻|時間帯|時刻帯|時間ごと|時ごと)/u', $message, $matches) === 1) {
             $candidate = trim((string)($matches[1] ?? ''));
             if ($candidate !== '') {
                 return $candidate;

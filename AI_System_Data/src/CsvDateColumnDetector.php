@@ -108,6 +108,9 @@ class CsvDateColumnDetector
             return null;
         }
 
+        if ($granularity === 'hour') {
+            return $dt->format('H') . '時';
+        }
         if ($granularity === 'month') {
             return $dt->format('Y-m');
         }

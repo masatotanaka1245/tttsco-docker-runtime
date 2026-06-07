@@ -642,6 +642,15 @@ class NormalStreamingRouteProcessor {
             return '';
         }
 
+        if ($this->isStructuredAggregationLikeQuestion()) {
+            $structuredHistory = $this->extractConsultationHistoryContext();
+            if ($structuredHistory === '') {
+                return '';
+            }
+
+            return "【これまでの会話の文脈】\n{$structuredHistory}\n\n";
+        }
+
         if (!$this->isProjectMemoryConsultationRoute()) {
             return "【これまでの会話の文脈】\n{$this->historySummaryText}\n\n";
         }
@@ -707,6 +716,12 @@ class NormalStreamingRouteProcessor {
         }
 
         return '';
+    }
+
+    private function isStructuredAggregationLikeQuestion(): bool
+    {
+        return preg_match('/(csv|列|カラム|項目|datetime|timestamp|yearmonth|name|日付|日時|年月|時間帯|時刻帯|hour)/iu', $this->originalMessage) === 1
+            && preg_match('/(集計|件数|分布|一覧|表|グラフ|チャート|抽出|多い時間帯|ピーク時間|ピーク帯|何件|何種類|ユニーク|distinct)/iu', $this->originalMessage) === 1;
     }
 }
 

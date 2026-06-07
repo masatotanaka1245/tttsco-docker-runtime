@@ -32,10 +32,20 @@ class CsvAggregationTargetResolver
             $files = array_values(array_filter($files, fn($file) => $file['file_name'] === $plan['target_file_name']));
         }
 
+        $requestedColumn = trim((string)($plan['target_column'] ?? ''));
+        $requestedGranularity = (string)($plan['date_granularity'] ?? 'day');
         $targets = [];
         foreach ($files as $file) {
             $sampleRows = $this->sampleRowRepository->loadRowsForFile((int)$file['id'], 12);
             $dateColumns = $this->dateColumnDetector->detectDateColumnsForFile($file, $sampleRows);
+            if ($requestedColumn !== '' && in_array($requestedColumn, $dateColumns, true)) {
+                $dateColumns = [$requestedColumn];
+            } elseif ($requestedGranularity === 'hour') {
+                $timeBearingColumns = array_values(array_filter($dateColumns, fn(string $column): bool => $this->isTimeBearingColumnName($column)));
+                if (!empty($timeBearingColumns)) {
+                    $dateColumns = $timeBearingColumns;
+                }
+            }
             if (empty($dateColumns)) {
                 continue;
             }
@@ -207,5 +217,10 @@ class CsvAggregationTargetResolver
         if ($this->logger !== null) {
             call_user_func($this->logger, $message);
         }
+    }
+
+    private function isTimeBearingColumnName(string $column): bool
+    {
+        return preg_match('/(datetime|timestamp|time|時刻|日時)/iu', $column) === 1;
     }
 }

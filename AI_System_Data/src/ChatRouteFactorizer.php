@@ -31,9 +31,10 @@ class ChatRouteFactorizer
             }
         }
 
-        $hasAggregateIntent = preg_match('/(集計|件数|合計|平均|表に|一覧|推移|時系列|別に|グループ|何種類|ユニーク|distinct|重複なし|分布|分類|カテゴリ|抽出して件数|抽出して、件数|若い順|古い順|昇順|降順)/iu', $message) === 1;
+        $hasAggregateIntent = preg_match('/(集計|件数|合計|平均|表に|一覧|推移|時系列|別に|グループ|何種類|ユニーク|distinct|重複なし|分布|分類|カテゴリ|抽出して件数|抽出して、件数|若い順|古い順|昇順|降順|多い時間帯|ピーク時間|ピーク帯)/iu', $message) === 1;
         $hasSummaryIntent = preg_match('/(要約|まとめ|概要|内容を要約|内容をまとめ|どんな内容|内容を教えて)/u', $message) === 1;
         $hasDateIntent = preg_match('/(日付|日時|年月日|年月|月別|月ごと|年別|年ごと|日別|date|timestamp|時刻|日時は不要|月単位)/iu', $message) === 1;
+        $hasTimeBandIntent = preg_match('/(時間帯|時刻帯|時間ごと|時ごと|hour|何時台|時台|ピーク時間|多い時間帯)/iu', $message) === 1;
         $hasHistorySummaryRequest = preg_match('/((これまで|今まで|過去|直近).*(会話|やりとり|チャット|履歴).*(まとめ|要約|整理)|((会話|やりとり|チャット|履歴).*(まとめ|要約|整理)))/u', $message) === 1;
         $hasHistoryReportRequest = preg_match('/((会話|やりとり|チャット|履歴).*(報告書|レポート|PDF).*(作成|作って|出力|生成)|((報告書|レポート|PDF).*(作成|作って|出力|生成).*(会話|やりとり|チャット|履歴)))/u', $message) === 1;
         $hasDocReference = preg_match('/(PDF|pdf|資料|図面|仕様書|文書|設計書|報告書)/u', $message) === 1;
@@ -112,41 +113,33 @@ class ChatRouteFactorizer
             $scope = 'conversation_thread';
             $operation = 'summarize';
             $route = 'history_summary';
-        } elseif ($hasAggregateIntent && $hasDateIntent && $mentionedCsv !== null) {
+        } elseif ($hasAggregateIntent && ($hasDateIntent || $hasTimeBandIntent) && $mentionedCsv !== null) {
             $intent = 'aggregate';
             $target = 'single_csv';
             $scope = 'records_with_date';
             $operation = 'count';
-            $timeAxis = preg_match('/(月別|月ごと|年月|日時は不要|月単位)/u', $message) === 1
-                ? 'month'
-                : (preg_match('/(年別|年ごと)/u', $message) === 1 ? 'year' : 'day');
+            $timeAxis = $this->detectTimeAxis($message, $hasTimeBandIntent);
             $route = 'data_analysis.csv_agg';
-        } elseif ($hasAggregateIntent && $hasDateIntent && $targetColumn !== null) {
+        } elseif ($hasAggregateIntent && ($hasDateIntent || $hasTimeBandIntent) && $targetColumn !== null) {
             $intent = 'aggregate';
             $target = $mentionedCsv !== null ? 'single_csv' : 'all_csv';
             $scope = 'records_with_date';
             $operation = 'count';
-            $timeAxis = preg_match('/(月別|月ごと|年月|日時は不要|月単位)/u', $message) === 1
-                ? 'month'
-                : (preg_match('/(年別|年ごと)/u', $message) === 1 ? 'year' : 'day');
+            $timeAxis = $this->detectTimeAxis($message, $hasTimeBandIntent);
             $route = 'data_analysis.csv_agg';
-        } elseif ($hasAggregateIntent && $hasDateIntent && $hasCsvContext) {
+        } elseif ($hasAggregateIntent && ($hasDateIntent || $hasTimeBandIntent) && $hasCsvContext) {
             $intent = 'aggregate';
             $target = 'all_csv';
             $scope = 'records_with_date';
             $operation = 'count';
-            $timeAxis = preg_match('/(月別|月ごと|年月|日時は不要|月単位)/u', $message) === 1
-                ? 'month'
-                : (preg_match('/(年別|年ごと)/u', $message) === 1 ? 'year' : 'day');
+            $timeAxis = $this->detectTimeAxis($message, $hasTimeBandIntent);
             $route = 'data_analysis.csv_agg';
-        } elseif ($hasAggregateIntent && $hasDateIntent && $targetsAllCsv) {
+        } elseif ($hasAggregateIntent && ($hasDateIntent || $hasTimeBandIntent) && $targetsAllCsv) {
             $intent = 'aggregate';
             $target = 'all_csv';
             $scope = 'records_with_date';
             $operation = 'count';
-            $timeAxis = preg_match('/(月別|月ごと|年月|日時は不要|月単位)/u', $message) === 1
-                ? 'month'
-                : (preg_match('/(年別|年ごと)/u', $message) === 1 ? 'year' : 'day');
+            $timeAxis = $this->detectTimeAxis($message, $hasTimeBandIntent);
             $route = 'data_analysis.csv_agg';
         } elseif ($targetColumn !== null && $hasAggregateIntent && $hasDistinctIntent) {
             $intent = 'aggregate';
@@ -240,7 +233,7 @@ class ChatRouteFactorizer
             }
         }
 
-        if (preg_match('/(?:^|[\s　])([A-Za-z_][A-Za-z0-9_]*|[一-龠ぁ-んァ-ヶー]+)\s*から\s*(?:年月|月別|年別|日別|日時|日付|時刻)/u', $message, $matches) === 1) {
+        if (preg_match('/(?:^|[\s　])([A-Za-z_][A-Za-z0-9_]*|[一-龠ぁ-んァ-ヶー]+)\s*から\s*(?:年月|月別|年別|日別|日時|日付|時刻|時間帯|時刻帯|時間ごと|時ごと)/u', $message, $matches) === 1) {
             $candidate = trim((string)($matches[1] ?? ''));
             if ($candidate !== '') {
                 return $candidate;
@@ -283,6 +276,20 @@ class ChatRouteFactorizer
 
     private function isAggregationFollowUpIntent(string $message): bool
     {
-        return preg_match('/(若い順|古い順|昇順|降順|新しい順|新しいものから|古いものから|グラフ|グラフ化|チャート|並び替え|並べ替え|ソート)/iu', $message) === 1;
+        return preg_match('/(若い順|古い順|昇順|降順|新しい順|新しいものから|古いものから|グラフ|グラフ化|チャート|並び替え|並べ替え|ソート|時間帯ごと|時間ごと|時刻帯)/iu', $message) === 1;
+    }
+
+    private function detectTimeAxis(string $message, bool $hasTimeBandIntent): string
+    {
+        if ($hasTimeBandIntent) {
+            return 'hour';
+        }
+        if (preg_match('/(月別|月ごと|年月|日時は不要|月単位)/u', $message) === 1) {
+            return 'month';
+        }
+        if (preg_match('/(年別|年ごと)/u', $message) === 1) {
+            return 'year';
+        }
+        return 'day';
     }
 }

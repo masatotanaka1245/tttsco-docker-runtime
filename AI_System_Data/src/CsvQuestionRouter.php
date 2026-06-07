@@ -33,6 +33,10 @@ class CsvQuestionRouter
             return false;
         }
 
+        if ($this->isStructuredAggregationIntent($question)) {
+            return false;
+        }
+
         if (preg_match('/(平均|中央値|標準偏差|相関|回帰|推移|時系列|ランキング|多い順|少ない順|TOP|トップ|詳しく分析|条件|抽出|検索|該当)/iu', $question)) {
             return false;
         }
@@ -54,6 +58,10 @@ class CsvQuestionRouter
 
     public function shouldUseEvidenceRoute(string $question): bool
     {
+        if ($this->isStructuredAggregationIntent($question)) {
+            return false;
+        }
+
         $mentionsCsvFile = $this->findMentionedCsvFileName($question) !== null;
         if (!$mentionsCsvFile && !preg_match('/(CSV|csv|データ|レコード|行|列|カラム|項目|内容|概要|傾向|まとめ|集計|グラフ|チャート|chart)/iu', $question)) {
             return false;
@@ -74,6 +82,14 @@ class CsvQuestionRouter
     private function findMentionedCsvFileName(string $question): ?string
     {
         return call_user_func($this->fileNameResolver, $question);
+    }
+
+    private function isStructuredAggregationIntent(string $question): bool
+    {
+        $hasStructuredTarget = preg_match('/(csv|列|カラム|項目|datetime|timestamp|yearmonth|yearmonthdate|name|date|time|hour|日付|日時|年月|時間帯|時刻帯)/iu', $question) === 1;
+        $hasAggregationIntent = preg_match('/(集計|件数|分布|一覧|表|グラフ|チャート|抽出|多い時間帯|ピーク時間|ピーク帯|何件|何種類|ユニーク|distinct|月別|年別|日別|時間ごと|時ごと)/iu', $question) === 1;
+
+        return $hasStructuredTarget && $hasAggregationIntent;
     }
 
     private function log(string $message): void

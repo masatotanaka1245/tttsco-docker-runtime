@@ -26,6 +26,10 @@ class ChatEvaluationPolicy
             return self::no('simple_conversational_answer');
         }
 
+        if (self::isStructuredAggregationQuestion($normalized)) {
+            return self::yes('structured_aggregation_question');
+        }
+
         if ($responseLength >= 1200) {
             return self::yes('long_answer');
         }
@@ -60,5 +64,13 @@ class ChatEvaluationPolicy
     private static function isEvidenceSensitive(string $message): bool
     {
         return (bool)preg_match('/(pdf|csv|資料|根拠|出典|集計|分析|比較|留意点|報告書|レポート|図|グラフ|件数|数値|表|一覧|要約|まとめ|抽出)/iu', $message);
+    }
+
+    private static function isStructuredAggregationQuestion(string $message): bool
+    {
+        $hasStructuredTarget = (bool)preg_match('/(csv|列|カラム|項目|datetime|timestamp|yearmonth|name|日付|日時|年月|時間帯|時刻帯|hour)/iu', $message);
+        $hasAggregationIntent = (bool)preg_match('/(集計|件数|分布|一覧|表|グラフ|チャート|抽出|多い時間帯|ピーク時間|ピーク帯|何件|何種類|ユニーク|distinct)/iu', $message);
+
+        return $hasStructuredTarget && $hasAggregationIntent;
     }
 }

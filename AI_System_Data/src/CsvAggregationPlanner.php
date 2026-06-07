@@ -20,8 +20,9 @@ class CsvAggregationPlanner
 
     public function shouldUseStructuredAggregationRoute(string $question, array $recentHistory = []): bool
     {
-        $hasDateIntent = preg_match('/(日付|日時|年月日|年月|月別|月ごと|年別|年ごと|date|timestamp|時刻|日時は不要|月単位)/iu', $question) === 1;
-        $hasAggregateIntent = preg_match('/(集計|件数|合計|平均|表に|一覧|推移|時系列|別に|グループ|何種類|ユニーク|distinct|重複なし|分布|分類|カテゴリ|抽出して件数|抽出して、件数|若い順|古い順|昇順|降順|グラフ|グラフ化|チャート)/iu', $question) === 1;
+        $hasDateIntent = $this->hasDateIntent($question);
+        $hasTimeBandIntent = $this->hasTimeBandIntent($question);
+        $hasAggregateIntent = preg_match('/(集計|件数|合計|平均|表に|一覧|推移|時系列|別に|グループ|何種類|ユニーク|distinct|重複なし|分布|分類|カテゴリ|抽出して件数|抽出して、件数|若い順|古い順|昇順|降順|グラフ|グラフ化|チャート|ピーク時間|多い時間帯)/iu', $question) === 1;
         $hasExplainIntent = preg_match('/(どういう|どのような|説明|意味|何を表|どんなイベント|イベント.*説明|イベント.*意味|それぞれ.*説明)/u', $question) === 1;
         $hasSummaryIntent = preg_match('/(要約|まとめ|概要|内容を要約|内容をまとめ|どんな内容|内容を教えて)/u', $question) === 1;
         $hasCsvContext = preg_match('/(CSV|csv|ファイル|データ|レコード|行)/u', $question) === 1
@@ -43,23 +44,23 @@ class CsvAggregationPlanner
             return false;
         }
 
-        if ($hasDateIntent && $hasAggregateIntent && $hasCsvContext) {
+        if (($hasDateIntent || $hasTimeBandIntent) && $hasAggregateIntent && $hasCsvContext) {
             return true;
         }
 
-        if ($hasDateIntent && $hasAggregateIntent && $mentionedColumnTarget !== null) {
+        if (($hasDateIntent || $hasTimeBandIntent) && $hasAggregateIntent && $mentionedColumnTarget !== null) {
             return true;
         }
 
-        if ($hasDateIntent && $hasAggregateIntent && $mentionedColumnName !== null) {
+        if (($hasDateIntent || $hasTimeBandIntent) && $hasAggregateIntent && $mentionedColumnName !== null) {
             return true;
         }
 
-        if ($hasDateIntent && $hasAggregateIntent && $explicitColumnReference !== null) {
+        if (($hasDateIntent || $hasTimeBandIntent) && $hasAggregateIntent && $explicitColumnReference !== null) {
             return true;
         }
 
-        if ($hasDateIntent && $hasAggregateIntent && $recentContext !== null) {
+        if (($hasDateIntent || $hasTimeBandIntent) && $hasAggregateIntent && $recentContext !== null) {
             return true;
         }
 
@@ -90,6 +91,8 @@ class CsvAggregationPlanner
     public function buildStructuredAggregationPlan(string $question, array $recentHistory = []): array
     {
         $question = $this->normalizeUtf8($question);
+        $hasDateIntent = $this->hasDateIntent($question);
+        $hasTimeBandIntent = $this->hasTimeBandIntent($question);
         $targetFileName = $this->findMentionedCsvFileName($question);
         $explicitColumnReference = $this->findExplicitColumnReference($question);
         $targetColumn = $explicitColumnReference;
@@ -135,7 +138,7 @@ class CsvAggregationPlanner
                 $contextSource = $this->isAggregationFollowUpIntent($question) ? 'recent_history_followup' : 'recent_history';
             }
         }
-        if ($targetColumn === null && $this->hasDateIntent($question)) {
+        if ($targetColumn === null && ($hasDateIntent || $hasTimeBandIntent)) {
             $inferredDateTarget = $this->findSingleDateLikeColumnTarget($question);
             if ($inferredDateTarget !== null) {
                 $targetFileName = (string)$inferredDateTarget['file_name'];
@@ -146,12 +149,7 @@ class CsvAggregationPlanner
         $sourceColumn = $targetFileName !== null ? $this->findSemanticSourceColumn($targetFileName, [$targetColumn]) : null;
         $categoryFilterLabel = $targetFileName !== null ? $this->extractRequestedCategoryLabel($question, $targetFileName) : null;
 
-        $dateGranularity = 'day';
-        if (preg_match('/(月別|月ごと|年月|日時は不要|月単位)/u', $question)) {
-            $dateGranularity = 'month';
-        } elseif (preg_match('/(年別|年ごと)/u', $question)) {
-            $dateGranularity = 'year';
-        }
+        $dateGranularity = $this->detectDateGranularity($question, $hasTimeBandIntent);
 
         $hasExplicitSortIntent = preg_match('/(若い順|古い順|昇順|降順|新しい順|新しいものから|古いものから)/u', $question) === 1;
         $sortOrder = 'asc';
@@ -168,7 +166,6 @@ class CsvAggregationPlanner
         $hasDistinctIntent = preg_match('/(何種類|ユニーク|distinct|重複なし|種類数)/iu', $question) === 1;
         $hasSemanticCategoryIntent = preg_match('/(カテゴリ|カテゴリー|分類|傾向|どのような情報|どんな情報|分析してください|分析して|テーマ)/u', $question) === 1;
         $hasColumnExplainIntent = preg_match('/(どういう|どのような|説明|意味|何を表|どんなイベント|イベント.*説明|イベント.*意味|それぞれ.*説明)/u', $question) === 1;
-        $hasDateIntent = $this->hasDateIntent($question);
         $hasValueDistributionIntent = preg_match('/(全ての値|すべての値|各値|値ごとの件数|各レコード数|それぞれの件数|内訳|分布|一覧|表に)/u', $question) === 1;
         $wantsDistinctOnly = $hasDistinctIntent && !$hasValueDistributionIntent;
         $wantsExactCount = $targetColumn !== null
@@ -281,7 +278,7 @@ class CsvAggregationPlanner
 
     private function isAggregationFollowUpIntent(string $question): bool
     {
-        return preg_match('/(若い順|古い順|昇順|降順|グラフ|グラフ化|チャート|並び替え|並べ替え|ソート)/iu', $question) === 1;
+        return preg_match('/(若い順|古い順|昇順|降順|グラフ|グラフ化|チャート|並び替え|並べ替え|ソート|時間帯ごと|時間ごと|時刻帯)/iu', $question) === 1;
     }
 
     private function findMentionedColumnName(string $question, string $targetFileName): ?string
@@ -370,7 +367,7 @@ class CsvAggregationPlanner
             }
         }
 
-        if (preg_match('/(?:^|[\s　])([A-Za-z_][A-Za-z0-9_]*|[一-龠ぁ-んァ-ヶー]+)\s*から\s*(?:年月|月別|年別|日別|日時|日付|時刻)/u', $question, $matches) === 1) {
+        if (preg_match('/(?:^|[\s　])([A-Za-z_][A-Za-z0-9_]*|[一-龠ぁ-んァ-ヶー]+)\s*から\s*(?:年月|月別|年別|日別|日時|日付|時刻|時間帯|時刻帯|時間ごと|時ごと)/u', $question, $matches) === 1) {
             $candidate = trim((string)($matches[1] ?? ''));
             if ($candidate !== '') {
                 return $candidate;
@@ -440,18 +437,14 @@ class CsvAggregationPlanner
             $hasDistinctIntent = preg_match('/(何種類|ユニーク|distinct|重複なし|種類数)/iu', $historyMessage) === 1;
             $hasColumnExplainIntent = preg_match('/(どういう|どのような|説明|意味|何を表|どんなイベント|イベント.*説明|イベント.*意味|それぞれ.*説明)/u', $historyMessage) === 1;
             $hasDateIntent = $this->hasDateIntent($historyMessage);
+            $hasTimeBandIntent = $this->hasTimeBandIntent($historyMessage);
             $hasSemanticCategoryIntent = preg_match('/(カテゴリ|カテゴリー|分類|傾向|どのような情報|どんな情報|分析してください|分析して|テーマ)/u', $historyMessage) === 1;
             $hasValueDistributionIntent = preg_match('/(全ての値|すべての値|各値|値ごとの件数|各レコード数|それぞれの件数|内訳|分布|一覧|表に)/u', $historyMessage) === 1;
             $sortOrder = preg_match('/(若い順|降順|新しい順|新しいものから)/u', $historyMessage) === 1 ? 'desc' : 'asc';
             $usesValueOrdering = preg_match('/(若い順|古い順|昇順|降順|新しい順|新しいものから|古いものから)/u', $historyMessage) === 1;
             $wantsChart = preg_match('/(グラフ|グラフ化|チャート|可視化)/u', $historyMessage) === 1;
             $wantsTable = preg_match('/(表|一覧)/u', $historyMessage) === 1;
-            $dateGranularity = 'day';
-            if (preg_match('/(月別|月ごと|年月|日時は不要|月単位)/u', $historyMessage) === 1) {
-                $dateGranularity = 'month';
-            } elseif (preg_match('/(年別|年ごと)/u', $historyMessage) === 1) {
-                $dateGranularity = 'year';
-            }
+            $dateGranularity = $this->detectDateGranularity($historyMessage, $hasTimeBandIntent);
 
             $aggregationMode = 'value_distribution';
             if ($targetColumn !== null && $targetValue !== null && preg_match('/(件数|何件|件ありますか|件ある|集計)/u', $historyMessage) === 1) {
@@ -460,7 +453,7 @@ class CsvAggregationPlanner
                 $aggregationMode = 'distinct_count';
             } elseif ($targetColumn !== null && $hasColumnExplainIntent) {
                 $aggregationMode = 'column_semantics';
-            } elseif ($targetColumn !== null && ($hasDateIntent || $this->isDateLikeColumnName((string)$targetColumn))) {
+            } elseif ($targetColumn !== null && ($hasDateIntent || $hasTimeBandIntent || $this->isDateLikeColumnName((string)$targetColumn))) {
                 $aggregationMode = 'date_histogram';
             } elseif ($targetColumn !== null && $hasSemanticCategoryIntent) {
                 $aggregationMode = 'semantic_category_summary';
@@ -601,6 +594,28 @@ class CsvAggregationPlanner
     private function hasDateIntent(string $question): bool
     {
         return preg_match('/(日付|日時|年月日|年月|月別|月ごと|年別|年ごと|date|timestamp|時刻|日時は不要|月単位)/iu', $question) === 1;
+    }
+
+    private function hasTimeBandIntent(string $question): bool
+    {
+        return preg_match('/(時間帯|時刻帯|時間ごと|時ごと|hour|何時台|時台|ピーク時間|多い時間帯)/iu', $question) === 1;
+    }
+
+    private function detectDateGranularity(string $question, bool $hasTimeBandIntent): string
+    {
+        if ($hasTimeBandIntent) {
+            return 'hour';
+        }
+
+        if (preg_match('/(月別|月ごと|年月|日時は不要|月単位)/u', $question) === 1) {
+            return 'month';
+        }
+
+        if (preg_match('/(年別|年ごと)/u', $question) === 1) {
+            return 'year';
+        }
+
+        return 'day';
     }
 
     private function isRecentContextCarryOverIntent(string $question): bool
