@@ -250,3 +250,67 @@ if (!isset($URL_SVG_XMLNS)) {
         </form>
     </div>
 </div>
+
+<div id="material-note-modal" class="fixed inset-0 bg-slate-950/40 backdrop-blur-xs hidden items-center justify-center z-50 p-4 animate-fadeIn duration-200" role="dialog" aria-modal="true" aria-labelledby="modal-title-material">
+    <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-4xl mx-auto overflow-y-auto max-h-[90vh] border border-slate-100/80 transition-all duration-200">
+        <h3 id="modal-title-material" class="text-sm md:text-base font-black tracking-wider text-slate-700 mb-5 border-b border-slate-100 pb-3 uppercase">資料メモの編集</h3>
+        <form method="post" id="material-note-form" onsubmit="handleSaveMaterialNote(event)" class="space-y-4 text-xs">
+            <input type="hidden" name="action" value="save_project_material">
+            <input type="hidden" name="csrf_token" value="<?= h($csrfToken) ?>">
+            <input type="hidden" name="project_id" value="<?= h((string)$selected_project_id) ?>">
+            <input type="hidden" name="material_document_id" id="modal-material-document-id" value="">
+
+            <div class="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(20rem,22rem)] gap-5 items-start">
+                <div class="space-y-4">
+                    <div class="space-y-1.5">
+                        <label for="modal-material-title" class="block text-[10px] font-black text-slate-400 tracking-wider">資料タイトル</label>
+                        <input
+                            id="modal-material-title"
+                            type="text"
+                            name="material_title"
+                            value=""
+                            class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-xs bg-slate-50/50 focus:bg-white focus:border-indigo-400/80 transition-all duration-200 text-slate-700 outline-none"
+                            placeholder="例: 現場調整メモ / 会議要点 / 中間資料"
+                        >
+                    </div>
+
+                    <div class="space-y-1.5">
+                        <label for="modal-material-content" class="block text-[10px] font-black text-slate-400 tracking-wider">Markdown本文</label>
+                        <textarea
+                            id="modal-material-content"
+                            name="material_content"
+                            rows="18"
+                            class="w-full min-h-[22rem] border border-slate-200 rounded-xl p-3 text-xs leading-5 bg-slate-50/50 focus:bg-white focus:border-indigo-400/80 transition-all duration-200 resize-y font-mono text-slate-700 outline-none"
+                            placeholder="# 資料タイトル&#10;&#10;## 背景&#10;...&#10;&#10;## 現状&#10;..."
+                        ></textarea>
+                    </div>
+
+                    <div class="space-y-1.5">
+                        <label for="modal-material-append-note" class="block text-[10px] font-black text-slate-400 tracking-wider">追記メモ</label>
+                        <textarea
+                            id="modal-material-append-note"
+                            name="material_append_note"
+                            rows="5"
+                            class="w-full border border-slate-200 rounded-xl p-3 text-xs leading-5 bg-white transition-all duration-200 resize-y text-slate-700 outline-none"
+                            placeholder="今日の更新点だけを追記したいときに使います。保存時に「## 更新 YYYY-MM-DD HH:MM」で追加します。"
+                        ></textarea>
+                    </div>
+                </div>
+
+                <div class="border border-slate-200 rounded-2xl overflow-hidden bg-white shadow-2xs min-h-[18rem]">
+                    <div class="px-4 py-2.5 bg-slate-50 text-[10px] font-black text-slate-400 tracking-widest uppercase">Preview</div>
+                    <div id="modal-material-preview" class="p-5 markdown-body chat-markdown prose prose-slate max-w-none text-sm min-h-[26rem] overflow-y-auto">
+                        <div class="text-center py-10 text-xs text-slate-400 italic">ここに資料メモのプレビューが表示されます。</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex justify-end items-center gap-2.5 pt-4 border-t border-slate-100 mt-6">
+                <div class="flex items-center gap-2.5">
+                    <button type="button" onclick="if(typeof window.closeMaterialNoteModal === 'function') window.closeMaterialNoteModal()" class="px-5 py-2 bg-slate-100 rounded-xl font-bold text-slate-500 hover:bg-slate-200 hover:text-slate-700 transition-all duration-200 ease-in-out transform active:scale-98">キャンセル</button>
+                    <button type="submit" class="px-7 py-2 bg-[#4F5D95] text-white rounded-xl font-bold shadow-2xs hover:shadow-md hover:bg-[#3f4a7a] transition-all duration-200 ease-in-out transform active:scale-98">保存する</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>

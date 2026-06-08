@@ -49,11 +49,11 @@ if (!function_exists('chatLogger')) {
 /**
  * 外部からのエントリーポイント（他ファイルと一元規格統一のため、最後尾に $role を追記した13引数拡張版・Freeze Protocol）
  */
-function runAdvancedReasoningRoute($pdo, $ollama_host, $projectId, $originalMessage, $searchQuery, $reasoningId, $mainModel, $subModel, $sqlModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false) {
+function runAdvancedReasoningRoute($pdo, $ollama_host, $projectId, $originalMessage, $searchQuery, $reasoningId, $mainModel, $subModel, $sqlModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false, bool $csvMode = false) {
     $processor = new AdvancedReasoningRouteProcessor(
         $pdo, $ollama_host, $projectId, $originalMessage, $searchQuery,
         $reasoningId, $mainModel, $subModel, $sqlModel, $embeddingModel, $promptKey,
-        $projectContext, $historySummaryText, $user_id, $role, $threadId, $reportMode, $diagramMode
+        $projectContext, $historySummaryText, $user_id, $role, $threadId, $reportMode, $diagramMode, $csvMode
     );
     $processor->execute();
 }
@@ -86,6 +86,8 @@ class AdvancedReasoningRouteProcessor {
     private $reportMode = false;
     private $diagramMode = false;
     private $reportDocument = null;
+    private $csvMode = false;
+    private $csvExport = null;
     private $databaseMemoryPrompt = ""; // フェーズ3：DB事前記憶プロンプト保持用
     private $projectOperatingMemoryPrompt = "";
 
@@ -106,7 +108,7 @@ class AdvancedReasoningRouteProcessor {
     public $lastLoggedLen = 0;
     public $ollamaErrorMsg = "";
 
-    public function __construct($pdo, $ollama_host, $projectId, $originalMessage, $searchQuery, $reasoningId, $mainModel, $subModel, $sqlModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false) {
+    public function __construct($pdo, $ollama_host, $projectId, $originalMessage, $searchQuery, $reasoningId, $mainModel, $subModel, $sqlModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false, bool $csvMode = false) {
         $this->pdo = $pdo;
         $this->ollama_host = $ollama_host;
         $this->projectId = (int)$projectId;
@@ -128,6 +130,7 @@ class AdvancedReasoningRouteProcessor {
         $this->model = $this->subModel;
         $this->reportMode = $reportMode;
         $this->diagramMode = $diagramMode;
+        $this->csvMode = $csvMode;
     }
 
     private function getOutputModeInstructions(): string {
@@ -137,6 +140,9 @@ class AdvancedReasoningRouteProcessor {
         }
         if ($this->reportMode) {
             $instructions .= "\n【報告書モード】回答は後続処理でHTML/CSSからPDF報告書化され、資料PDFとして保存されます。結論、分析対象、根拠、留意点、推奨アクション、出典の順に、報告書として読みやすい見出し構成で作成してください。";
+        }
+        if ($this->csvMode) {
+            $instructions .= "\n【CSV化モード】集計結果や一覧をCSVとして保存できるよう、表形式が有効な場合は少なくとも1つのMarkdown表を含めてください。列名と行データを省略せず、Markdown表として完結させてください。";
         }
         return $instructions;
     }
@@ -283,6 +289,7 @@ class AdvancedReasoningRouteProcessor {
             $this->evalResult,
             $this->retryCount,
             $this->reportMode,
+            $this->csvMode,
             $this->ollama_host,
             realpath(__DIR__ . '/../../') ?: (__DIR__ . '/../..'),
             $this->mainModel,
@@ -296,7 +303,7 @@ class AdvancedReasoningRouteProcessor {
     }
 
     private function hasExtendedOutputMode(): bool {
-        return $this->reportMode || $this->diagramMode;
+        return $this->reportMode || $this->diagramMode || $this->csvMode;
     }
 
     private function maxSqlRepairRetries(): int {
@@ -641,65 +648,155 @@ class AdvancedReasoningRouteProcessor {
     }
 
     private function buildDeterministicMultiSourceAdvice(array $csvFiles, array $pdfDocs): string {
+        $hasCsv = !empty($csvFiles);
+        $hasPdf = !empty($pdfDocs);
         $lines = [];
-        $lines[] = "CSVとPDFの両方を活かすなら、まず『CSVで定量把握』『PDFで留意点整理』『両者の照合』の3段で進めるのがおすすめです。";
+        $lines[] = $this->buildMultiSourceAdviceLead($hasCsv, $hasPdf);
         $lines[] = "";
         $lines[] = "## おすすめの進め方";
-        $lines[] = "- 1. CSVのファイル一覧と列構成を確認し、どのファイルが件数集計・分布集計・時系列集計に向くかを切り分ける。";
-        $lines[] = "- 2. PDFからは、留意点・制約・確認事項をページ番号付きで抽出し、定量集計とは別レイヤーで整理する。";
-        $lines[] = "- 3. 最後に、CSVの集計結果とPDFの注意事項を並べ、運用判断に使える形へまとめる。";
-        $lines[] = "";
-        $lines[] = "## CSVでおすすめの集計";
+        foreach ($this->buildMultiSourceAdviceWorkflow($hasCsv, $hasPdf) as $step) {
+            $lines[] = $step;
+        }
 
-        foreach ($csvFiles as $csv) {
-            $fileName = (string)($csv['file_name'] ?? '');
-            $rowCount = (int)($csv['row_count'] ?? 0);
-            $headers = json_decode((string)($csv['column_headers'] ?? ''), true);
-            if (!is_array($headers)) {
-                $headers = array_filter(array_map('trim', explode(',', (string)($csv['column_headers'] ?? ''))));
-            }
+        if ($hasCsv) {
+            $lines[] = "";
+            $lines[] = "## CSVでおすすめの集計";
 
-            if (preg_match('/language-locales|username-or-email/i', $fileName)) {
-                $lines[] = "- `{$fileName}` ({$rowCount}件): 言語別件数、部署別件数、アカウント属性の分布確認が向いています。";
-            } elseif (preg_match('/入荷実績一覧/u', $fileName)) {
-                $lines[] = "- `{$fileName}` ({$rowCount}件): 品番別件数、品名別件数、仕入先別件数、サイズ別件数、発注数/入荷数/未入荷数の比較がおすすめです。";
-            } elseif (preg_match('/健康診断一覧/u', $fileName)) {
-                $lines[] = "- `{$fileName}` ({$rowCount}件): 年齢分布、身長・体重・血圧・血糖値の要約統計、性別や年代別の比較が有効です。";
-            } elseif (preg_match('/出荷一覧表/u', $fileName)) {
-                $lines[] = "- `{$fileName}` ({$rowCount}件): 商品別件数、顧客別件数、受注日ベースの時系列、本数と合計のランキング集計が向いています。";
-            } else {
-                $headerPreview = implode(' / ', array_slice($headers, 0, 5));
-                $lines[] = "- `{$fileName}` ({$rowCount}件): まず主要列（{$headerPreview}）の値分布と欠損有無を確認するのがおすすめです。";
+            foreach ($csvFiles as $csv) {
+                $lines[] = $this->buildCsvAdviceLine($csv);
             }
         }
 
-        $lines[] = "";
-        $lines[] = "## PDFでおすすめの分析";
-        if (empty($pdfDocs)) {
-            $lines[] = "- 現在、対象PDFは確認できませんでした。PDFが追加されたら、留意点・制約・ページ番号付き根拠の抽出から始めるのがよいです。";
-        } else {
+        if ($hasPdf) {
+            $lines[] = "";
+            $lines[] = "## PDFでおすすめの分析";
             foreach (array_slice($pdfDocs, 0, 3) as $doc) {
                 $title = (string)($doc['title'] ?? basename((string)($doc['file_path'] ?? '資料PDF')));
                 $lines[] = "- `{$title}`: 留意点、禁止事項、確認事項、寸法・条件値などをページ番号付きで抽出し、CSV集計とは別に根拠一覧化するのがおすすめです。";
             }
+        } elseif ($hasCsv) {
+            $lines[] = "";
+            $lines[] = "## PDFでおすすめの分析";
+            $lines[] = "- 現在、対象PDFは確認できませんでした。まずはCSVだけで定量把握を進め、必要な資料が追加された時点で留意点抽出を組み合わせるのが自然です。";
         }
 
         $lines[] = "";
         $lines[] = "## まず最初にやるとよい分析";
-        $lines[] = "- CSV全体の概要を出す";
-        $lines[] = "- 次に業務系CSVを1本選び、列別件数分布やランキングを出す";
-        $lines[] = "- その後、PDFの留意点一覧を抽出して、CSVの数値結果と矛盾や確認事項がないかを見る";
+        foreach ($this->buildMultiSourceAdviceFirstActions($hasCsv, $hasPdf) as $step) {
+            $lines[] = $step;
+        }
         $lines[] = "";
         $lines[] = "## 出典";
-        $lines[] = "- CSVファイル数: " . count($csvFiles) . "件";
-        foreach (array_slice($csvFiles, 0, 5) as $csv) {
-            $lines[] = "- CSV: " . (string)($csv['file_name'] ?? '名称不明');
+        if ($hasCsv) {
+            $lines[] = "- CSVファイル数: " . count($csvFiles) . "件";
+            foreach (array_slice($csvFiles, 0, 5) as $csv) {
+                $lines[] = "- CSV: " . (string)($csv['file_name'] ?? '名称不明');
+            }
         }
-        foreach (array_slice($pdfDocs, 0, 5) as $doc) {
-            $lines[] = "- PDF: " . (string)($doc['title'] ?? basename((string)($doc['file_path'] ?? '資料PDF')));
+        if ($hasPdf) {
+            $lines[] = "- PDF件数: " . count($pdfDocs) . "件";
+            foreach (array_slice($pdfDocs, 0, 5) as $doc) {
+                $lines[] = "- PDF: " . (string)($doc['title'] ?? basename((string)($doc['file_path'] ?? '資料PDF')));
+            }
         }
 
         return implode("\n", $lines);
+    }
+
+    private function buildMultiSourceAdviceLead(bool $hasCsv, bool $hasPdf): string
+    {
+        if ($hasCsv && $hasPdf) {
+            return "CSVとPDFの両方を活かすなら、まず『CSVで定量把握』『PDFで留意点整理』『両者の照合』の3段で進めるのがおすすめです。";
+        }
+
+        if ($hasCsv) {
+            return "今回はCSV資産が中心なので、まず『全体像の把握』『主要列の分布確認』『業務に近い指標の深掘り』の順で進めるのがおすすめです。";
+        }
+
+        return "今回は資料PDFが中心なので、まず『留意点抽出』『制約条件の整理』『ページ番号付き根拠の一覧化』の順で進めるのがおすすめです。";
+    }
+
+    private function buildMultiSourceAdviceWorkflow(bool $hasCsv, bool $hasPdf): array
+    {
+        if ($hasCsv && $hasPdf) {
+            return [
+                "- 1. CSVのファイル一覧と列構成を確認し、どのファイルが件数集計・分布集計・時系列集計に向くかを切り分ける。",
+                "- 2. PDFからは、留意点・制約・確認事項をページ番号付きで抽出し、定量集計とは別レイヤーで整理する。",
+                "- 3. 最後に、CSVの集計結果とPDFの注意事項を並べ、運用判断に使える形へまとめる。",
+            ];
+        }
+
+        if ($hasCsv) {
+            return [
+                "- 1. CSVのファイル一覧と列構成を確認し、業務系・属性系・履歴系に分けて見る。",
+                "- 2. 各CSVで件数分布、ランキング、時系列など基本集計を出し、どこに偏りがあるかを把握する。",
+                "- 3. その後、深掘りしたいCSVを1本選び、列同士の比較や期間別の傾向分析へ進む。",
+            ];
+        }
+
+        return [
+            "- 1. PDFから、留意点・制約・確認事項をページ番号付きで抽出する。",
+            "- 2. 寸法、条件値、禁止事項など、判断に直結する情報をカテゴリ別に整理する。",
+            "- 3. 最後に、現場や運用判断に使うための確認リストへまとめる。",
+        ];
+    }
+
+    private function buildMultiSourceAdviceFirstActions(bool $hasCsv, bool $hasPdf): array
+    {
+        if ($hasCsv && $hasPdf) {
+            return [
+                "- CSV全体の概要を出す",
+                "- 次に業務系CSVを1本選び、列別件数分布やランキングを出す",
+                "- その後、PDFの留意点一覧を抽出して、CSVの数値結果と矛盾や確認事項がないかを見る",
+            ];
+        }
+
+        if ($hasCsv) {
+            return [
+                "- CSV全体の概要を出す",
+                "- 業務に近いCSVを1本選び、列別件数分布やランキングを出す",
+                "- 必要なら時系列や特定条件で絞った集計へ進む",
+            ];
+        }
+
+        return [
+            "- PDF全体から主要な留意点を抽出する",
+            "- 次にページ番号付きで制約条件を一覧化する",
+            "- その後、判断に必要な確認事項リストへ整理する",
+        ];
+    }
+
+    private function buildCsvAdviceLine(array $csv): string
+    {
+        $fileName = (string)($csv['file_name'] ?? '');
+        $rowCount = (int)($csv['row_count'] ?? 0);
+        $headers = json_decode((string)($csv['column_headers'] ?? ''), true);
+        if (!is_array($headers)) {
+            $headers = array_filter(array_map('trim', explode(',', (string)($csv['column_headers'] ?? ''))));
+        }
+
+        if (preg_match('/language-locales/i', $fileName)) {
+            return "- `{$fileName}` ({$rowCount}件): 言語別件数、部署別件数、アカウント属性の分布確認が向いています。";
+        }
+        if (preg_match('/username-or-email/i', $fileName)) {
+            return "- `{$fileName}` ({$rowCount}件): ユーザー識別子、メールアドレス、氏名の重複有無や属性分布の確認が向いています。";
+        }
+        if (preg_match('/入荷実績一覧/u', $fileName)) {
+            return "- `{$fileName}` ({$rowCount}件): 品番別件数、品名別件数、仕入先別件数、サイズ別件数、発注数/入荷数/未入荷数の比較がおすすめです。";
+        }
+        if (preg_match('/健康診断一覧/u', $fileName)) {
+            return "- `{$fileName}` ({$rowCount}件): 年齢分布、身長・体重・血圧・血糖値の要約統計、性別や年代別の比較が有効です。";
+        }
+        if (preg_match('/出荷一覧表/u', $fileName)) {
+            return "- `{$fileName}` ({$rowCount}件): 商品別件数、顧客別件数、受注日ベースの時系列、本数と合計のランキング集計が向いています。";
+        }
+
+        $headerPreview = implode(' / ', array_slice($headers, 0, 5));
+        if ($headerPreview === '') {
+            $headerPreview = '主要列';
+        }
+
+        return "- `{$fileName}` ({$rowCount}件): まず主要列（{$headerPreview}）の値分布と欠損有無を確認するのがおすすめです。";
     }
 
     private function buildHistoryCollectionSnapshot(array $history): string {
@@ -1493,6 +1590,7 @@ class AdvancedReasoningRouteProcessor {
     private function saveHistoryAndEvaluations(): void {
         $finalizeResult = $this->buildRouteFinalizer()->saveHistoryAndEvaluations();
         $this->reportDocument = $finalizeResult['report_document'] ?? null;
+        $this->csvExport = $finalizeResult['csv_export'] ?? null;
     }
 
     /**
@@ -1537,7 +1635,7 @@ class AdvancedReasoningRouteProcessor {
      * SSEを用いて、成長した最終確定レポートと蓄積されたすべての思考プロセスをフロントエンドへ出荷する着陸回路
      */
     private function sendFinalResult(): void {
-        $this->buildRouteFinalizer()->sendFinalResult($this->reportDocument);
+        $this->buildRouteFinalizer()->sendFinalResult($this->reportDocument, $this->csvExport);
     }
 
     /**

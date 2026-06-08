@@ -310,18 +310,19 @@ EOT;
             'evaluation_mode' => 'fallback',
             'evaluation_source' => 'judge_fallback',
             'scores' => [
-                'proactivity' => 80,
+                'proactivity' => 60,
                 'faithfulness' => 100,
-                'answer_relevance' => 100,
-                'clarity' => 80
+                'answer_relevance' => 70,
+                'clarity' => 60
             ],
-            'total_score' => 95,
+            'total_score' => 73,
             'feedback' => '評価プロセスの実行中にタイムアウト等のエラーが発生したため、フェイルセーフにより初期ドラフトを採用します。',
             'next_action' => '',
             'sql_hint' => '',
             'must_fix' => [],
             'forbidden_actions' => [],
-            'needs_revision' => false
+            'needs_revision' => false,
+            'allow_memory_refresh' => false
         ];
     }
 
@@ -426,6 +427,7 @@ EOT;
             'must_fix' => array_values(array_filter(array_map('strval', $mustFix))),
             'forbidden_actions' => array_values(array_filter(array_map('strval', $forbiddenActions))),
             'needs_revision' => $verdict !== 'pass',
+            'allow_memory_refresh' => $verdict === 'pass' && $totalScore >= 85,
         ];
     }
 

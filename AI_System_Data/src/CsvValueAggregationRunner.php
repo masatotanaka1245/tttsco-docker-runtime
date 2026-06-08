@@ -42,7 +42,10 @@ class CsvValueAggregationRunner
         $targets = $targetResolver->findColumnTargets($targetFileName !== '' ? $targetFileName : null, $targetColumn);
         if (count($targets) !== 1 || $targetColumn === '') {
             if ($targetColumn !== '' && $this->shouldReturnMissingColumnAnswer($plan)) {
-                $finalResponse = $formatter->buildMissingColumnAnswer($plan);
+                $finalResponse = $formatter->buildMissingColumnAnswer(
+                    $plan,
+                    $targetResolver->findColumnSuggestions($targetFileName !== '' ? $targetFileName : null, $targetColumn)
+                );
                 ($this->setFinalResponse)($finalResponse);
                 ($this->appendSubAnswer)($finalResponse);
                 $this->log('[CSV-AGG] distinct_count の対象列が見つからないため deterministic に終了します。');
@@ -91,7 +94,10 @@ class CsvValueAggregationRunner
         $targets = $targetResolver->findColumnTargets($targetFileName !== '' ? $targetFileName : null, $targetColumn);
         if (empty($targets) || $targetColumn === '') {
             if ($targetColumn !== '' && $this->shouldReturnMissingColumnAnswer($plan)) {
-                $finalResponse = $formatter->buildMissingColumnAnswer($plan);
+                $finalResponse = $formatter->buildMissingColumnAnswer(
+                    $plan,
+                    $targetResolver->findColumnSuggestions($targetFileName !== '' ? $targetFileName : null, $targetColumn)
+                );
                 ($this->setFinalResponse)($finalResponse);
                 ($this->appendSubAnswer)($finalResponse);
                 $this->log('[CSV-AGG] value_distribution の対象列が見つからないため deterministic に終了します。');
@@ -174,6 +180,48 @@ class CsvValueAggregationRunner
         return true;
     }
 
+    public function runColumnExists(
+        array $plan,
+        float $routeStart,
+        CsvAggregationTargetResolver $targetResolver,
+        CsvAggregationAnswerFormatter $formatter
+    ): bool {
+        $targetFileName = (string)($plan['target_file_name'] ?? '');
+        $targetColumn = (string)($plan['target_column'] ?? '');
+        if ($targetColumn === '') {
+            $this->log('[CSV-AGG] column_exists の対象列を解決できませんでした。CSV証拠読解ルートへフォールバックします。');
+            return false;
+        }
+
+        $targets = $targetResolver->findColumnTargets($targetFileName !== '' ? $targetFileName : null, $targetColumn);
+        $this->sendStatus(2, '🧭 指定された列が存在するかを確認しています...');
+        ($this->insertReasoningStep)(
+            1,
+            'CSV column exists プリフライト',
+            "【集計計画】\n" . json_encode($plan, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
+            . "\n\n【対象CSV】\n" . json_encode($targets, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
+        );
+
+        $finalResponse = empty($targets)
+            ? $formatter->buildMissingColumnAnswer(
+                $plan,
+                $targetResolver->findColumnSuggestions($targetFileName !== '' ? $targetFileName : null, $targetColumn)
+            )
+            : $formatter->buildColumnExistsAnswer($plan, $targets);
+        ($this->setFinalResponse)($finalResponse);
+        ($this->appendSubAnswer)($finalResponse);
+        ($this->insertReasoningStep)(
+            90,
+            'CSV column exists の確認結果',
+            empty($targets)
+                ? "- result: missing\n- target_column: {$targetColumn}"
+                : "- result: exists\n- target_column: {$targetColumn}\n- files: " . implode(', ', array_map(fn(array $target): string => (string)$target['file_name'], $targets))
+        );
+        $this->log("[CSV-AGG] column_exists ルート完了 - matches: " . count($targets) . " | elapsed: " . $this->elapsed($routeStart));
+        ($this->completeRoute)();
+        return true;
+    }
+
     public function runExactValueCount(
         array $plan,
         float $routeStart,
@@ -186,7 +234,10 @@ class CsvValueAggregationRunner
         $targets = $targetResolver->findColumnTargets($targetFileName !== '' ? $targetFileName : null, $targetColumn);
         if (empty($targets) || $targetColumn === '' || $targetValue === '') {
             if ($targetColumn !== '' && $this->shouldReturnMissingColumnAnswer($plan)) {
-                $finalResponse = $formatter->buildMissingColumnAnswer($plan);
+                $finalResponse = $formatter->buildMissingColumnAnswer(
+                    $plan,
+                    $targetResolver->findColumnSuggestions($targetFileName !== '' ? $targetFileName : null, $targetColumn)
+                );
                 ($this->setFinalResponse)($finalResponse);
                 ($this->appendSubAnswer)($finalResponse);
                 $this->log('[CSV-AGG] exact_value_count の対象列が見つからないため deterministic に終了します。');

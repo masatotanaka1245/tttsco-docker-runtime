@@ -1,6 +1,6 @@
 # チャット受付・回答生成ロジック俯瞰メモ
 
-更新日: 2026-06-03
+更新日: 2026-06-08
 
 このメモは、`public/api/chat.php` を入口とするチャット受付から、各ルートの回答生成、評価、保存、図解モード、今後の分割候補までを俯瞰するための現行仕様メモです。
 
@@ -71,6 +71,7 @@
 - `advanced_reasoning`
 - `report_mode`
 - `diagram_mode`
+- `csv_mode`
 - モデル情報
 - プロンプトキー
 
@@ -172,6 +173,12 @@
 - 軽量 CSV 集計では PHP 側で deterministic に `json:chart` を組み立てる
 - 通常 RAG / フル思考では、必要時のみ Mermaid または Chart.js 用ブロックを付与
 
+### `csv_mode`
+
+- 回答本文の Markdown 表を案件CSVとして保存したいときのフラグ
+- `csv_mode=on` の場合、回答保存後に `CsvExportGenerator` が表を抽出し、`project_csv_files` / `project_csv_rows` へ登録する
+- `csv化してください` や `一つのcsvファイルにしてください` のような依頼は、重い `CSV-EVIDENCE` より `data_analysis.csv_export_request` を優先する方針で整備を進めている
+
 ## 6. ルーティングの決め方
 
 現在は `src/ChatRouteFactorizer.php` が、質問文を粗く分解して route 候補を返します。
@@ -180,6 +187,7 @@
 
 - `data_analysis.csv_summary`
 - `data_analysis.csv_agg`
+- `data_analysis.csv_export_request`
 - `advanced_hybrid.doc_extract`
 
 その後、現在は `src/ChatRouteSelector.php` が以下を見て最終候補を決めます。
@@ -251,9 +259,12 @@
 ### 8.1 主要ルート
 
 - CSV即答サマリー
+- CSV export request
 - CSV証拠読解
 - CSV構造化集計
 - 大規模CSV概況回答
+
+`csv化してください` や `一つのcsvファイルにしてください` のような依頼は、まず `data_analysis.csv_export_request` を候補とし、重い `CSV-EVIDENCE` より lightweight な表生成と CSV 登録を優先する。
 
 ### 8.2 `CSV-AGG` の現状
 

@@ -1,0 +1,333 @@
+<?php
+
+class ProjectMaterialDocumentService
+{
+    private PDO $pdo;
+    private string $basePath;
+
+    public function __construct(PDO $pdo, string $basePath)
+    {
+        $this->pdo = $pdo;
+        $this->basePath = rtrim($basePath, DIRECTORY_SEPARATOR);
+    }
+
+    public function findById(int $projectId, int $documentId): ?array
+    {
+        if ($projectId <= 0 || $documentId <= 0) {
+            return null;
+        }
+
+        $stmt = $this->pdo->prepare('SELECT * FROM documents WHERE id = ? AND project_id = ? LIMIT 1');
+        $stmt->execute([$documentId, $projectId]);
+        $document = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$document) {
+            return null;
+        }
+
+        $filePath = strtolower((string)($document['file_path'] ?? ''));
+        if (!str_ends_with($filePath, '.md')) {
+            return null;
+        }
+
+        return $document;
+    }
+
+    public function readContent(string $relativePath): string
+    {
+        $absolutePath = $this->toAbsolutePath($relativePath);
+        if (!is_file($absolutePath)) {
+            return '';
+        }
+
+        $content = file_get_contents($absolutePath);
+        return $content === false ? '' : (string)$content;
+    }
+
+    public function getModifiedAt(string $relativePath): ?string
+    {
+        $absolutePath = $this->toAbsolutePath($relativePath);
+        if (!is_file($absolutePath)) {
+            return null;
+        }
+
+        $mtime = @filemtime($absolutePath);
+        if ($mtime === false) {
+            return null;
+        }
+
+        return date('Y-m-d H:i:s', $mtime);
+    }
+
+    public function listByProject(int $projectId): array
+    {
+        if ($projectId <= 0) {
+            return [];
+        }
+
+        $stmt = $this->pdo->prepare("SELECT * FROM documents WHERE project_id = :project_id AND title NOT LIKE '[CSVデータ]%' ORDER BY created_at DESC");
+        $stmt->execute(['project_id' => $projectId]);
+
+        $materialDocuments = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $document) {
+            $filePath = strtolower((string)($document['file_path'] ?? ''));
+            if (!str_ends_with($filePath, '.md')) {
+                continue;
+            }
+
+            $document['material_modified_at'] = $this->getModifiedAt((string)($document['file_path'] ?? ''));
+            $materialDocuments[] = $document;
+        }
+
+        return $materialDocuments;
+    }
+
+    public function resolveSelectedDocument(array $materialDocuments, ?int $documentId = null): ?array
+    {
+        if ($documentId) {
+            foreach ($materialDocuments as $materialDocument) {
+                if ((int)($materialDocument['id'] ?? 0) === $documentId) {
+                    return $materialDocument;
+                }
+            }
+        }
+
+        return $materialDocuments[0] ?? null;
+    }
+
+    public function buildDocumentsPayload(array $materialDocuments): array
+    {
+        return array_map(fn(array $document): array => $this->buildDocumentSummary($document), $materialDocuments);
+    }
+
+    public function buildSelectedPayload(?array $selectedDocument, string $content = '', string $previewHtml = ''): array
+    {
+        if (!$selectedDocument) {
+            return [
+                'id' => 0,
+                'title' => '',
+                'content' => '',
+                'preview_html' => '',
+                'modified_at' => '',
+                'modified_label' => '更新時刻なし',
+            ];
+        }
+
+        $modifiedAt = (string)($selectedDocument['material_modified_at'] ?? $selectedDocument['created_at'] ?? '');
+
+        return [
+            'id' => (int)($selectedDocument['id'] ?? 0),
+            'title' => (string)($selectedDocument['title'] ?? ''),
+            'content' => $content,
+            'preview_html' => $previewHtml,
+            'modified_at' => $modifiedAt,
+            'modified_label' => $modifiedAt !== '' ? date('Y/m/d H:i', strtotime($modifiedAt)) : '更新時刻なし',
+        ];
+    }
+
+    public function save(int $projectId, string $title, string $content, ?int $documentId = null): array
+    {
+        $title = $this->normalizeTitle($title, $content);
+        $content = $this->normalizeContent($content, $title);
+        $existingDocument = $documentId ? $this->findById($projectId, $documentId) : null;
+
+        $relativePath = $existingDocument
+            ? (string)$existingDocument['file_path']
+            : $this->buildRelativePath($projectId, $title);
+        $absolutePath = $this->toAbsolutePath($relativePath);
+        $directory = dirname($absolutePath);
+
+        if (!is_dir($directory) && !@mkdir($directory, 0777, true) && !is_dir($directory)) {
+            throw new RuntimeException('資料メモの保存先ディレクトリを作成できませんでした。');
+        }
+
+        if (file_put_contents($absolutePath, $content, LOCK_EX) === false) {
+            throw new RuntimeException('資料メモのMarkdownファイル保存に失敗しました。');
+        }
+
+        $chunks = $this->splitIntoChunks($content);
+        if (empty($chunks)) {
+            $chunks[] = '# ' . $title;
+        }
+
+        $this->pdo->beginTransaction();
+        try {
+            if ($existingDocument) {
+                $savedDocumentId = (int)$existingDocument['id'];
+                $stmtUpdate = $this->pdo->prepare('UPDATE documents SET title = ?, file_path = ? WHERE id = ? AND project_id = ?');
+                $stmtUpdate->execute([$title, $relativePath, $savedDocumentId, $projectId]);
+            } else {
+                $stmtInsert = $this->pdo->prepare('INSERT INTO documents (project_id, title, file_path, created_at) VALUES (?, ?, ?, NOW())');
+                $stmtInsert->execute([$projectId, $title, $relativePath]);
+                $savedDocumentId = (int)$this->pdo->lastInsertId();
+            }
+
+            $stmtDeleteChunks = $this->pdo->prepare('DELETE FROM doc_chunks WHERE doc_id = ?');
+            $stmtDeleteChunks->execute([$savedDocumentId]);
+
+            $stmtInsertChunk = $this->pdo->prepare(
+                'INSERT INTO doc_chunks (doc_id, page_number, chunk_text, embedding, image_description, created_at) VALUES (?, ?, ?, ?, ?, NOW())'
+            );
+            foreach ($chunks as $index => $chunk) {
+                $stmtInsertChunk->execute([
+                    $savedDocumentId,
+                    1,
+                    $chunk,
+                    json_encode([], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                    '案件資料メモ（Markdown）',
+                ]);
+            }
+
+            $this->pdo->commit();
+        } catch (Throwable $e) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+            throw $e;
+        }
+
+        return [
+            'document_id' => $savedDocumentId,
+            'title' => $title,
+            'file_path' => $relativePath,
+            'content' => $content,
+            'modified_at' => $this->getModifiedAt($relativePath),
+        ];
+    }
+
+    public function delete(int $projectId, int $documentId): bool
+    {
+        $existingDocument = $this->findById($projectId, $documentId);
+        if (!$existingDocument) {
+            return false;
+        }
+
+        $absolutePath = $this->toAbsolutePath((string)$existingDocument['file_path']);
+
+        $this->pdo->beginTransaction();
+        try {
+            $stmtDeleteChunks = $this->pdo->prepare('DELETE FROM doc_chunks WHERE doc_id = ?');
+            $stmtDeleteChunks->execute([$documentId]);
+
+            $stmtDeleteDoc = $this->pdo->prepare('DELETE FROM documents WHERE id = ? AND project_id = ?');
+            $stmtDeleteDoc->execute([$documentId, $projectId]);
+
+            $this->pdo->commit();
+        } catch (Throwable $e) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+            throw $e;
+        }
+
+        if (is_file($absolutePath)) {
+            @unlink($absolutePath);
+        }
+
+        return true;
+    }
+
+    private function normalizeTitle(string $title, string $content): string
+    {
+        $title = trim($title);
+        if ($title !== '') {
+            return mb_substr($title, 0, 255);
+        }
+
+        if (preg_match('/^#\s+(.+)$/mu', $content, $matches)) {
+            return mb_substr(trim((string)$matches[1]), 0, 255);
+        }
+
+        return '資料メモ_' . date('Ymd_His');
+    }
+
+    private function normalizeContent(string $content, string $title): string
+    {
+        $content = trim($content);
+        if ($content === '') {
+            throw new RuntimeException('資料メモの内容が空です。');
+        }
+
+        if (!preg_match('/^#\s+/mu', $content)) {
+            $content = '# ' . $title . "\n\n" . $content;
+        }
+
+        return rtrim($content) . "\n";
+    }
+
+    private function buildRelativePath(int $projectId, string $title): string
+    {
+        $directory = '01_RAG_Documents/' . $projectId . '/materials';
+        $slug = $this->slugify(pathinfo($title, PATHINFO_FILENAME));
+        if ($slug === '') {
+            $slug = 'material';
+        }
+
+        return $directory . '/' . $slug . '_' . substr(sha1(uniqid('', true)), 0, 8) . '.md';
+    }
+
+    private function toAbsolutePath(string $relativePath): string
+    {
+        $trimmed = ltrim(str_replace(['\\', '//'], ['/', '/'], $relativePath), '/');
+        return $this->basePath . DIRECTORY_SEPARATOR . 'public' . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $trimmed);
+    }
+
+    private function slugify(string $value): string
+    {
+        $value = mb_strtolower(trim($value));
+        $value = preg_replace('/[^\p{L}\p{N}]+/u', '-', $value) ?? '';
+        return trim($value, '-');
+    }
+
+    private function splitIntoChunks(string $content, int $chunkSize = 900): array
+    {
+        $sections = preg_split('/\R{2,}/u', trim($content)) ?: [];
+        $chunks = [];
+        $buffer = '';
+
+        foreach ($sections as $section) {
+            $section = trim((string)$section);
+            if ($section === '') {
+                continue;
+            }
+
+            $candidate = $buffer === '' ? $section : $buffer . "\n\n" . $section;
+            if (mb_strlen($candidate) <= $chunkSize) {
+                $buffer = $candidate;
+                continue;
+            }
+
+            if ($buffer !== '') {
+                $chunks[] = $buffer;
+            }
+
+            if (mb_strlen($section) <= $chunkSize) {
+                $buffer = $section;
+                continue;
+            }
+
+            $length = mb_strlen($section);
+            for ($offset = 0; $offset < $length; $offset += $chunkSize) {
+                $chunks[] = mb_substr($section, $offset, $chunkSize);
+            }
+            $buffer = '';
+        }
+
+        if ($buffer !== '') {
+            $chunks[] = $buffer;
+        }
+
+        return $chunks;
+    }
+
+    private function buildDocumentSummary(array $document): array
+    {
+        $modifiedAt = (string)($document['material_modified_at'] ?? $document['created_at'] ?? '');
+
+        return [
+            'id' => (int)($document['id'] ?? 0),
+            'title' => (string)($document['title'] ?? '資料メモ'),
+            'modified_at' => $modifiedAt,
+            'modified_label' => $modifiedAt !== '' ? date('Y/m/d H:i', strtotime($modifiedAt)) : '更新時刻なし',
+        ];
+    }
+}

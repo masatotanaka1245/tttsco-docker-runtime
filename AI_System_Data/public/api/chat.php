@@ -325,6 +325,7 @@ try {
     $reasoning_id   = $input['reasoning_id'] ?? ($input['advanced_reasoning_id'] ?? null);
     $report_mode    = (isset($input['report_mode']) && $input['report_mode'] === true);
     $diagram_mode   = (isset($input['diagram_mode']) && $input['diagram_mode'] === true);
+    $csv_mode       = (isset($input['csv_mode']) && $input['csv_mode'] === true);
     $input_advanced_reasoning = (isset($input['advanced_reasoning']) && $input['advanced_reasoning'] === true);
 
     chatLogger("=== 新着チャット受信 | Host: {$ollama_host} | Model: {$selected_model} ===");
@@ -334,10 +335,11 @@ try {
         "[INPUT-MODE] prompt_mode={$prompt_key} | advanced_reasoning=" . ($input_advanced_reasoning ? 'on' : 'off') .
         " | reasoning_id=" . ($reasoning_id ?: 'none') .
         " | report_mode=" . ($report_mode ? 'on' : 'off') .
-        " | diagram_mode=" . ($diagram_mode ? 'on' : 'off')
+        " | diagram_mode=" . ($diagram_mode ? 'on' : 'off') .
+        " | csv_mode=" . ($csv_mode ? 'on' : 'off')
     );
-    if ($report_mode || $diagram_mode) {
-        chatLogger("[OUTPUT-MODE] report_mode=" . ($report_mode ? 'on' : 'off') . " | diagram_mode=" . ($diagram_mode ? 'on' : 'off'));
+    if ($report_mode || $diagram_mode || $csv_mode) {
+        chatLogger("[OUTPUT-MODE] report_mode=" . ($report_mode ? 'on' : 'off') . " | diagram_mode=" . ($diagram_mode ? 'on' : 'off') . " | csv_mode=" . ($csv_mode ? 'on' : 'off'));
     }
 
     $requestGuard = ChatRequestGuard::inspect($message, $project_id !== null ? (int)$project_id : null, $report_mode, $diagram_mode);
@@ -356,7 +358,8 @@ try {
             'applied_model' => $selected_model,
             'model_roles' => ChatModelRolePayload::build($main_model, $sub_model, $embedding_model, 'main', $sql_model),
             'created_at' => date('Y/m/d H:i'),
-            'report_document' => null
+            'report_document' => null,
+            'csv_export' => null
         ]);
         chatLogger("[SMART-ROUTER] ルート処理完了: {$routeName} | elapsed: " . number_format(microtime(true) - $routeStart, 2) . "秒");
         exit;
@@ -393,7 +396,9 @@ try {
                 'reasoning_steps' => [],
                 'applied_model' => $selected_model,
                 'model_roles' => ChatModelRolePayload::build($main_model, $sub_model, $embedding_model, 'main', $sql_model),
-                'created_at' => date('Y/m/d H:i')
+                'created_at' => date('Y/m/d H:i'),
+                'report_document' => null,
+                'csv_export' => null
             ]);
             exit;
         }
@@ -528,6 +533,7 @@ try {
         'thread_id' => $thread_id,
         'report_mode' => $report_mode,
         'diagram_mode' => $diagram_mode,
+        'csv_mode' => $csv_mode,
         'advanced_reasoning' => $advanced_reasoning,
         'is_analysis_mode' => $is_analysis_mode,
         'is_history_summary_mode' => $is_history_summary_mode,

@@ -25,9 +25,13 @@ require_once __DIR__ . '/../src/UserSettingsSessionSynchronizer.php';
 require_once __DIR__ . '/../src/ProjectContextMemory.php';
 require_once __DIR__ . '/../src/ProjectMemoryAutoUpdater.php';
 require_once __DIR__ . '/../src/ChatThreadManager.php';
+require_once __DIR__ . '/../src/ProjectMaterialDocumentService.php';
 
 $parsedown = new Parsedown();
 $parsedown->setBreaksEnabled(true);
+$markdownPreviewParser = new Parsedown();
+$markdownPreviewParser->setBreaksEnabled(true);
+$markdownPreviewParser->setSafeMode(true);
 
 $auth = new Auth($pdo);
 if (!$auth->isLoggedIn()) {
@@ -36,6 +40,7 @@ if (!$auth->isLoggedIn()) {
 }
 
 $csrfToken = getCsrfToken();
+$materialDocumentService = new ProjectMaterialDocumentService($pdo, dirname(__DIR__));
 
 // ★安全対策: プレビュー処理などで利用する安全なHTMLエスケープ関数の定義
 if (!function_exists('h')) {
@@ -94,6 +99,8 @@ $selected_project_id = filter_input(INPUT_GET, 'project_id', FILTER_VALIDATE_INT
 $selected_thread_id = filter_input(INPUT_GET, 'thread_id', FILTER_VALIDATE_INT);
 $active_tab = filter_input(INPUT_GET, 'tab', FILTER_SANITIZE_SPECIAL_CHARS) ?: 'overview';
 $memory_flash = filter_input(INPUT_GET, 'memory_saved', FILTER_SANITIZE_SPECIAL_CHARS) ?: '';
+$material_flash = filter_input(INPUT_GET, 'material_saved', FILTER_SANITIZE_SPECIAL_CHARS) ?: '';
+$selected_material_document_id = filter_input(INPUT_GET, 'material_doc_id', FILTER_VALIDATE_INT);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && (string)($_POST['action'] ?? '') === 'save_project_memory') {
     $token = (string)($_POST['csrf_token'] ?? '');
@@ -125,6 +132,113 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (string)($_POST['action'] ?? '') ==
     } catch (Throwable $e) {
         error_log('SupportController Memory Save Error: ' . $e->getMessage());
         header('Location: support.php?project_id=' . urlencode((string)$proj_id) . '&tab=memory&memory_saved=error');
+        exit;
+    }
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && (string)($_POST['action'] ?? '') === 'save_project_material') {
+    $token = (string)($_POST['csrf_token'] ?? '');
+    $proj_id = filter_input(INPUT_POST, 'project_id', FILTER_VALIDATE_INT);
+    $documentId = filter_input(INPUT_POST, 'material_document_id', FILTER_VALIDATE_INT) ?: null;
+
+    if (empty($token) || !isset($_SESSION['csrf_token']) || $token !== $_SESSION['csrf_token']) {
+        header('Location: support.php?project_id=' . urlencode((string)$proj_id) . '&tab=materials&material_saved=csrf_error');
+        exit;
+    }
+
+    if (!$proj_id || !canAccessProject($pdo, (int)$proj_id, $user_id, $role)) {
+        header('Location: support.php?project_id=' . urlencode((string)$proj_id) . '&tab=materials&material_saved=forbidden');
+        exit;
+    }
+
+    if ($role !== 'admin') {
+        header('Location: support.php?project_id=' . urlencode((string)$proj_id) . '&tab=materials&material_saved=forbidden');
+        exit;
+    }
+
+    try {
+        $existingDocument = $documentId ? $materialDocumentService->findById((int)$proj_id, (int)$documentId) : null;
+        if ($documentId && !$existingDocument) {
+            header('Location: support.php?project_id=' . urlencode((string)$proj_id) . '&tab=materials&material_saved=not_found');
+            exit;
+        }
+
+        $title = trim((string)($_POST['material_title'] ?? ''));
+        $contentInput = trim((string)($_POST['material_content'] ?? ''));
+        $appendNote = trim((string)($_POST['material_append_note'] ?? ''));
+        $baseContent = $contentInput;
+
+        if ($baseContent === '' && $existingDocument) {
+            $baseContent = $materialDocumentService->readContent((string)$existingDocument['file_path']);
+        }
+
+        if ($appendNote !== '') {
+            $appendHeader = '## 更新 ' . date('Y-m-d H:i');
+            $appendBlock = $appendHeader . "\n\n" . $appendNote;
+            if ($baseContent !== '') {
+                $baseContent = rtrim($baseContent) . "\n\n" . $appendBlock;
+            } else {
+                $headingTitle = $title !== '' ? $title : '資料メモ_' . date('Ymd_His');
+                $baseContent = '# ' . $headingTitle . "\n\n" . $appendBlock;
+            }
+        }
+
+        if (trim($baseContent) === '') {
+            header('Location: support.php?project_id=' . urlencode((string)$proj_id) . '&tab=materials&material_saved=empty');
+            exit;
+        }
+
+        if ($title === '' && $existingDocument) {
+            $title = (string)$existingDocument['title'];
+        }
+
+        $savedMaterial = $materialDocumentService->save((int)$proj_id, $title, $baseContent, $documentId ? (int)$documentId : null);
+        header(
+            'Location: support.php?project_id=' . urlencode((string)$proj_id)
+            . '&tab=materials&material_saved=1&material_doc_id=' . urlencode((string)$savedMaterial['document_id'])
+        );
+        exit;
+    } catch (Throwable $e) {
+        error_log('SupportController Material Save Error: ' . $e->getMessage());
+        header(
+            'Location: support.php?project_id=' . urlencode((string)$proj_id)
+            . '&tab=materials&material_saved=error'
+            . ($documentId ? '&material_doc_id=' . urlencode((string)$documentId) : '')
+        );
+        exit;
+    }
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && (string)($_POST['action'] ?? '') === 'delete_project_material') {
+    $token = (string)($_POST['csrf_token'] ?? '');
+    $proj_id = filter_input(INPUT_POST, 'project_id', FILTER_VALIDATE_INT);
+    $documentId = filter_input(INPUT_POST, 'material_document_id', FILTER_VALIDATE_INT);
+
+    if (empty($token) || !isset($_SESSION['csrf_token']) || $token !== $_SESSION['csrf_token']) {
+        header('Location: support.php?project_id=' . urlencode((string)$proj_id) . '&tab=materials&material_saved=csrf_error');
+        exit;
+    }
+
+    if (!$proj_id || !$documentId || !canAccessProject($pdo, (int)$proj_id, $user_id, $role)) {
+        header('Location: support.php?project_id=' . urlencode((string)$proj_id) . '&tab=materials&material_saved=forbidden');
+        exit;
+    }
+
+    if ($role !== 'admin') {
+        header('Location: support.php?project_id=' . urlencode((string)$proj_id) . '&tab=materials&material_saved=forbidden');
+        exit;
+    }
+
+    try {
+        $deleted = $materialDocumentService->delete((int)$proj_id, (int)$documentId);
+        header(
+            'Location: support.php?project_id=' . urlencode((string)$proj_id)
+            . '&tab=materials&material_saved=' . ($deleted ? 'deleted' : 'not_found')
+        );
+        exit;
+    } catch (Throwable $e) {
+        error_log('SupportController Material Delete Error: ' . $e->getMessage());
+        header('Location: support.php?project_id=' . urlencode((string)$proj_id) . '&tab=materials&material_saved=error');
         exit;
     }
 }
@@ -224,6 +338,11 @@ $members = [];
 $csv_files = [];
 $project_memory_docs = [];
 $can_manage_project_memory = ($role === 'admin');
+$material_documents = [];
+$selected_material_document = null;
+$selected_material_content = '';
+$selected_material_preview_html = '';
+$can_manage_material_documents = ($role === 'admin');
 
 if ($selected_project_id) {
     try {
@@ -248,7 +367,36 @@ if ($selected_project_id) {
                 // 安全なプリペアドステートメントによる関連テーブルの一元フェッチ
                 $stmtDocs = $pdo->prepare("SELECT * FROM documents WHERE project_id = :project_id AND title NOT LIKE '[CSVデータ]%' ORDER BY created_at DESC");
                 $stmtDocs->execute(['project_id' => $selected_project_id]);
-                $documents = $stmtDocs->fetchAll(PDO::FETCH_ASSOC);
+                $allDocuments = $stmtDocs->fetchAll(PDO::FETCH_ASSOC);
+                $documents = [];
+                $material_documents = [];
+                foreach ($allDocuments as $document) {
+                    $filePath = strtolower((string)($document['file_path'] ?? ''));
+                    if (str_ends_with($filePath, '.md')) {
+                        $document['material_modified_at'] = $materialDocumentService->getModifiedAt((string)($document['file_path'] ?? ''));
+                        $material_documents[] = $document;
+                        continue;
+                    }
+                    $documents[] = $document;
+                }
+
+                if ($selected_material_document_id) {
+                    foreach ($material_documents as $materialDocument) {
+                        if ((int)($materialDocument['id'] ?? 0) === (int)$selected_material_document_id) {
+                            $selected_material_document = $materialDocument;
+                            break;
+                        }
+                    }
+                }
+                if (!$selected_material_document && !empty($material_documents)) {
+                    $selected_material_document = $material_documents[0];
+                }
+                if ($selected_material_document) {
+                    $selected_material_content = $materialDocumentService->readContent((string)($selected_material_document['file_path'] ?? ''));
+                    $selected_material_preview_html = $selected_material_content !== ''
+                        ? $markdownPreviewParser->text($selected_material_content)
+                        : '';
+                }
 
                 $stmtChat = $pdo->prepare("
                     SELECT *

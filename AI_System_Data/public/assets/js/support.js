@@ -11,7 +11,7 @@
 
 import { openAppModal, closeProjectModal, closeEditModal, bindModalEvents, closeTab, scrollToBottom, initChatInput, injectPdfLoadingMask, switchTab, openPdfTab, initResizer } from './modules/ui.js?v=5';
 import { handleCsvUpload, loadCsvData, handleDeleteCsv, handlePostgresImport, openCsvPreviewByDocId } from './modules/csv.js?v=4';
-import { handleChat, appendMsg, initExistingCharts, initDebugLogViewer } from './modules/chat.js?v=18';
+import { handleChat, appendMsg, initExistingCharts, initMaterialMemoActions, initDebugLogViewer } from './modules/chat.js?v=19';
 import { checkUploadOnLoad as checkUploadOnLoadModule, handleUpload as handleUploadModule } from './modules/upload.js?v=6';
 import * as Project from './modules/project.js?v=6';
 // ★最終繋ぎ込み要件1: 100点満点でクレンジングが完了した map.js から回線を引き受ける
@@ -232,6 +232,432 @@ function openFaqModal(q = '', a = '') {
     } else {
         alert('ナレッジ登録モーダルが見つかりません。');
     }
+}
+
+function renderMaterialNoteModalPreview() {
+    const preview = document.getElementById('modal-material-preview');
+    const titleInput = document.getElementById('modal-material-title');
+    const contentInput = document.getElementById('modal-material-content');
+    const appendInput = document.getElementById('modal-material-append-note');
+    if (!preview || !titleInput || !contentInput || !appendInput) return;
+
+    const title = String(titleInput.value || '').trim();
+    const content = String(contentInput.value || '').trim();
+    const appendNote = String(appendInput.value || '').trim();
+
+    let previewSource = content;
+    if (appendNote) {
+        const stamp = '## 更新予定';
+        previewSource = previewSource
+            ? `${previewSource}\n\n${stamp}\n\n${appendNote}`
+            : `# ${title || '資料メモ'}\n\n${stamp}\n\n${appendNote}`;
+    }
+    if (!previewSource) {
+        previewSource = title ? `# ${title}\n` : '';
+    }
+
+    if (!previewSource.trim()) {
+        preview.innerHTML = '<div class="text-center py-10 text-xs text-slate-400 italic">ここに資料メモのプレビューが表示されます。</div>';
+        return;
+    }
+
+    let html = previewSource
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+
+    if (typeof marked !== 'undefined') {
+        html = marked.parse(previewSource, { breaks: true });
+        if (typeof DOMPurify !== 'undefined') {
+            html = DOMPurify.sanitize(html);
+        }
+    } else {
+        html = html.replace(/\n/g, '<br>');
+    }
+
+    preview.innerHTML = html;
+}
+
+function bindMaterialNoteModalPreview() {
+    const titleInput = document.getElementById('modal-material-title');
+    const contentInput = document.getElementById('modal-material-content');
+    const appendInput = document.getElementById('modal-material-append-note');
+    if (!titleInput || titleInput.dataset.previewBound === 'true') return;
+
+    const handler = () => renderMaterialNoteModalPreview();
+    [titleInput, contentInput, appendInput].forEach((input) => {
+        input?.addEventListener('input', handler);
+    });
+    titleInput.dataset.previewBound = 'true';
+}
+
+function closeMaterialNoteModal() {
+    const modal = document.getElementById('material-note-modal');
+    if (!modal) return;
+    modal.classList.replace('flex', 'hidden');
+}
+
+function bindMaterialNoteModalInteractions() {
+    const modal = document.getElementById('material-note-modal');
+    const form = document.getElementById('material-note-form');
+    if (!modal || modal.dataset.interactionsBound === 'true') return;
+
+    modal.addEventListener('click', (event) => {
+        if (event.target === modal) {
+            closeMaterialNoteModal();
+        }
+    });
+
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && !modal.classList.contains('hidden')) {
+            closeMaterialNoteModal();
+            return;
+        }
+
+        if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's' && !modal.classList.contains('hidden')) {
+            event.preventDefault();
+            form?.requestSubmit();
+        }
+    });
+
+    modal.dataset.interactionsBound = 'true';
+}
+
+function escapeMaterialHtml(value = '') {
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+function getMaterialElements() {
+    return {
+        configEl: document.getElementById('support-config'),
+        countEl: document.getElementById('material-document-count'),
+        listEl: document.getElementById('material-document-list'),
+        flashEl: document.getElementById('material-flash-container'),
+        previewTitleEl: document.getElementById('material-preview-title'),
+        previewBodyEl: document.getElementById('material-preview-body'),
+        editorPayloadEl: document.getElementById('material-note-editor-data'),
+        editButton: document.getElementById('material-edit-button'),
+        deleteButton: document.getElementById('material-delete-button'),
+        deleteIdInput: document.getElementById('material-delete-document-id'),
+        modal: document.getElementById('material-note-modal'),
+        form: document.getElementById('material-note-form'),
+        titleInput: document.getElementById('modal-material-title'),
+        contentInput: document.getElementById('modal-material-content'),
+        appendInput: document.getElementById('modal-material-append-note'),
+        previewEl: document.getElementById('modal-material-preview'),
+        titleLabel: document.getElementById('modal-title-material'),
+    };
+}
+
+function getMaterialEmptyStateHtml() {
+    return '<div class="text-center py-10 bg-slate-50/60 rounded-xl border border-dashed border-slate-200"><p class="text-xs text-slate-400 font-medium italic">資料メモはまだ登録されていません。</p></div>';
+}
+
+function getMaterialPreviewPlaceholderHtml() {
+    return '<div class="text-center py-10 text-xs text-slate-400 italic">ここに資料メモのプレビューが表示されます。</div>';
+}
+
+function buildMaterialFlashHtml(message = '') {
+    if (!message) return '';
+    return `<div class="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">${escapeMaterialHtml(message)}</div>`;
+}
+
+function setMaterialSelectionState(selectedId = 0) {
+    const { configEl, editButton, deleteButton, deleteIdInput } = getMaterialElements();
+    if (configEl) {
+        configEl.dataset.selectedMaterialDocumentId = String(selectedId || '');
+    }
+    if (editButton) {
+        editButton.disabled = !selectedId;
+    }
+    if (deleteButton) {
+        deleteButton.disabled = !selectedId;
+    }
+    if (deleteIdInput) {
+        deleteIdInput.value = selectedId ? String(selectedId) : '';
+    }
+}
+
+function renderMaterialDocumentList(materials = [], selectedId = 0) {
+    const { projectId } = getConfig();
+    if (!Array.isArray(materials) || materials.length === 0) {
+        return getMaterialEmptyStateHtml();
+    }
+
+    return materials.map((material) => {
+        const id = Number(material?.id || 0);
+        const title = escapeMaterialHtml(material?.title || '資料メモ');
+        const modifiedLabel = escapeMaterialHtml(material?.modified_label || '更新時刻なし');
+        const activeClasses = id === Number(selectedId)
+            ? 'border-indigo-300 bg-indigo-50/80'
+            : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/70';
+        const href = `support.php?project_id=${encodeURIComponent(projectId || '')}&tab=materials&material_doc_id=${encodeURIComponent(String(id))}`;
+
+        return `<a href="${href}" data-material-document-id="${id}" class="block rounded-xl border px-4 py-3 shadow-2xs transition-all duration-200 ease-in-out ${activeClasses}"><div class="flex items-start justify-between gap-3"><div class="min-w-0"><div class="text-xs font-bold text-slate-700 truncate">${title}</div><div class="mt-1 text-[10px] text-slate-400 font-medium">${modifiedLabel}</div></div><span class="text-[9px] bg-slate-100 border border-slate-200 px-2 py-0.5 rounded font-mono text-slate-400 font-bold">MD</span></div></a>`;
+    }).join('');
+}
+
+function updateMaterialEditorPayload(selected = {}) {
+    const { editorPayloadEl } = getMaterialElements();
+    if (!editorPayloadEl) return;
+    editorPayloadEl.textContent = JSON.stringify({
+        selected: {
+            id: Number(selected?.id || 0),
+            title: String(selected?.title || ''),
+            content: String(selected?.content || ''),
+        },
+    });
+}
+
+function syncMaterialUrl(selectedId = 0) {
+    const { projectId } = getConfig();
+    if (!projectId) return;
+
+    try {
+        const nextUrl = new URL(window.location.href);
+        nextUrl.searchParams.set('project_id', String(projectId));
+        nextUrl.searchParams.set('tab', 'materials');
+        if (selectedId) {
+            nextUrl.searchParams.set('material_doc_id', String(selectedId));
+        } else {
+            nextUrl.searchParams.delete('material_doc_id');
+        }
+        window.history.replaceState({}, '', nextUrl.toString());
+    } catch (error) {
+        console.warn('material history update failed:', error);
+    }
+}
+
+function updateMaterialTabView(payload) {
+    const selected = payload?.material_document || {};
+    const materials = Array.isArray(payload?.material_documents) ? payload.material_documents : [];
+    const selectedId = Number(selected?.id || 0);
+    const {
+        countEl,
+        listEl,
+        flashEl,
+        previewTitleEl,
+        previewBodyEl,
+    } = getMaterialElements();
+
+    setMaterialSelectionState(selectedId);
+
+    if (countEl) {
+        countEl.textContent = `${materials.length} 件`;
+    }
+
+    if (listEl) {
+        listEl.innerHTML = renderMaterialDocumentList(materials, selectedId);
+    }
+
+    if (flashEl) {
+        flashEl.innerHTML = buildMaterialFlashHtml(payload?.flash_message || '');
+    }
+
+    if (previewTitleEl) {
+        previewTitleEl.textContent = String(selected?.title || '');
+    }
+
+    if (previewBodyEl) {
+        const previewHtml = String(selected?.preview_html || '');
+        previewBodyEl.innerHTML = previewHtml !== ''
+            ? previewHtml
+            : getMaterialPreviewPlaceholderHtml();
+    }
+
+    updateMaterialEditorPayload({
+        id: selectedId,
+        title: selected?.title || '',
+        content: selected?.content || '',
+    });
+}
+
+async function handleSaveMaterialNote(e) {
+    e.preventDefault();
+    const { projectId } = getConfig();
+    if (!projectId) {
+        alert('案件IDが取得できませんでした。画面を再読み込みしてください。');
+        return;
+    }
+
+    const form = e.target;
+    const formData = new FormData(form);
+    const submitButton = form.querySelector('button[type="submit"]:not([name="action"])');
+
+    if (submitButton) {
+        submitButton.disabled = true;
+        submitButton.textContent = '保存中...';
+    }
+
+    try {
+        const res = await secureFetch('api/save_material.php', {
+            method: 'POST',
+            body: JSON.stringify({
+                project_id: Number(projectId),
+                material_document_id: formData.get('material_document_id') || null,
+                material_title: String(formData.get('material_title') || ''),
+                material_content: String(formData.get('material_content') || ''),
+                material_append_note: String(formData.get('material_append_note') || ''),
+            })
+        });
+
+        if (res.success) {
+            updateMaterialTabView(res);
+            syncMaterialUrl(Number(res?.material_document?.id || 0));
+            closeMaterialNoteModal();
+            const appendNoteField = form.querySelector('#modal-material-append-note');
+            if (appendNoteField) {
+                appendNoteField.value = '';
+            }
+            return;
+        }
+
+        alert(res.error || '資料メモの保存に失敗しました。');
+    } catch (err) {
+        alert('通信エラーが発生しました: ' + err.message);
+    } finally {
+        if (submitButton) {
+            submitButton.disabled = false;
+            submitButton.textContent = '保存する';
+        }
+    }
+}
+
+async function loadMaterialDocument(materialDocumentId) {
+    const { projectId } = getConfig();
+    if (!projectId || !materialDocumentId) return;
+
+    const res = await secureFetch(`api/get_material.php?project_id=${encodeURIComponent(projectId)}&material_document_id=${encodeURIComponent(String(materialDocumentId))}`, {
+        method: 'GET',
+        headers: {}
+    });
+
+    if (!res.success) {
+        alert(res.error || '資料メモの読み込みに失敗しました。');
+        return;
+    }
+
+    updateMaterialTabView(res);
+    syncMaterialUrl(Number(res?.material_document?.id || materialDocumentId));
+}
+
+function bindMaterialDocumentListNavigation() {
+    const listEl = document.getElementById('material-document-list');
+    if (!listEl || listEl.dataset.navigationBound === 'true') return;
+
+    listEl.addEventListener('click', async (event) => {
+        const link = event.target.closest('a[data-material-document-id]');
+        if (!link) return;
+        event.preventDefault();
+
+        const materialDocumentId = Number(link.dataset.materialDocumentId || 0);
+        if (!materialDocumentId) return;
+        await loadMaterialDocument(materialDocumentId);
+    });
+
+    listEl.dataset.navigationBound = 'true';
+}
+
+async function handleDeleteMaterialNote(e) {
+    e.preventDefault();
+    const { projectId } = getConfig();
+    if (!projectId) {
+        alert('案件IDが取得できませんでした。画面を再読み込みしてください。');
+        return;
+    }
+
+    if (!confirm('この資料メモを削除しますか？')) {
+        return;
+    }
+
+    const form = e.target;
+    const documentIdInput = form.querySelector('input[name="material_document_id"]');
+    const deleteButton = form.querySelector('button[type="submit"]');
+    const materialDocumentId = Number(documentIdInput?.value || 0);
+    if (!materialDocumentId) {
+        alert('削除対象の資料メモが選択されていません。');
+        return;
+    }
+
+    if (deleteButton) {
+        deleteButton.disabled = true;
+        deleteButton.textContent = '削除中...';
+    }
+
+    try {
+        const res = await secureFetch('api/delete_material.php', {
+            method: 'POST',
+            body: JSON.stringify({
+                project_id: Number(projectId),
+                material_document_id: materialDocumentId,
+            })
+        });
+
+        if (res.success) {
+            updateMaterialTabView(res);
+            syncMaterialUrl(Number(res?.material_document?.id || 0));
+            return;
+        }
+
+        alert(res.error || '資料メモの削除に失敗しました。');
+    } catch (err) {
+        alert('通信エラーが発生しました: ' + err.message);
+    } finally {
+        if (deleteButton) {
+            deleteButton.disabled = false;
+            deleteButton.textContent = '削除';
+        }
+    }
+}
+
+function bindMaterialDeleteForm() {
+    const form = document.getElementById('material-delete-form');
+    if (!form || form.dataset.deleteBound === 'true') return;
+
+    form.addEventListener('submit', handleDeleteMaterialNote);
+    form.dataset.deleteBound = 'true';
+}
+
+function openMaterialNoteModal(mode = 'edit') {
+    const {
+        modal,
+        editorPayloadEl: source,
+        titleInput,
+        contentInput,
+        appendInput,
+        titleLabel,
+    } = getMaterialElements();
+    if (!modal || !source) return;
+
+    let payload = { selected: { id: 0, title: '', content: '' } };
+    try {
+        payload = JSON.parse(source.textContent || '{}');
+    } catch (error) {
+        console.warn('material-note-editor-data parse error:', error);
+    }
+
+    const selected = payload?.selected || {};
+    const isNew = mode === 'new';
+    const docIdInput = document.getElementById('modal-material-document-id');
+
+    if (docIdInput) docIdInput.value = isNew ? '' : String(selected.id || '');
+    if (titleInput) titleInput.value = isNew ? '' : String(selected.title || '');
+    if (contentInput) contentInput.value = isNew ? '' : String(selected.content || '');
+    if (appendInput) appendInput.value = '';
+    if (titleLabel) {
+        titleLabel.textContent = isNew ? '資料メモの新規作成' : '資料メモの編集';
+    }
+
+    bindMaterialNoteModalPreview();
+    bindMaterialNoteModalInteractions();
+    renderMaterialNoteModalPreview();
+    modal.classList.replace('hidden', 'flex');
+    setTimeout(() => titleInput?.focus(), 40);
 }
 
 function getSupportPanelPreferenceElements() {
@@ -504,6 +930,11 @@ function bindGlobalFunctions() {
     window.handleRemoveMember = Project.handleRemoveMember;
     window.handleDeleteFaq = handleDeleteFaq;
     window.openFaqModal = openFaqModal;
+    window.openMaterialNoteModal = openMaterialNoteModal;
+    window.closeMaterialNoteModal = closeMaterialNoteModal;
+    window.loadMaterialDocument = loadMaterialDocument;
+    window.handleDeleteMaterialNote = handleDeleteMaterialNote;
+    window.handleSaveMaterialNote = handleSaveMaterialNote;
     window.handleSaveFaq = handleSaveFaq;
     
     // CSV同期・ファイルアップロード系 (csv.jsからインポートした関数を直接マウント)
@@ -519,6 +950,7 @@ function bindGlobalFunctions() {
     window.handleChat = handleChat;
     window.appendMsg = appendMsg;
     window.initExistingCharts = initExistingCharts;
+    window.initMaterialMemoActions = initMaterialMemoActions;
     window.initDebugLogViewer = initDebugLogViewer;
     
     // リサイザ初期化 (ui.jsからインポートした関数を直接マウント)
@@ -526,14 +958,22 @@ function bindGlobalFunctions() {
     window.injectPdfLoadingMask = typeof injectPdfLoadingMask !== 'undefined' ? injectPdfLoadingMask : window.injectPdfLoadingMask;
 }
 
-try {
-    bindGlobalFunctions();
-    initSupportPanelPreferencePersistence();
-    initSupportSidebarToggle();
-    initThreadTabsUi();
-} catch (e) {
-    console.error('Fatal execution error in support.js bindings:', e);
+function runSupportInitializer(label, fn) {
+    try {
+        if (typeof fn === 'function') {
+            fn();
+        }
+    } catch (e) {
+        console.error(`support.js initializer failed: ${label}`, e);
+    }
 }
+
+runSupportInitializer('bindGlobalFunctions', bindGlobalFunctions);
+runSupportInitializer('initSupportPanelPreferencePersistence', initSupportPanelPreferencePersistence);
+runSupportInitializer('initSupportSidebarToggle', initSupportSidebarToggle);
+runSupportInitializer('initThreadTabsUi', initThreadTabsUi);
+runSupportInitializer('bindMaterialDocumentListNavigation', bindMaterialDocumentListNavigation);
+runSupportInitializer('bindMaterialDeleteForm', bindMaterialDeleteForm);
 
 const clearProjectChatHistory = Project.clearProjectChatHistory;
 const createProjectChatThread = Project.createProjectChatThread;
@@ -561,6 +1001,11 @@ export {
     handleRemoveMember,
     handleDeleteFaq,
     openFaqModal,
+    openMaterialNoteModal,
+    closeMaterialNoteModal,
+    loadMaterialDocument,
+    handleDeleteMaterialNote,
+    handleSaveMaterialNote,
     handleSaveFaq,
     handleCsvUpload,
     loadCsvData,
@@ -571,6 +1016,7 @@ export {
     handleUploadModule as handleUpload,
     handleChat,
     appendMsg,
+    initMaterialMemoActions,
     initDebugLogViewer,
     bindGlobalFunctions,
     initSupportPanelPreferencePersistence,

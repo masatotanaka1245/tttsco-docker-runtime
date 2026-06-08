@@ -134,6 +134,127 @@ function appendReportDocumentToPdfList(reportDocument) {
     }
 }
 
+function appendGeneratedCsvToList(csvExport) {
+    const csvFileId = Number(csvExport?.csv_file_id || 0);
+    if (!csvFileId) return;
+
+    const list = document.getElementById('csv-history-list');
+    if (!list || list.querySelector(`#csv-item-${String(csvFileId)}`)) return;
+
+    const fileName = String(csvExport.file_name || 'AI集計表.csv');
+    const rowCount = Number(csvExport.row_count || 0);
+
+    Array.from(list.children).forEach((child) => {
+        if (child.tagName === 'P') child.remove();
+    });
+
+    const card = document.createElement('div');
+    card.id = `csv-item-${csvFileId}`;
+    card.className = 'p-3 bg-white border border-slate-200 rounded-xl hover:border-[#00758F] hover:shadow-md cursor-pointer shadow-2xs transition-all duration-200 ease-in-out group transform hover:-translate-y-0.5 active:scale-98';
+    card.addEventListener('click', () => {
+        if (typeof window.loadCsvData === 'function') {
+            window.loadCsvData(csvFileId, fileName);
+        }
+    });
+    card.innerHTML = `
+        <div class="text-xs font-bold text-slate-700 truncate group-hover:text-[#00758F] transition-colors duration-150 mb-1.5" title="📄 ${escapeHTML(fileName)}">📄 ${escapeHTML(fileName)}</div>
+        <div class="flex justify-between items-center text-[9px] text-slate-400 font-medium">
+            <span class="font-mono bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100 font-bold">${rowCount.toLocaleString()} rows</span>
+            <span>just now</span>
+        </div>
+    `;
+    list.prepend(card);
+
+    const tabBtn = document.getElementById('btn-csv');
+    if (tabBtn) {
+        const countBadge = tabBtn.querySelector('.tab-btn__count');
+        if (countBadge) {
+            const current = Number(countBadge.textContent || '0');
+            countBadge.textContent = String(Number.isFinite(current) ? current + 1 : 1);
+        }
+    }
+
+    const historyCount = document.getElementById('csv-history-count');
+    if (historyCount) {
+        const current = Number(historyCount.textContent || '0');
+        historyCount.textContent = String(Number.isFinite(current) ? current + 1 : 1);
+    }
+}
+
+function setSelectedMaterialDocumentId(documentId) {
+    const configEl = document.querySelector('#support-config');
+    if (!configEl) return;
+    configEl.dataset.selectedMaterialDocumentId = documentId ? String(documentId) : '';
+}
+
+function appendMaterialDocumentToList(materialDocument, { activate = true } = {}) {
+    const documentId = Number(materialDocument?.document_id || 0);
+    if (!documentId) return;
+
+    const projectId = Number(getConfig().projectId || 0);
+    const list = document.getElementById('material-document-list');
+    const countEl = document.getElementById('material-document-count');
+    const tabBtn = document.getElementById('btn-materials');
+    const title = String(materialDocument?.title || '資料メモ');
+    const modifiedAt = String(materialDocument?.modified_at || '');
+    const formattedTime = modifiedAt ? modifiedAt.replace(/-/g, '/').slice(0, 16) : 'just now';
+    const href = `support.php?project_id=${projectId}&tab=materials&material_doc_id=${documentId}`;
+
+    if (!list) {
+        if (activate) setSelectedMaterialDocumentId(documentId);
+        return;
+    }
+
+    Array.from(list.children).forEach((child) => {
+        if (child.tagName === 'DIV' && child.textContent.includes('資料メモはまだ登録されていません')) {
+            child.remove();
+        }
+    });
+
+    let card = list.querySelector(`[data-material-doc-id="${String(documentId)}"]`);
+    const isNew = !card;
+    if (!card) {
+        card = document.createElement('a');
+        card.dataset.materialDocId = String(documentId);
+        list.prepend(card);
+    }
+
+    card.href = href;
+    card.className = `block rounded-xl border px-4 py-3 shadow-2xs transition-all duration-200 ease-in-out ${activate ? 'border-indigo-300 bg-indigo-50/80' : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/70'}`;
+    card.innerHTML = `
+        <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+                <div class="text-xs font-bold text-slate-700 truncate">${escapeHTML(title)}</div>
+                <div class="mt-1 text-[10px] text-slate-400 font-medium">${escapeHTML(formattedTime)}</div>
+            </div>
+            <span class="text-[9px] bg-slate-100 border border-slate-200 px-2 py-0.5 rounded font-mono text-slate-400 font-bold">MD</span>
+        </div>
+    `;
+
+    if (activate) {
+        setSelectedMaterialDocumentId(documentId);
+        list.querySelectorAll('[data-material-doc-id]').forEach((el) => {
+            el.className = el === card
+                ? 'block rounded-xl border px-4 py-3 shadow-2xs transition-all duration-200 ease-in-out border-indigo-300 bg-indigo-50/80'
+                : 'block rounded-xl border px-4 py-3 shadow-2xs transition-all duration-200 ease-in-out border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/70';
+        });
+    }
+
+    if (isNew) {
+        if (countEl) {
+            const current = Number((countEl.textContent || '0').replace(/[^\d]/g, ''));
+            countEl.textContent = `${Number.isFinite(current) ? current + 1 : 1} 件`;
+        }
+        if (tabBtn) {
+            const badge = tabBtn.querySelector('.tab-btn__count');
+            if (badge) {
+                const current = Number(badge.textContent || '0');
+                badge.textContent = String(Number.isFinite(current) ? current + 1 : 1);
+            }
+        }
+    }
+}
+
 function normalizeAiText(value) {
     if (value == null) return '';
     if (typeof value === 'string') return value;
@@ -142,6 +263,91 @@ function normalizeAiText(value) {
         return String(value.text ?? value.content ?? value.response ?? value.message ?? JSON.stringify(value));
     }
     return String(value);
+}
+
+async function saveAnswerToMaterial(question, answer, button, statusEl) {
+    const { projectId, selectedMaterialDocumentId, canManageMaterial } = getConfig();
+    if (String(canManageMaterial || '0') !== '1') return;
+
+    const resolvedAnswer = normalizeAiText(answer).trim();
+    const resolvedQuestion = normalizeAiText(question).trim();
+    if (!projectId || !resolvedAnswer) return;
+
+    const originalLabel = button.textContent;
+    button.disabled = true;
+    button.classList.add('opacity-60', 'cursor-wait');
+    statusEl.textContent = '資料メモへ保存中...';
+
+    try {
+        const data = await secureFetch('api/save_material_note.php', {
+            method: 'POST',
+            body: JSON.stringify({
+                project_id: Number(projectId),
+                material_document_id: selectedMaterialDocumentId ? Number(selectedMaterialDocumentId) : null,
+                question: resolvedQuestion,
+                answer: resolvedAnswer
+            })
+        });
+
+        if (!data?.success || !data.material_document) {
+            throw new Error(data?.error || '資料メモの保存に失敗しました。');
+        }
+
+        appendMaterialDocumentToList(data.material_document, { activate: true });
+        statusEl.textContent = data.created
+            ? `新しい資料「${data.material_document.title}」を作成しました。`
+            : `資料「${data.material_document.title}」へ追記しました。`;
+        button.textContent = '資料へ保存済み';
+    } catch (error) {
+        statusEl.textContent = error?.message || '資料メモの保存に失敗しました。';
+        button.disabled = false;
+        button.classList.remove('opacity-60', 'cursor-wait');
+        button.textContent = originalLabel;
+        return;
+    }
+
+    button.classList.remove('opacity-60', 'cursor-wait');
+}
+
+function mountMaterialSaveAction(bubbleContainer, question, answer) {
+    if (!bubbleContainer || bubbleContainer.querySelector('.material-save-action')) return;
+    const { canManageMaterial } = getConfig();
+    if (String(canManageMaterial || '0') !== '1') return;
+
+    const resolvedAnswer = normalizeAiText(answer).trim();
+    if (!resolvedAnswer) return;
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'material-save-action mt-3 border border-slate-200 bg-slate-50/80 rounded-xl p-3 text-[10px] text-slate-600 shadow-xs';
+
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'text-[10px] bg-white border border-slate-200 hover:bg-slate-100 rounded-lg px-2.5 py-1 font-bold transition-colors';
+    button.textContent = '📝 資料メモへ追記';
+
+    const statusEl = document.createElement('div');
+    statusEl.className = 'mt-2 text-[10px] text-slate-400 font-medium';
+    statusEl.textContent = '選択中の資料があればそこへ追記し、なければ新しい資料メモを作成します。';
+
+    button.addEventListener('click', () => {
+        saveAnswerToMaterial(question, resolvedAnswer, button, statusEl);
+    });
+
+    wrapper.appendChild(button);
+    wrapper.appendChild(statusEl);
+    bubbleContainer.appendChild(wrapper);
+}
+
+function findNearestQuestionForBubble(messageRow) {
+    let cursor = messageRow?.previousElementSibling || null;
+    while (cursor) {
+        if (cursor.dataset.chatRole === 'user') {
+            const sourceEl = cursor.querySelector('.chat-raw-message-source');
+            return normalizeAiText(sourceEl?.textContent || '').trim();
+        }
+        cursor = cursor.previousElementSibling;
+    }
+    return '';
 }
 
 function isAutoGeneratedThreadTitle(title) {
@@ -815,8 +1021,10 @@ function handleChat(e) {
     const advancedReasoningMode = document.getElementById('advanced-reasoning-mode');
     const reportModeEl = document.getElementById('report-mode');
     const diagramModeEl = document.getElementById('diagram-mode');
+    const csvExportModeEl = document.getElementById('csv-export-mode');
     const reportMode = reportModeEl ? reportModeEl.checked : false;
     const diagramMode = diagramModeEl ? diagramModeEl.checked : false;
+    const csvMode = csvExportModeEl ? csvExportModeEl.checked : false;
     if (reportMode && advancedReasoningMode && !advancedReasoningMode.checked) {
         advancedReasoningMode.checked = true;
     }
@@ -828,6 +1036,8 @@ function handleChat(e) {
             ? '質問の意図を分析し、多段階の検証シナリオを準備しています...'
             : diagramMode
                 ? '必要に応じて図表を含める準備をしています...'
+                : csvMode
+                    ? '回答内の表を生成CSVとして保存できるよう準備しています...'
                 : '関連資料を検索し、回答を準備しています...';
 
     const targetMessageId = 'ai-msg-' + generateUUID();
@@ -900,7 +1110,8 @@ function handleChat(e) {
                     advanced_reasoning: advancedReasoning,
                     advanced_reasoning_id: reasoningId,
                     report_mode: reportMode,
-                    diagram_mode: diagramMode
+                    diagram_mode: diagramMode,
+                    csv_mode: csvMode
                 })
             });
 
@@ -1049,6 +1260,25 @@ function handleChat(e) {
                                         `;
                                         bubbleContainer.insertAdjacentHTML('beforeend', reportHtml);
                                     }
+                                    if (sseData.csv_export && sseData.csv_export.csv_file_id) {
+                                        appendGeneratedCsvToList(sseData.csv_export);
+                                        const csvTitleRaw = String(sseData.csv_export.file_name || 'AI集計表.csv');
+                                        const csvTitle = escapeHTML(csvTitleRaw);
+                                        const csvTitleJs = csvTitleRaw.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                                        const csvFileId = Number(sseData.csv_export.csv_file_id);
+                                        const csvHtml = `
+                                            <div class="mt-3 border border-cyan-200 bg-cyan-50/70 rounded-xl p-3 text-[10px] text-cyan-800 shadow-xs">
+                                                <div class="font-black mb-1">🧾 生成CSVを登録しました</div>
+                                                <div class="text-cyan-700 mb-2">${csvTitle} をCSVタブへ追加しました。</div>
+                                                <button type="button" class="text-[10px] bg-white border border-cyan-200 hover:bg-cyan-100 rounded-lg px-2.5 py-1 font-bold transition-colors" onclick="if(typeof window.loadCsvData === 'function') window.loadCsvData(${csvFileId}, '${csvTitleJs}');">
+                                                    CSVを開く
+                                                </button>
+                                            </div>
+                                        `;
+                                        bubbleContainer.insertAdjacentHTML('beforeend', csvHtml);
+                                    }
+
+                                    mountMaterialSaveAction(bubbleContainer, msg, finalReportText);
 
                                     renderChartsInContainer(bubbleContainer.parentElement);
                                     bindChartModalEvents(bubbleContainer.parentElement);
@@ -1218,11 +1448,31 @@ function initExistingCharts() {
     renderMermaidInContainer(chatBox);
 }
 
+function initMaterialMemoActions() {
+    const chatBox = document.getElementById('chat-box');
+    if (!chatBox) return;
+
+    chatBox.querySelectorAll(':scope > div[data-chat-role="assistant"]').forEach((messageRow) => {
+        const bubble = messageRow.querySelector('.ai-text-body');
+        const sourceEl = messageRow.querySelector('.chat-raw-message-source');
+        if (!bubble || !sourceEl) return;
+
+        const answer = normalizeAiText(sourceEl.textContent || '').trim();
+        if (!answer) return;
+
+        const question = findNearestQuestionForBubble(messageRow);
+        mountMaterialSaveAction(bubble, question, answer);
+    });
+}
+
 // =========================================================================
 // 3. ページ初期表示時のイベントフック自動展開
 // =========================================================================
 document.addEventListener('DOMContentLoaded', () => {
-    setTimeout(initExistingCharts, 150);
+    setTimeout(() => {
+        initExistingCharts();
+        initMaterialMemoActions();
+    }, 150);
     syncChatModeToggles();
 
     document.getElementById('btn-close-chart-modal')?.addEventListener('click', () => {
@@ -1243,6 +1493,7 @@ window.buildReasoningProcessDetailsHtml = buildReasoningProcessDetailsHtml;
     window.handleChat = handleChat;
     window.appendMsg = appendMsg;
     window.initExistingCharts = initExistingCharts;
+    window.initMaterialMemoActions = initMaterialMemoActions;
     window.initDebugLogViewer = initDebugLogViewer;
 })();
 
@@ -1250,5 +1501,6 @@ export {
     handleChat,
     appendMsg,
     initExistingCharts,
+    initMaterialMemoActions,
     initDebugLogViewer
 };

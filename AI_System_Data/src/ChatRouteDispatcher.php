@@ -117,7 +117,8 @@ class ChatRouteDispatcher
                 $context['role'],
                 $threadId,
                 (bool)$context['report_mode'],
-                (bool)$context['diagram_mode']
+                (bool)$context['diagram_mode'],
+                (bool)$context['csv_mode']
             );
             return $routeName;
         }
@@ -145,7 +146,8 @@ class ChatRouteDispatcher
                 $context['role'],
                 $threadId,
                 (bool)$context['report_mode'],
-                (bool)$context['diagram_mode']
+                (bool)$context['diagram_mode'],
+                (bool)$context['csv_mode']
             );
             return $routeName;
         }
@@ -177,7 +179,8 @@ class ChatRouteDispatcher
             $context['role'],
             $threadId,
             (bool)$context['report_mode'],
-            (bool)$context['diagram_mode']
+            (bool)$context['diagram_mode'],
+            (bool)$context['csv_mode']
         );
 
         return $routeName;

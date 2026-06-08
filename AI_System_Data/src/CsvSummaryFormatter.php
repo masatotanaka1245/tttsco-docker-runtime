@@ -112,6 +112,47 @@ class CsvSummaryFormatter
         return implode("\n", $lines);
     }
 
+    public function buildCsvExportAnswer(array $files): string
+    {
+        $totalRows = array_sum(array_map(static fn(array $file): int => (int)($file['row_count'] ?? 0), $files));
+
+        $lines = [];
+        $lines[] = "ご要望に合わせて、登録済みCSVを1つの生成CSVとして扱いやすいよう、まずファイル別の集計サマリー表に整理しました。";
+        $lines[] = "";
+        $lines[] = "- 対象CSVファイル数: " . count($files) . "件";
+        $lines[] = "- 合計登録行数: {$totalRows}件";
+        $lines[] = "- 生成されるCSVは、各CSVファイルを1行ずつ要約したサマリー形式です。";
+        $lines[] = "";
+        $lines[] = "### 生成CSV用サマリー表";
+        $lines[] = "| source_file | row_count | column_count | representative_columns | content_summary |";
+        $lines[] = "| :--- | ---: | ---: | :--- | :--- |";
+
+        foreach ($files as $file) {
+            $columns = $file['columns'] ?? [];
+            $representativeColumns = implode(' / ', array_slice($columns, 0, 5));
+            if (count($columns) > 5) {
+                $representativeColumns .= ' / ...';
+            }
+            if ($representativeColumns === '') {
+                $representativeColumns = '項目情報なし';
+            }
+
+            $lines[] = sprintf(
+                '| %s | %d | %d | %s | %s |',
+                $this->escapeTableCell((string)($file['file_name'] ?? 'CSV')),
+                (int)($file['row_count'] ?? 0),
+                count($columns),
+                $this->escapeTableCell($representativeColumns),
+                $this->escapeTableCell($this->describePurpose($columns))
+            );
+        }
+
+        $lines[] = "";
+        $lines[] = "この表をもとに、CSVタブへ生成CSVを登録します。必要であれば次に、特定ファイルだけの詳細CSVや、列別ランキングCSVへ分けて出力できます。";
+
+        return implode("\n", $lines);
+    }
+
     public function summarizeRows(array $rows): array
     {
         $files = [];
@@ -180,6 +221,12 @@ class CsvSummaryFormatter
     private function parseHeaders(string $rawHeaders): array
     {
         return $this->metadataCatalog->parseHeaders($rawHeaders);
+    }
+
+    private function escapeTableCell(string $value): string
+    {
+        $value = preg_replace('/\s+/u', ' ', trim($value)) ?? trim($value);
+        return str_replace('|', '\|', $value);
     }
 
     private function buildSummaryChartBlock(array $files, bool $isFilteredSummary): string

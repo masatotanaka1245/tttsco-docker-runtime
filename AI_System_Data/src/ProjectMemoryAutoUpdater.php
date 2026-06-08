@@ -4,6 +4,32 @@ require_once __DIR__ . '/ProjectContextMemory.php';
 
 final class ProjectMemoryAutoUpdater
 {
+    public static function shouldRefreshFromEvaluation(?array $evalResult, string $finalResponse = ''): bool
+    {
+        if (empty($evalResult)) {
+            return !self::looksLikeIncompleteOrUnsafeAnswer($finalResponse);
+        }
+
+        if (array_key_exists('allow_memory_refresh', $evalResult)) {
+            return (bool)$evalResult['allow_memory_refresh'];
+        }
+
+        $evaluationSource = (string)($evalResult['evaluation_source'] ?? '');
+        $evaluationMode = (string)($evalResult['evaluation_mode'] ?? '');
+        $verdict = (string)($evalResult['verdict'] ?? '');
+        $totalScore = (int)($evalResult['total_score'] ?? 0);
+
+        if ($evaluationSource === 'judge_fallback' || $evaluationMode === 'fallback') {
+            return false;
+        }
+
+        if ($verdict === 'reject' || $totalScore < 85) {
+            return false;
+        }
+
+        return !self::looksLikeIncompleteOrUnsafeAnswer($finalResponse);
+    }
+
     public static function refresh(PDO $pdo, int $projectId, ?int $threadId, int $userId, ?callable $logger = null): array
     {
         if ($projectId <= 0) {
@@ -31,6 +57,35 @@ final class ProjectMemoryAutoUpdater
         }
 
         return $loadedDocs;
+    }
+
+    private static function looksLikeIncompleteOrUnsafeAnswer(string $text): bool
+    {
+        $text = trim($text);
+        if ($text === '') {
+            return true;
+        }
+
+        $patterns = [
+            '/結果を待つ流れ/u',
+            '/実行していません/u',
+            '/追加抽出/u',
+            '/追加検索/u',
+            '/追加SQL/u',
+            '/フェイルセーフ/u',
+            '/初期ドラフトを採用/u',
+            '/^SELECT\b/imu',
+            '/```sql/iu',
+            '/^⚠️/u',
+        ];
+
+        foreach ($patterns as $pattern) {
+            if (preg_match($pattern, $text) === 1) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static function collectSnapshot(PDO $pdo, int $projectId, ?int $threadId, int $userId): array

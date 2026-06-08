@@ -11,12 +11,13 @@ require_once __DIR__ . '/../../src/ProjectMemoryAutoUpdater.php';
 require_once __DIR__ . '/../../src/ChatModelRolePayload.php';
 require_once __DIR__ . '/../../src/ChatThreadManager.php';
 require_once __DIR__ . '/../../src/ReportAnswerPolisher.php';
+require_once __DIR__ . '/../../src/CsvExportGenerator.php';
 
-function runNormalStreamingRoute($pdo, $ollama_host, $projectId, $originalMessage, $routeDetail, $searchQuery, $model, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $vectorSearch, $engine, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false) {
+function runNormalStreamingRoute($pdo, $ollama_host, $projectId, $originalMessage, $routeDetail, $searchQuery, $model, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $vectorSearch, $engine, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false, bool $csvMode = false) {
     $processor = new NormalStreamingRouteProcessor(
         $pdo, $ollama_host, $projectId, $originalMessage, $routeDetail, $searchQuery,
         $model, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText,
-        $vectorSearch, $engine, $user_id, $role, $threadId, $reportMode, $diagramMode
+        $vectorSearch, $engine, $user_id, $role, $threadId, $reportMode, $diagramMode, $csvMode
     );
     $processor->execute();
 }
@@ -42,6 +43,8 @@ class NormalStreamingRouteProcessor {
     private $reportMode = false;
     private $diagramMode = false;
     private $reportDocument = null;
+    private $csvMode = false;
+    private $csvExport = null;
 
     private $targetPage = null;
     private $referAllMode = false;
@@ -57,7 +60,7 @@ class NormalStreamingRouteProcessor {
     private $buffer = "";
     private $ollamaErrorMsg = "";
 
-    public function __construct($pdo, $ollama_host, $projectId, $originalMessage, $routeDetail, $searchQuery, $model, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $vectorSearch, $engine, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false) {
+    public function __construct($pdo, $ollama_host, $projectId, $originalMessage, $routeDetail, $searchQuery, $model, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $vectorSearch, $engine, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false, bool $csvMode = false) {
         $this->pdo                = $pdo;
         $this->ollama_host        = $ollama_host;
         $this->projectId          = $projectId;
@@ -77,6 +80,7 @@ class NormalStreamingRouteProcessor {
         $this->threadId           = $threadId;
         $this->reportMode         = $reportMode;
         $this->diagramMode        = $diagramMode;
+        $this->csvMode            = $csvMode;
     }
 
     private function normalizeUtf8(string $text): string {
@@ -369,6 +373,9 @@ class NormalStreamingRouteProcessor {
         if ($this->reportMode) {
             $system_prompt .= "\n【報告書モード】回答は後続処理でPDF報告書化されます。結論、分析対象、根拠、留意点、推奨アクション、出典の順に、報告書として読みやすい見出し構成で作成してください。";
         }
+        if ($this->csvMode) {
+            $system_prompt .= "\n【CSV化モード】集計結果や一覧をCSVとして保存できるよう、表形式が有効な場合は少なくとも1つのMarkdown表を含めてください。列名と行データを省略せず、Markdown表として完結させてください。";
+        }
         if ($this->isProjectMemoryConsultationRoute()) {
             $system_prompt .= "\n【案件運用メモ優先の相談モード】この質問では、案件運用メモと現在スレッドの文脈を優先し、短く実務的に支援してください。"
                             . "\n- 根拠のない固有名詞や案件情報を補わないこと"
@@ -575,14 +582,19 @@ class NormalStreamingRouteProcessor {
             // すべてのインサートが完全に成功したため一括コミットを執行
             $this->pdo->commit();
             chatLogger("[DEBUG] DBトランザクションコミット成功。通常RAGのデータ整合性を完全保護しました。");
-            ProjectMemoryAutoUpdater::refresh(
-                $this->pdo,
-                (int)$this->projectId,
-                $this->threadId !== null ? (int)$this->threadId : null,
-                (int)$this->user_id,
-                fn(string $message) => chatLogger($message)
-            );
+            if (ProjectMemoryAutoUpdater::shouldRefreshFromEvaluation($this->evalResult, $this->fullResponse)) {
+                ProjectMemoryAutoUpdater::refresh(
+                    $this->pdo,
+                    (int)$this->projectId,
+                    $this->threadId !== null ? (int)$this->threadId : null,
+                    (int)$this->user_id,
+                    fn(string $message) => chatLogger($message)
+                );
+            } else {
+                chatLogger("[PROJECT-MEMORY-AUTO] skipped=quality_guard | thread_id=" . ($this->threadId === null ? 'NULL' : (string)$this->threadId));
+            }
             $this->createReportDocumentIfRequested((int)$historyId);
+            $this->createCsvExportIfRequested((int)$historyId);
         } catch (Exception $e) {
             // 障害発生時は一斉ロールバックを執行
             if ($this->pdo->inTransaction()) {
@@ -627,6 +639,40 @@ class NormalStreamingRouteProcessor {
         }
     }
 
+    private function createCsvExportIfRequested(int $historyId): void {
+        if (!$this->csvMode || $this->projectId === null) {
+            return;
+        }
+        if (($this->evalResult['verdict'] ?? '') === 'reject') {
+            chatLogger('[CSV-EXPORT] 品質評価がrejectのため、生成CSV登録をスキップしました。chat_history_id=' . $historyId);
+            return;
+        }
+
+        try {
+            sendSSE('status', ['message' => '🧾 回答内の表を生成CSVとして登録しています...']);
+            $generator = new CsvExportGenerator(
+                $this->pdo,
+                function ($msg) { chatLogger($msg); }
+            );
+            $this->csvExport = $generator->createFromChat(
+                (int)$this->projectId,
+                $historyId,
+                (int)$this->user_id,
+                $this->originalMessage,
+                $this->fullResponse
+            );
+
+            if ($this->csvExport !== null) {
+                sendSSE('status', ['message' => '✅ 生成CSVをCSVタブへ登録しました。']);
+            } else {
+                sendSSE('status', ['message' => 'ℹ️ CSV化モードは有効でしたが、保存できる表は見つかりませんでした。']);
+            }
+        } catch (Throwable $e) {
+            chatLogger('[CSV-EXPORT] 生成CSV登録に失敗: ' . $e->getMessage());
+            sendSSE('status', ['message' => '⚠️ 生成CSVの登録に失敗しました。管理者ログを確認してください。']);
+        }
+    }
+
     private function sendFinalResult(): void {
         $this->logFinalResponseSnapshot('normal_rag', $this->fullResponse);
         sendSSE('result', [
@@ -640,7 +686,8 @@ class NormalStreamingRouteProcessor {
             'applied_model'   => $this->model,
             'model_roles'     => ChatModelRolePayload::build($this->model, $this->subModel, $this->embeddingModel, 'main'),
             'created_at'      => date('Y/m/d H:i'),
-            'report_document' => $this->reportDocument
+            'report_document' => $this->reportDocument,
+            'csv_export'      => $this->csvExport
         ]);
         chatLogger("=== 通常RAGストリーミングパイプライン完了 ===");
     }

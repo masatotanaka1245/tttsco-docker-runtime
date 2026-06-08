@@ -56,7 +56,7 @@ class ChatHistoryContextResolver
             return $userContext;
         }
 
-        return null;
+        return $this->scanRecentCsvContext($recentHistory, 'assistant');
     }
 
     private function scanRecentCsvContext(array $recentHistory, ?string $roleFilter): ?array

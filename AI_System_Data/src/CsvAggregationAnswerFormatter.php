@@ -2,7 +2,7 @@
 
 class CsvAggregationAnswerFormatter
 {
-    public function buildMissingColumnAnswer(array $plan): string
+    public function buildMissingColumnAnswer(array $plan, array $suggestions = []): string
     {
         $column = trim((string)($plan['target_column'] ?? ''));
         $targetFileName = trim((string)($plan['target_file_name'] ?? ''));
@@ -10,7 +10,13 @@ class CsvAggregationAnswerFormatter
         $scopeLabel = $targetFileName !== '' ? $targetFileName : '登録済みCSV全体';
 
         $lines = [];
-        $lines[] = "{$scopeLabel} から集計対象を確認しましたが、指定された列は見つかりませんでした。";
+        if ($targetFileName !== '' && $column !== '') {
+            $lines[] = "{$targetFileName} を確認しましたが、{$column} 列は見つかりませんでした。";
+        } elseif ($column !== '') {
+            $lines[] = "登録済みCSVを確認しましたが、{$column} 列は見つかりませんでした。";
+        } else {
+            $lines[] = "{$scopeLabel} から集計対象を確認しましたが、指定された列は見つかりませんでした。";
+        }
         $lines[] = "";
         if ($targetFileName !== '') {
             $lines[] = "- 対象CSV: {$targetFileName}";
@@ -23,9 +29,58 @@ class CsvAggregationAnswerFormatter
         if ($targetValue !== '') {
             $lines[] = "- 指定値: {$targetValue}";
         }
-        $lines[] = "- 結果: 該当列を確認できなかったため、集計は実行していません。";
+        $lines[] = "- 結果: 該当列を確認できなかったため、件数分布などの集計は実行していません。";
+        if (!empty($suggestions)) {
+            $lines[] = "- 近い候補: " . implode(' / ', array_map(
+                static function (array $suggestion): string {
+                    $fileName = trim((string)($suggestion['file_name'] ?? ''));
+                    $columnName = trim((string)($suggestion['column_name'] ?? ''));
+                    if ($fileName !== '') {
+                        return "{$columnName} ({$fileName})";
+                    }
+
+                    return $columnName;
+                },
+                $suggestions
+            ));
+        }
         $lines[] = "";
-        $lines[] = "列名の表記ゆれがないか、または対象CSVをもう少し具体的に指定していただければ再確認できます。";
+        $lines[] = "列名の表記ゆれがないか、または対象CSV名をもう少し具体的に指定していただければ再確認できます。";
+
+        return implode("\n", $lines);
+    }
+
+    public function buildColumnExistsAnswer(array $plan, array $targets): string
+    {
+        $column = trim((string)($plan['target_column'] ?? ''));
+        $targetFileName = trim((string)($plan['target_file_name'] ?? ''));
+        $scopeLabel = $targetFileName !== '' ? $targetFileName : '登録済みCSV';
+
+        if (empty($targets)) {
+            return $this->buildMissingColumnAnswer($plan);
+        }
+
+        $matchedFiles = array_values(array_filter(array_map(
+            static fn(array $target): string => (string)($target['file_name'] ?? ''),
+            $targets
+        )));
+        $matchedFiles = array_values(array_unique($matchedFiles));
+
+        $lines = [];
+        if ($targetFileName !== '' && $column !== '') {
+            $lines[] = "はい、{$targetFileName} には {$column} 列があります。";
+        } elseif ($column !== '' && count($matchedFiles) === 1) {
+            $lines[] = "はい、{$column} 列は `" . $matchedFiles[0] . "` にあります。";
+        } else {
+            $lines[] = "はい、{$column} 列は登録済みCSVの中で確認できました。";
+        }
+        $lines[] = "";
+        $lines[] = "- 確認対象: {$scopeLabel}";
+        $lines[] = "- 対象列: {$column}";
+        if (!empty($matchedFiles)) {
+            $lines[] = "- 確認できたCSV: " . implode(' / ', $matchedFiles);
+        }
+        $lines[] = "- 結果: 列の存在確認のみを行い、件数分布やランキング集計はまだ実行していません。";
 
         return implode("\n", $lines);
     }
@@ -317,8 +372,12 @@ class CsvAggregationAnswerFormatter
 
         if ($diagramMode && !empty($previewRows)) {
             $chartRows = count($previewRows) > 20 ? array_slice($previewRows, 0, 20) : $previewRows;
+            $requestedChartType = (string)($plan['chart_type'] ?? '');
+            $chartType = in_array($requestedChartType, ['bar', 'line', 'pie'], true)
+                ? $requestedChartType
+                : 'bar';
             $chart = [
-                'type' => 'bar',
+                'type' => $chartType,
                 'title' => $showAllValues
                     ? "{$column} 列の値ごとの件数"
                     : ($usesValueOrdering ? "{$column} 列の並び順に沿った件数" : "{$column} 列の上位件数分布"),
@@ -331,6 +390,7 @@ class CsvAggregationAnswerFormatter
             $fence = str_repeat("\x60", 3);
             $lines[] = "";
             $lines[] = "### グラフ";
+            $lines[] = $this->buildValueDistributionChartLeadText($chartType);
             $lines[] = $fence . "json:chart\n" . json_encode($chart, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . "\n" . $fence;
         }
 
@@ -521,22 +581,34 @@ class CsvAggregationAnswerFormatter
     private function buildChartLeadText(string $chartType, string $granularity = 'day'): string
     {
         if ($granularity === 'hour') {
+            if ($chartType === 'pie') {
+                return "時間帯別の構成比を円グラフで可視化しました。";
+            }
             if ($chartType === 'bar') {
-                return "時間帯ごとの差を見比べやすいよう、棒グラフで可視化しました。";
+                return "時間帯別の件数を棒グラフで可視化しました。";
             }
 
-            return "時間帯ごとの件数分布が分かるよう、折れ線グラフで可視化しました。";
+            return "時間帯別の件数を折れ線グラフで可視化しました。";
+        }
+
+        if ($chartType === 'pie') {
+            return "集計結果の構成比を円グラフで可視化しました。";
         }
 
         if ($chartType === 'bar') {
-            return "日付列の種類が複数あるため、系列ごとの差を見比べやすいよう棒グラフで可視化しました。";
+            return "集計結果を棒グラフで可視化しました。";
         }
 
-        return "集計結果を時系列で確認できるよう、CSVごとに件数推移を可視化しました。";
+        return "集計結果を折れ線グラフで可視化しました。";
     }
 
     private function selectChartType(array $plan, array $datasets): string
     {
+        $requestedChartType = (string)($plan['chart_type'] ?? '');
+        if (in_array($requestedChartType, ['bar', 'line', 'pie'], true)) {
+            return $requestedChartType;
+        }
+
         if ($this->isSingleFileScope($plan) && count($datasets) <= 3) {
             return 'line';
         }
@@ -601,6 +673,19 @@ class CsvAggregationAnswerFormatter
     private function distributionSortOrderLabel(string $sortOrder): string
     {
         return $sortOrder === 'desc' ? '値の降順' : '値の昇順';
+    }
+
+    private function buildValueDistributionChartLeadText(string $chartType): string
+    {
+        if ($chartType === 'pie') {
+            return "値ごとの構成比を円グラフで可視化しました。";
+        }
+
+        if ($chartType === 'line') {
+            return "値ごとの件数を折れ線グラフで可視化しました。";
+        }
+
+        return "値ごとの件数を棒グラフで可視化しました。";
     }
 
     private function buildDateAggregationSummaryLines(array $plan, array $aggregatedRows): array

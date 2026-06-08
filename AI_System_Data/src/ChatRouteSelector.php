@@ -54,7 +54,7 @@ class ChatRouteSelector
             $this->log("[SMART-ROUTER] 報告書モードを検知。PDF生成・検索登録のためフル思考ルートへ寄せます。");
         }
 
-        $csvSummaryOrAggRoute = in_array(($factorizedQuery['route'] ?? null), ['data_analysis.csv_agg', 'data_analysis.csv_summary'], true);
+        $csvSummaryOrAggRoute = in_array(($factorizedQuery['route'] ?? null), ['data_analysis.csv_agg', 'data_analysis.csv_summary', 'data_analysis.csv_export_request'], true);
         $allowCsvRouteOverride = $projectId !== null
             && !$reportMode
             && $csvSummaryOrAggRoute;
@@ -73,6 +73,10 @@ class ChatRouteSelector
                 $isAnalysisMode = true;
                 $this->log("[SMART-ROUTER] CSV集計系の質問は軽量分析を優先します。explicit_advanced=" . ($explicitAdvanced ? 'on' : 'off') . " | file=" . ($factorizedQuery['target_file_name'] ?? 'all'));
 
+            } elseif ($allowCsvRouteOverride && ($factorizedQuery['route'] ?? null) === 'data_analysis.csv_export_request') {
+                $isAnalysisMode = true;
+                $this->log("[SMART-ROUTER] CSV生成系の質問は軽量分析を優先します。explicit_advanced=" . ($explicitAdvanced ? 'on' : 'off') . " | target=" . ($factorizedQuery['target'] ?? 'unknown'));
+
             } elseif ($allowCsvRouteOverride && ($factorizedQuery['route'] ?? null) === 'data_analysis.csv_summary') {
                 $isAnalysisMode = true;
                 $this->log("[SMART-ROUTER] CSV要約系の質問は軽量分析を優先します。explicit_advanced=" . ($explicitAdvanced ? 'on' : 'off') . " | target=" . ($factorizedQuery['target'] ?? 'unknown'));
@@ -89,6 +93,10 @@ class ChatRouteSelector
             } elseif ($projectId !== null && ($factorizedQuery['route'] ?? null) === 'data_analysis.csv_agg') {
                 $isAnalysisMode = true;
                 $this->log("[SMART-ROUTER] 質問因数分解によりCSV集計ルートを優先します。target=" . ($factorizedQuery['target'] ?? 'unknown') . " | file=" . ($factorizedQuery['target_file_name'] ?? 'all'));
+
+            } elseif ($projectId !== null && ($factorizedQuery['route'] ?? null) === 'data_analysis.csv_export_request') {
+                $isAnalysisMode = true;
+                $this->log("[SMART-ROUTER] 質問因数分解によりCSV生成ルートを優先します。target=" . ($factorizedQuery['target'] ?? 'unknown'));
 
             } elseif ($projectId !== null && ($factorizedQuery['route'] ?? null) === 'data_analysis.csv_summary') {
                 $isAnalysisMode = true;

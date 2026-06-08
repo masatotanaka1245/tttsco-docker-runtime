@@ -112,6 +112,52 @@ class CsvAggregationTargetResolver
         return $targets;
     }
 
+    public function findColumnSuggestions(?string $targetFileName, string $targetColumn, int $limit = 8): array
+    {
+        $targetColumn = trim($targetColumn);
+        if ($targetColumn === '') {
+            return [];
+        }
+
+        $scored = [];
+        foreach ($this->metadataCatalog->loadFiles() as $file) {
+            $fileName = (string)($file['file_name'] ?? '');
+            if ($targetFileName !== null && $targetFileName !== '' && $fileName !== $targetFileName) {
+                continue;
+            }
+
+            foreach (array_map('strval', (array)($file['columns'] ?? [])) as $column) {
+                $score = $this->scoreSuggestedColumn($targetColumn, $column);
+                if ($score <= 0) {
+                    continue;
+                }
+
+                $key = $fileName . '|' . $column;
+                $scored[$key] = [
+                    'file_name' => $fileName,
+                    'column_name' => $column,
+                    'score' => $score,
+                ];
+            }
+        }
+
+        usort($scored, static function (array $a, array $b): int {
+            $scoreCmp = (int)$b['score'] <=> (int)$a['score'];
+            if ($scoreCmp !== 0) {
+                return $scoreCmp;
+            }
+
+            $fileCmp = strcmp((string)$a['file_name'], (string)$b['file_name']);
+            if ($fileCmp !== 0) {
+                return $fileCmp;
+            }
+
+            return strcmp((string)$a['column_name'], (string)$b['column_name']);
+        });
+
+        return array_slice(array_values($scored), 0, max(1, $limit));
+    }
+
     public function executeDateAggregationQuery(array $target, string $dateColumn, array $plan): array
     {
         $csvFileId = (int)$target['csv_file_id'];
@@ -222,5 +268,44 @@ class CsvAggregationTargetResolver
     private function isTimeBearingColumnName(string $column): bool
     {
         return preg_match('/(datetime|timestamp|time|時刻|日時)/iu', $column) === 1;
+    }
+
+    private function scoreSuggestedColumn(string $targetColumn, string $candidateColumn): int
+    {
+        if ($candidateColumn === '' || $candidateColumn === $targetColumn) {
+            return 0;
+        }
+
+        $targetLower = mb_strtolower($targetColumn, 'UTF-8');
+        $candidateLower = mb_strtolower($candidateColumn, 'UTF-8');
+        if ($targetLower === $candidateLower) {
+            return 120;
+        }
+
+        $score = 0;
+        if (mb_stripos($candidateLower, $targetLower, 0, 'UTF-8') !== false) {
+            $score += 90;
+        }
+        if (mb_stripos($targetLower, $candidateLower, 0, 'UTF-8') !== false) {
+            $score += 70;
+        }
+
+        $targetCompact = preg_replace('/[\s_\-]+/u', '', $targetLower) ?? $targetLower;
+        $candidateCompact = preg_replace('/[\s_\-]+/u', '', $candidateLower) ?? $candidateLower;
+        if ($targetCompact !== '' && $candidateCompact !== '') {
+            if (mb_stripos($candidateCompact, $targetCompact, 0, 'UTF-8') !== false) {
+                $score += 30;
+            }
+            if (mb_stripos($targetCompact, $candidateCompact, 0, 'UTF-8') !== false) {
+                $score += 20;
+            }
+        }
+
+        similar_text($targetLower, $candidateLower, $percent);
+        if ($percent >= 55.0) {
+            $score += (int)round($percent / 4);
+        }
+
+        return $score;
     }
 }

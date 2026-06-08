@@ -5,6 +5,7 @@ require_once __DIR__ . '/FaqAutoRegistrar.php';
 require_once __DIR__ . '/ReportGenerator.php';
 require_once __DIR__ . '/ChatThreadManager.php';
 require_once __DIR__ . '/ProjectMemoryAutoUpdater.php';
+require_once __DIR__ . '/CsvExportGenerator.php';
 
 final class AdvancedRouteFinalizer
 {
@@ -18,6 +19,7 @@ final class AdvancedRouteFinalizer
     private $evalResult;
     private $retryCount;
     private $reportMode;
+    private $csvMode;
     private $ollamaHost;
     private $repoRoot;
     private $mainModel;
@@ -39,6 +41,7 @@ final class AdvancedRouteFinalizer
         ?array $evalResult,
         int $retryCount,
         bool $reportMode,
+        bool $csvMode,
         string $ollamaHost,
         string $repoRoot,
         string $mainModel,
@@ -59,6 +62,7 @@ final class AdvancedRouteFinalizer
         $this->evalResult = $evalResult;
         $this->retryCount = $retryCount;
         $this->reportMode = $reportMode;
+        $this->csvMode = $csvMode;
         $this->ollamaHost = $ollamaHost;
         $this->repoRoot = $repoRoot;
         $this->mainModel = $mainModel;
@@ -80,6 +84,7 @@ final class AdvancedRouteFinalizer
 
         $historyId = null;
         $reportDocument = null;
+        $csvExport = null;
 
         try {
             $this->pdo->beginTransaction();
@@ -149,14 +154,19 @@ final class AdvancedRouteFinalizer
 
             $this->pdo->commit();
             $this->log("[DEBUG] DBトランザクションコミット成功。すべての書き込みデータ整合性を完全保護しました。");
-            ProjectMemoryAutoUpdater::refresh(
-                $this->pdo,
-                $this->projectId,
-                $this->threadId,
-                $this->userId,
-                fn(string $message) => $this->log($message)
-            );
+            if (ProjectMemoryAutoUpdater::shouldRefreshFromEvaluation($this->evalResult, $this->finalResponse)) {
+                ProjectMemoryAutoUpdater::refresh(
+                    $this->pdo,
+                    $this->projectId,
+                    $this->threadId,
+                    $this->userId,
+                    fn(string $message) => $this->log($message)
+                );
+            } else {
+                $this->log("[PROJECT-MEMORY-AUTO] skipped=quality_guard | thread_id=" . ($this->threadId === null ? 'NULL' : (string)$this->threadId));
+            }
             $reportDocument = $this->createReportDocumentIfRequested($historyId);
+            $csvExport = $this->createCsvExportIfRequested($historyId);
         } catch (Exception $e) {
             if ($this->pdo->inTransaction()) {
                 $this->pdo->rollBack();
@@ -168,10 +178,11 @@ final class AdvancedRouteFinalizer
         return [
             'history_id' => $historyId,
             'report_document' => $reportDocument,
+            'csv_export' => $csvExport,
         ];
     }
 
-    public function sendFinalResult($reportDocument): void
+    public function sendFinalResult($reportDocument, $csvExport = null): void
     {
         $stmtSteps = $this->pdo->prepare("SELECT step_number, sub_query, sub_answer FROM chat_reasoning_steps WHERE session_id = ? AND step_number < 99 ORDER BY step_number ASC");
         $stmtSteps->execute([$this->reasoningId]);
@@ -192,6 +203,7 @@ final class AdvancedRouteFinalizer
             'model_roles' => ChatModelRolePayload::build($this->mainModel, $this->subModel, $this->embeddingModel, 'main'),
             'created_at' => date('Y/m/d H:i'),
             'report_document' => $reportDocument,
+            'csv_export' => $csvExport,
         ]);
         $this->log("=== [MoA大統合ハブコントローラー] ハイブリッド並列多重推論パイプライン全線開通・処理完了 ===");
     }
@@ -242,6 +254,50 @@ final class AdvancedRouteFinalizer
             sendSSE('status', [
                 'step' => 6,
                 'message' => '⚠️ 報告書PDFの登録に失敗しました。管理者ログを確認してください。'
+            ]);
+            return null;
+        }
+    }
+
+    private function createCsvExportIfRequested(int $historyId)
+    {
+        if (!$this->csvMode || $this->projectId === 0) {
+            return null;
+        }
+        if (($this->evalResult['verdict'] ?? '') === 'reject') {
+            $this->log('[CSV-EXPORT] 品質評価がrejectのため、生成CSV登録をスキップしました。chat_history_id=' . $historyId);
+            return null;
+        }
+
+        try {
+            sendSSE('status', [
+                'step' => 6,
+                'message' => '🧾 回答内の表を生成CSVとして登録しています...'
+            ]);
+            $generator = new CsvExportGenerator(
+                $this->pdo,
+                fn(string $message) => $this->log($message)
+            );
+            $csvExport = $generator->createFromChat(
+                $this->projectId,
+                $historyId,
+                $this->userId,
+                $this->originalMessage,
+                $this->finalResponse
+            );
+            sendSSE('status', [
+                'step' => 6,
+                'message' => $csvExport !== null
+                    ? '✅ 生成CSVをCSVタブへ登録しました。'
+                    : 'ℹ️ CSV化モードは有効でしたが、保存できる表は見つかりませんでした。'
+            ]);
+
+            return $csvExport;
+        } catch (Throwable $e) {
+            $this->log('[CSV-EXPORT] 生成CSV登録に失敗: ' . $e->getMessage());
+            sendSSE('status', [
+                'step' => 6,
+                'message' => '⚠️ 生成CSVの登録に失敗しました。管理者ログを確認してください。'
             ]);
             return null;
         }

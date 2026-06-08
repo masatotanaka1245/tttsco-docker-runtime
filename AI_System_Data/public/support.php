@@ -266,6 +266,71 @@ if (!function_exists('renderProjectMemoryReadonly')) {
     }
 }
 
+if (!function_exists('renderProjectMaterialFlash')) {
+    function renderProjectMaterialFlash(string $materialFlash): void {
+        if ($materialFlash === '1') {
+            echo '<div class="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">資料メモを更新しました。</div>';
+            return;
+        }
+        if ($materialFlash === 'deleted') {
+            echo '<div class="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">資料メモを削除しました。</div>';
+            return;
+        }
+        if ($materialFlash === 'empty') {
+            echo '<div class="text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">資料メモの内容が空です。</div>';
+            return;
+        }
+        if ($materialFlash === 'not_found') {
+            echo '<div class="text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">対象の資料メモが見つかりませんでした。</div>';
+            return;
+        }
+        if ($materialFlash === 'error') {
+            echo '<div class="text-[11px] font-bold text-red-700 bg-red-50 border border-red-200 rounded-xl px-4 py-3">資料メモの保存に失敗しました。</div>';
+            return;
+        }
+        if ($materialFlash === 'csrf_error' || $materialFlash === 'forbidden') {
+            echo '<div class="text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">資料メモを更新する権限がありません。</div>';
+        }
+    }
+}
+
+if (!function_exists('renderProjectMaterialItems')) {
+    function renderProjectMaterialItems(array $materialDocuments, int $projectId, ?int $selectedDocumentId): void {
+        if (empty($materialDocuments)) {
+            ?>
+            <div class="text-center py-10 bg-slate-50/60 rounded-xl border border-dashed border-slate-200">
+                <p class="text-xs text-slate-400 font-medium italic">資料メモはまだ登録されていません。</p>
+            </div>
+            <?php
+            return;
+        }
+
+        foreach ($materialDocuments as $document) {
+            $documentId = (int)($document['id'] ?? 0);
+            $isActive = $selectedDocumentId !== null && $documentId === $selectedDocumentId;
+            $href = 'support.php?project_id=' . urlencode((string)$projectId) . '&tab=materials&material_doc_id=' . urlencode((string)$documentId);
+            $modifiedAt = (string)($document['material_modified_at'] ?? $document['created_at'] ?? '');
+            ?>
+            <a
+                href="<?= h($href) ?>"
+                data-material-document-id="<?= $documentId ?>"
+                class="block rounded-xl border px-4 py-3 shadow-2xs transition-all duration-200 ease-in-out <?= $isActive ? 'border-indigo-300 bg-indigo-50/80' : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/70' ?>"
+            >
+                <div class="flex items-start justify-between gap-3">
+                    <div class="min-w-0">
+                        <div class="text-xs font-bold text-slate-700 truncate"><?= h((string)($document['title'] ?? '資料メモ')) ?></div>
+                        <div class="mt-1 text-[10px] text-slate-400 font-medium">
+                            <?= $modifiedAt !== '' ? h(date('Y/m/d H:i', strtotime($modifiedAt))) : '更新時刻なし' ?>
+                        </div>
+                    </div>
+                    <span class="text-[9px] bg-slate-100 border border-slate-200 px-2 py-0.5 rounded font-mono text-slate-400 font-bold">MD</span>
+                </div>
+            </a>
+            <?php
+        }
+    }
+}
+
 if (!function_exists('renderProjectOverviewRows')) {
     function renderProjectOverviewRows(array $currentProject): void {
         $projectPeriod = (!empty($currentProject['start_date']) || !empty($currentProject['end_date']))
@@ -532,6 +597,13 @@ $chatOutputOptions = [
         'title' => '回答をHTML/CSS報告書としてPDF化し、PDFタブと検索対象へ登録します',
         'checkedClass' => 'peer-checked:border-amber-300 peer-checked:bg-amber-50 peer-checked:text-amber-700 peer-checked:shadow-sm',
     ],
+    [
+        'id' => 'csv-export-mode',
+        'icon' => '🧾',
+        'label' => 'CSV化',
+        'title' => '回答内の表を生成CSVとして保存し、CSVタブへ登録します',
+        'checkedClass' => 'peer-checked:border-cyan-300 peer-checked:bg-cyan-50 peer-checked:text-cyan-700 peer-checked:shadow-sm',
+    ],
 ];
 
 $adminOutputOptions = [
@@ -546,6 +618,7 @@ $adminOutputOptions = [
 
 $projectCenterTabs = [
     ['key' => 'overview', 'icon' => '🏠', 'label' => '概要', 'full_label' => '概要', 'count' => null],
+    ['key' => 'materials', 'icon' => '📝', 'label' => '資料', 'full_label' => '資料メモ', 'count' => count($material_documents ?? [])],
     ['key' => 'pdf', 'icon' => '📄', 'label' => 'PDF', 'full_label' => '資料PDF', 'count' => count($documents ?? [])],
     ['key' => 'comments', 'icon' => '💬', 'label' => 'コメント', 'full_label' => 'コメント', 'count' => count($comments ?? [])],
     ['key' => 'csv', 'icon' => '📊', 'label' => 'CSV', 'full_label' => 'CSVデータ', 'count' => count($csv_files ?? [])],
@@ -963,7 +1036,9 @@ $projectCenterTabs = [
 <div id="support-config"
      data-csrf-token="<?= h($csrfToken) ?>"
      data-project-id="<?= h((string)$selected_project_id) ?>"
+     data-selected-material-document-id="<?= h((string)($selected_material_document['id'] ?? '')) ?>"
      data-thread-id="<?= h((string)$selected_thread_id) ?>"
+     data-can-manage-material="<?= $can_manage_material_documents ? '1' : '0' ?>"
      data-can-debug-log="<?= $role === 'admin' ? '1' : '0' ?>"></div>
 
 <main class="flex-1 flex overflow-hidden h-[calc(100vh-72px)] gap-px bg-slate-200/50 w-full" role="region" aria-label="Support System Console">
@@ -1063,6 +1138,80 @@ $projectCenterTabs = [
 
             </div>
 
+            <div id="tab-materials" role="tabpanel" class="tab-content <?= $active_tab === 'materials' ? 'active' : '' ?> h-full overflow-y-auto p-6 space-y-6">
+                <div class="bg-white border border-slate-200/80 rounded-2xl overflow-hidden shadow-sm transition-all duration-300 hover:shadow-md">
+                    <div class="bg-slate-50/70 p-3.5 px-5 font-bold text-slate-700 flex justify-between items-center text-xs border-b border-slate-100">
+                        <div class="flex items-center gap-3">
+                            <span class="font-extrabold tracking-wide text-slate-600">資料メモ</span>
+                            <span class="text-[10px] text-slate-400 font-bold tracking-wider">Markdownで保存 / documents連携 / RAG対象</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span id="material-document-count" class="text-[10px] font-black text-slate-400 bg-white border border-slate-200 px-2.5 py-0.5 rounded-full shadow-2xs"><?= count($material_documents) ?> 件</span>
+                            <?php if ($can_manage_material_documents): ?>
+                                <button type="button" id="material-new-button" onclick="if(typeof window.openMaterialNoteModal === 'function') window.openMaterialNoteModal('new')" class="text-[10px] bg-white text-slate-600 border border-slate-200 px-3 py-1.5 rounded-xl font-bold shadow-2xs hover:bg-slate-50 transition-all duration-200 ease-in-out">＋ 新規資料</button>
+                                <button type="button" id="material-edit-button" onclick="if(typeof window.openMaterialNoteModal === 'function') window.openMaterialNoteModal('edit')" class="text-[10px] bg-[#4F5D95] text-white border border-[#4F5D95] px-3 py-1.5 rounded-xl font-bold shadow-2xs hover:bg-[#3f4a7a] transition-all duration-200 ease-in-out disabled:opacity-40 disabled:cursor-not-allowed" <?= empty($selected_material_document['id']) ? 'disabled' : '' ?>>編集</button>
+                                <form method="post" id="material-delete-form" class="contents">
+                                    <input type="hidden" name="action" value="delete_project_material">
+                                    <input type="hidden" name="csrf_token" value="<?= h($csrfToken) ?>">
+                                    <input type="hidden" name="project_id" value="<?= h((string)$selected_project_id) ?>">
+                                    <input type="hidden" id="material-delete-document-id" name="material_document_id" value="<?= h((string)($selected_material_document['id'] ?? '')) ?>">
+                                    <button type="submit" id="material-delete-button" class="text-[10px] bg-white text-red-600 border border-red-200 px-3 py-1.5 rounded-xl font-bold shadow-2xs hover:bg-red-50 transition-all duration-200 ease-in-out disabled:opacity-40 disabled:cursor-not-allowed" <?= empty($selected_material_document['id']) ? 'disabled' : '' ?>>削除</button>
+                                </form>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+
+                    <div class="p-5 space-y-5">
+                        <div id="material-flash-container"><?php renderProjectMaterialFlash((string)$material_flash); ?></div>
+                        <script type="application/json" id="material-note-editor-data"><?= json_encode([
+                            'selected' => [
+                                'id' => (int)($selected_material_document['id'] ?? 0),
+                                'title' => (string)($selected_material_document['title'] ?? ''),
+                                'content' => (string)$selected_material_content,
+                            ],
+                        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
+
+                        <p class="text-[11px] text-slate-500 leading-relaxed">
+                            PDFの報告書と別に、案件の補足資料や途中メモを Markdown で蓄積します。保存すると資料ファイルとして登録され、以後の検索対象にも含められます。
+                        </p>
+
+                        <div class="grid grid-cols-1 xl:grid-cols-[18rem_minmax(0,1fr)] gap-5 items-start">
+                            <div class="space-y-3">
+                                <div class="text-[10px] font-black text-slate-400 uppercase tracking-widest">資料一覧</div>
+                                <div id="material-document-list" class="space-y-2.5">
+                                    <?php renderProjectMaterialItems($material_documents, (int)$selected_project_id, $selected_material_document ? (int)$selected_material_document['id'] : null); ?>
+                                </div>
+                            </div>
+
+                            <div class="space-y-4">
+                                <div class="border border-slate-200 rounded-2xl overflow-hidden bg-white shadow-2xs">
+                                    <div class="px-4 py-2.5 bg-slate-50 text-[10px] font-black text-slate-400 tracking-widest uppercase flex items-center justify-between">
+                                        <span>Preview</span>
+                                        <?php if ($selected_material_document): ?>
+                                            <span id="material-preview-title" class="normal-case tracking-normal text-slate-400 font-bold"><?= h((string)$selected_material_document['title']) ?></span>
+                                        <?php else: ?>
+                                            <span id="material-preview-title" class="normal-case tracking-normal text-slate-400 font-bold"></span>
+                                        <?php endif; ?>
+                                    </div>
+                                    <div id="material-preview-body" class="p-5 markdown-body chat-markdown prose prose-slate max-w-none text-sm">
+                                        <?php if ($selected_material_preview_html !== ''): ?>
+                                            <?= $selected_material_preview_html ?>
+                                        <?php else: ?>
+                                            <div class="text-center py-10 text-xs text-slate-400 italic">ここに資料メモのプレビューが表示されます。</div>
+                                        <?php endif; ?>
+                                    </div>
+                                </div>
+                                <?php if (!$can_manage_material_documents): ?>
+                                    <div class="rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-3 text-[11px] text-slate-500">
+                                        この案件では資料メモの閲覧のみ可能です。
+                                    </div>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <div id="tab-pdf" role="tabpanel" class="tab-content <?= $active_tab === 'pdf' ? 'active' : '' ?> h-full overflow-y-auto p-6 space-y-6">
                 <div class="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-sm relative overflow-hidden transition-all duration-300 hover:shadow-md">
                     <div class="absolute top-0 left-0 w-1.5 h-full bg-[#4F5D95]"></div>
@@ -1147,8 +1296,8 @@ $projectCenterTabs = [
 
                 <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-start">
                     <div class="col-span-1 border border-slate-200 rounded-2xl bg-slate-50/60 p-4 space-y-3 shadow-sm">
-                        <h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest pb-1.5 border-b border-slate-200/60">インポート履歴 (<?= count($csv_files) ?>)</h4>
-                        <div class="space-y-2 max-h-[400px] overflow-y-auto pr-1 no-scrollbar">
+                        <h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest pb-1.5 border-b border-slate-200/60">インポート履歴 (<span id="csv-history-count"><?= count($csv_files) ?></span>)</h4>
+                        <div id="csv-history-list" class="space-y-2 max-h-[400px] overflow-y-auto pr-1 no-scrollbar">
                             <?php renderCsvHistoryItems($csv_files); ?>
                         </div>
                     </div>
@@ -1289,7 +1438,7 @@ $projectCenterTabs = [
             <div id="chat-box" class="h-full p-4 space-y-5 overflow-y-auto bg-slate-50/40 no-scrollbar">
                 <?php foreach ($chat_history as $chat): ?>
                     <?php $timeStr = date('Y/m/d H:i', strtotime($chat['created_at'])); ?>
-                    <div class="<?= h(getChatMessageRowClasses((string)$chat['role'])) ?>">
+                    <div class="<?= h(getChatMessageRowClasses((string)$chat['role'])) ?>" data-chat-role="<?= h((string)$chat['role']) ?>">
                         <div class="<?= h(getChatAvatarClasses((string)$chat['role'])) ?>">
                             <?= h(getChatAvatarIcon((string)$chat['role'])) ?>
                         </div>
@@ -1393,7 +1542,7 @@ $projectCenterTabs = [
 
     // ★ 究極の安全設計: import * as 構文を使用し、1096エラー(SyntaxError)を原理的に100%防止
     // ✨ ここを ?v=4 から ?v=5 へ書き換えてキャッシュを強制粉砕！
-    import * as Support from './assets/js/support.js?v=20';
+    import * as Support from './assets/js/support.js?v=21';
 
     // ★要件4: 隔離コンテナ内のJSONデータを仲介して安全にマウント・パースするイベントハンドラの実装
     window.openProjectEditModal = (lat, lng) => {
@@ -1407,28 +1556,24 @@ $projectCenterTabs = [
         } catch(e) { console.error("Prefill data parse error:", e); }
     };
 
+    const safeSupportInit = (label, fn) => {
+        try {
+            if (typeof fn === 'function') {
+                fn();
+            }
+        } catch (e) {
+            console.error(`support.php init failed: ${label}`, e);
+        }
+    };
+
     const initApp = () => {
-        if (typeof Support.bindGlobalFunctions === 'function') {
-            Support.bindGlobalFunctions();
-        }
-        if (typeof Support.bindModalEvents === 'function') {
-            Support.bindModalEvents();
-        }
-        if (typeof Support.initResizer === 'function') {
-            Support.initResizer();
-        }
-        if (typeof Support.initChatInput === 'function') {
-            Support.initChatInput();
-        }
-        if (typeof Support.initDebugLogViewer === 'function') {
-            Support.initDebugLogViewer();
-        }
-        if (typeof Support.checkUploadOnLoad === 'function') {
-            Support.checkUploadOnLoad();
-        }
-        if (typeof Support.scrollToBottom === 'function') {
-            Support.scrollToBottom();
-        }
+        safeSupportInit('bindGlobalFunctions', Support.bindGlobalFunctions);
+        safeSupportInit('bindModalEvents', Support.bindModalEvents);
+        safeSupportInit('initResizer', Support.initResizer);
+        safeSupportInit('initChatInput', Support.initChatInput);
+        safeSupportInit('initDebugLogViewer', Support.initDebugLogViewer);
+        safeSupportInit('checkUploadOnLoad', Support.checkUploadOnLoad);
+        safeSupportInit('scrollToBottom', Support.scrollToBottom);
 
         const activeTab = '<?= h($active_tab) ?>';
         if (activeTab && activeTab !== 'overview') {

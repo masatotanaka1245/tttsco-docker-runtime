@@ -35,6 +35,7 @@ require_once __DIR__ . '/../../src/ProjectMemoryAutoUpdater.php';
 require_once __DIR__ . '/../../src/ChatModelRolePayload.php';
 require_once __DIR__ . '/../../src/ChatThreadManager.php';
 require_once __DIR__ . '/../../src/ReportAnswerPolisher.php';
+require_once __DIR__ . '/../../src/CsvExportGenerator.php';
 
 if (!function_exists('chatLogger')) {
     function chatLogger($msg) {
@@ -50,9 +51,9 @@ if (!function_exists('chatLogger')) {
  * 外部からのエントリーポイント（インターフェース引数100%完全同期維持版・Freeze Protocol）
  * ✨【関数名シンクロ統合】：名前を chat.php 側の呼び出し名 「runAdvancedReasoningRoute」 へ完全同期！
  */
-function runAdvancedReasoningRoute($pdo, $ollama_host, $projectId, $originalMessage, $mainModel, $subModel, $sqlModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false) {
+function runAdvancedReasoningRoute($pdo, $ollama_host, $projectId, $originalMessage, $mainModel, $subModel, $sqlModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false, bool $csvMode = false) {
     $processor = new AdvancedReasoningRouteProcessor(
-        $pdo, $ollama_host, $projectId, $originalMessage, $mainModel, $subModel, $sqlModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, $threadId, $reportMode, $diagramMode
+        $pdo, $ollama_host, $projectId, $originalMessage, $mainModel, $subModel, $sqlModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, $threadId, $reportMode, $diagramMode, $csvMode
     );
     $processor->execute();
 }
@@ -79,6 +80,8 @@ class AdvancedReasoningRouteProcessor {
     private $reportMode = false;
     private $diagramMode = false;
     private $reportDocument = null;
+    private $csvMode = false;
+    private $csvExport = null;
     private $csvSearchService = null;
     private $csvDateColumnDetector = null;
     private $csvAggregationPlanner = null;
@@ -122,7 +125,7 @@ class AdvancedReasoningRouteProcessor {
     /**
      * コンストラクタ (完全DI化)
      */
-    public function __construct($pdo, $ollama_host, $projectId, $originalMessage, $mainModel, $subModel, $sqlModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false) {
+    public function __construct($pdo, $ollama_host, $projectId, $originalMessage, $mainModel, $subModel, $sqlModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false, bool $csvMode = false) {
         $this->pdo                = $pdo;
         $this->ollama_host        = $ollama_host;
         $this->projectId          = $projectId;
@@ -139,6 +142,7 @@ class AdvancedReasoningRouteProcessor {
         $this->threadId           = $threadId;
         $this->reportMode         = $reportMode;
         $this->diagramMode        = $diagramMode;
+        $this->csvMode            = $csvMode;
         $this->reasoningId        = 'sql-' . uniqid('reason_') . '-' . mt_rand(1000, 9999);
     }
 
@@ -149,6 +153,9 @@ class AdvancedReasoningRouteProcessor {
         }
         if ($this->reportMode) {
             $instructions .= "\n【報告書モード】回答は後続処理でPDF報告書化されます。結論、分析対象、根拠、集計結果、留意点、推奨アクション、出典の順に、報告書として読みやすい見出し構成で作成してください。";
+        }
+        if ($this->csvMode) {
+            $instructions .= "\n【CSV化モード】集計結果や一覧をCSVとして保存できるよう、表形式が有効な場合は少なくとも1つのMarkdown表を含めてください。列名と行データを省略せず、Markdown表として完結させてください。";
         }
         return $instructions;
     }
@@ -221,6 +228,10 @@ class AdvancedReasoningRouteProcessor {
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
         if ($this->tryCsvStructuredAggregationRoute()) {
+            return;
+        }
+
+        if ($this->tryCsvExportRequestRoute()) {
             return;
         }
 
@@ -438,6 +449,7 @@ class AdvancedReasoningRouteProcessor {
             . " | inherited_mode: " . (!empty($plan['used_recent_aggregation_mode']) ? 'yes' : 'no')
             . " | recent_mode: " . ($plan['recent_aggregation_mode'] ?? 'none')
             . " | wants_chart: " . (!empty($plan['wants_chart']) ? 'yes' : 'no')
+            . " | chart_type: " . ($plan['chart_type'] ?? 'auto')
             . " | effective_diagram_mode: " . ($effectiveDiagramMode ? 'on' : 'off')
             . " | target_file: " . ($plan['target_file_name'] ?? 'all')
             . " | target_column: " . ($plan['target_column'] ?? 'none')
@@ -455,6 +467,14 @@ class AdvancedReasoningRouteProcessor {
 
             case 'exact_value_count':
                 return $this->getCsvValueAggregationRunner()->runExactValueCount(
+                    $plan,
+                    $routeStart,
+                    $targetResolver,
+                    $csvAggregationAnswerFormatter
+                );
+
+            case 'column_exists':
+                return $this->getCsvValueAggregationRunner()->runColumnExists(
                     $plan,
                     $routeStart,
                     $targetResolver,
@@ -565,6 +585,38 @@ class AdvancedReasoningRouteProcessor {
                 return $this->tryCsvSmallSummaryRoute($rows, $routeStart, $searchResult);
             }
         );
+    }
+
+    private function tryCsvExportRequestRoute(): bool {
+        if (!$this->shouldUseCsvExportRequestRoute()) {
+            return false;
+        }
+
+        $files = $this->getCsvMetadataCatalog()->loadFiles();
+        if (empty($files)) {
+            return false;
+        }
+
+        $routeStart = microtime(true);
+        chatLogger("[CSV-EXPORT-REQUEST] CSV生成依頼を検知したため、CSV証拠読解ではなくサマリー表生成ルートを起動します。files: " . count($files));
+        sendSSE('status', [
+            'step' => 2,
+            'message' => '🧾 生成CSV用に、登録済みCSVのファイル別サマリー表を作成しています...'
+        ]);
+
+        $finalResponse = $this->getCsvSummaryFormatter()->buildCsvExportAnswer($files);
+        $this->finalResponse = $finalResponse;
+        $this->insertReasoningStep(1, 'CSVファイル一覧の集計サマリー化', $finalResponse);
+        $this->subAnswers[] = $finalResponse;
+
+        chatLogger("[CSV-EXPORT-REQUEST] サマリー表生成完了 - responseChars: " . mb_strlen($finalResponse) . " | elapsed: " . $this->elapsedSeconds($routeStart));
+        $this->completeCsvRoute();
+        chatLogger("[CSV-EXPORT-REQUEST] CSV生成依頼ルートが完了しました。totalElapsed: " . $this->elapsedSeconds($routeStart));
+        return true;
+    }
+
+    private function shouldUseCsvExportRequestRoute(): bool {
+        return preg_match('/(csv化|CSV化|csvにしてください|CSVにしてください|csvファイルにしてください|CSVファイルにしてください|csvファイルを作成|CSVファイルを作成|csvで出力|CSVで出力|一つのcsv|1つのcsv|一つのCSV|1つのCSV)/u', $this->originalMessage) === 1;
     }
 
     /**
@@ -1854,14 +1906,19 @@ class AdvancedReasoningRouteProcessor {
 
             $this->pdo->commit();
             chatLogger("[DEBUG] DBトランザクションコミット成功。すべての書き込みデータ整合性を完全保護しました。");
-            ProjectMemoryAutoUpdater::refresh(
-                $this->pdo,
-                (int)$this->projectId,
-                $this->threadId !== null ? (int)$this->threadId : null,
-                (int)$this->user_id,
-                fn(string $message) => chatLogger($message)
-            );
+            if (ProjectMemoryAutoUpdater::shouldRefreshFromEvaluation($this->evalResult, $this->finalResponse)) {
+                ProjectMemoryAutoUpdater::refresh(
+                    $this->pdo,
+                    (int)$this->projectId,
+                    $this->threadId !== null ? (int)$this->threadId : null,
+                    (int)$this->user_id,
+                    fn(string $message) => chatLogger($message)
+                );
+            } else {
+                chatLogger("[PROJECT-MEMORY-AUTO] skipped=quality_guard | thread_id=" . ($this->threadId === null ? 'NULL' : (string)$this->threadId));
+            }
             $this->createReportDocumentIfRequested((int)$historyId);
+            $this->createCsvExportIfRequested((int)$historyId);
         } catch (Exception $e) {
             if ($this->pdo->inTransaction()) {
                 $this->pdo->rollBack();
@@ -1917,6 +1974,45 @@ class AdvancedReasoningRouteProcessor {
         }
     }
 
+    private function createCsvExportIfRequested(int $historyId): void {
+        if (!$this->csvMode || $this->projectId === null) {
+            return;
+        }
+        if (($this->evalResult['verdict'] ?? '') === 'reject') {
+            chatLogger('[CSV-EXPORT] 品質評価がrejectのため、生成CSV登録をスキップしました。chat_history_id=' . $historyId);
+            return;
+        }
+        try {
+            sendSSE('status', [
+                'step' => 6,
+                'message' => '🧾 回答内の表を生成CSVとして登録しています...'
+            ]);
+            $generator = new CsvExportGenerator(
+                $this->pdo,
+                $this->createChatLoggerCallback()
+            );
+            $this->csvExport = $generator->createFromChat(
+                (int)$this->projectId,
+                $historyId,
+                (int)$this->user_id,
+                $this->originalMessage,
+                $this->finalResponse
+            );
+            sendSSE('status', [
+                'step' => 6,
+                'message' => $this->csvExport !== null
+                    ? '✅ 生成CSVをCSVタブへ登録しました。'
+                    : 'ℹ️ CSV化モードは有効でしたが、保存できる表は見つかりませんでした。'
+            ]);
+        } catch (Throwable $e) {
+            chatLogger('[CSV-EXPORT] 生成CSV登録に失敗: ' . $e->getMessage());
+            sendSSE('status', [
+                'step' => 6,
+                'message' => '⚠️ 生成CSVの登録に失敗しました。管理者ログを確認してください。'
+            ]);
+        }
+    }
+
     /**
      * SSEを用いたクライアントへの最終確定結果のプッシュ送信
      */
@@ -1937,7 +2033,8 @@ class AdvancedReasoningRouteProcessor {
             'applied_model'   => $this->model,
             'model_roles'     => ChatModelRolePayload::build($this->model, $this->subModel, $this->embeddingModel, 'main', $this->sqlModel),
             'created_at'      => date('Y/m/d H:i'),
-            'report_document' => $this->reportDocument
+            'report_document' => $this->reportDocument,
+            'csv_export'      => $this->csvExport
         ]);
         chatLogger("=== Text-to-SQL 自律修復型分析パイプライン完了 ===");
     }
