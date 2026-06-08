@@ -130,7 +130,8 @@ VALUES
 ('users', 10, 'default_model', 'varchar(50)', 'YES'),
 ('users', 11, 'ollama_host', 'varchar(255)', 'YES'),
 ('users', 12, 'sub_model', 'varchar(100)', 'YES'),
-('users', 13, 'embedding_model', 'varchar(100)', 'YES');
+('users', 13, 'sql_model', 'varchar(100)', 'YES'),
+('users', 14, 'embedding_model', 'varchar(100)', 'YES');
 
 SELECT
     'MISSING_COLUMN' AS issue,

@@ -8,6 +8,7 @@ final class AdvancedPlanExecutor
     private $projectId;
     private $ollamaHost;
     private $reasoningModel;
+    private $sqlModel;
     private $searchQuery;
     private $originalMessage;
     private $reasoningId;
@@ -25,6 +26,7 @@ final class AdvancedPlanExecutor
         int $projectId,
         string $ollamaHost,
         string $reasoningModel,
+        string $sqlModel,
         string $searchQuery,
         string $originalMessage,
         string $reasoningId,
@@ -41,6 +43,7 @@ final class AdvancedPlanExecutor
         $this->projectId = $projectId;
         $this->ollamaHost = $ollamaHost;
         $this->reasoningModel = $reasoningModel;
+        $this->sqlModel = $sqlModel;
         $this->searchQuery = $searchQuery;
         $this->originalMessage = $originalMessage;
         $this->reasoningId = $reasoningId;
@@ -177,7 +180,7 @@ final class AdvancedPlanExecutor
         } else {
             $sqlJsonStr = callOllamaChat(
                 $this->ollamaHost,
-                $this->reasoningModel,
+                $this->sqlModel,
                 $sqlSysPrompt,
                 $sqlUserPrompt,
                 'json',

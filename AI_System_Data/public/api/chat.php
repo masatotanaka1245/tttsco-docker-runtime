@@ -319,6 +319,7 @@ try {
     $main_model = $resolvedModels['main_model'];
     $selected_model = $main_model;
     $sub_model = $resolvedModels['sub_model'];
+    $sql_model = $resolvedModels['sql_model'];
     $embedding_model = $resolvedModels['embedding_model'];
     $prompt_key     = $input['prompt_mode'] ?? 'construction_consultant';
     $reasoning_id   = $input['reasoning_id'] ?? ($input['advanced_reasoning_id'] ?? null);
@@ -353,7 +354,7 @@ try {
             'hit_count' => 0,
             'reasoning_steps' => [],
             'applied_model' => $selected_model,
-            'model_roles' => ChatModelRolePayload::build($main_model, $sub_model, $embedding_model, 'main'),
+            'model_roles' => ChatModelRolePayload::build($main_model, $sub_model, $embedding_model, 'main', $sql_model),
             'created_at' => date('Y/m/d H:i'),
             'report_document' => null
         ]);
@@ -391,7 +392,7 @@ try {
                 'hit_count' => 0,
                 'reasoning_steps' => [],
                 'applied_model' => $selected_model,
-                'model_roles' => ChatModelRolePayload::build($main_model, $sub_model, $embedding_model, 'main'),
+                'model_roles' => ChatModelRolePayload::build($main_model, $sub_model, $embedding_model, 'main', $sql_model),
                 'created_at' => date('Y/m/d H:i')
             ]);
             exit;
@@ -500,7 +501,7 @@ try {
         chatLogger("[SMART-ROUTER] 自律生成推論セッションID: {$reasoning_id}");
     }
     if ($advanced_reasoning) {
-        $selected_model = "{$main_model}(因数分解・最終統合) + {$sub_model}(中間処理)";
+        $selected_model = "{$main_model}(因数分解・最終統合) + {$sub_model}(中間処理) + {$sql_model}(SQL)";
     }
 
     $routeStart = microtime(true);
@@ -517,6 +518,7 @@ try {
         'synthesis_model' => $synthesis_model,
         'main_model' => $main_model,
         'sub_model' => $sub_model,
+        'sql_model' => $sql_model,
         'embedding_model' => $embedding_model,
         'prompt_key' => $prompt_key,
         'project_context' => $project_context,

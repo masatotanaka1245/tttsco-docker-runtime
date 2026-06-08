@@ -5,6 +5,7 @@ class ModelRoleResolver
     public const DEFAULT_OLLAMA_HOST = 'http://127.0.0.1:11434';
     public const DEFAULT_MAIN_MODEL = 'gemma4:e4b';
     public const DEFAULT_SUB_MODEL = 'gpt-oss:20b';
+    public const DEFAULT_SQL_MODEL = 'gpt-oss:20b';
     public const DEFAULT_EMBEDDING_MODEL = 'mxbai-embed-large';
 
     public static function defaults(): array
@@ -14,6 +15,7 @@ class ModelRoleResolver
             'main_model' => self::DEFAULT_MAIN_MODEL,
             'default_model' => self::DEFAULT_MAIN_MODEL,
             'sub_model' => self::DEFAULT_SUB_MODEL,
+            'sql_model' => self::DEFAULT_SQL_MODEL,
             'embedding_model' => getenv('OLLAMA_EMBED_MODEL') ?: self::DEFAULT_EMBEDDING_MODEL,
         ];
     }
@@ -45,6 +47,14 @@ class ModelRoleResolver
             $defaults['sub_model']
         );
 
+        $sqlModel = self::normalizeModel(
+            $overrides['sql_model']
+                ?? $session['sql_model']
+                ?? $subModel
+                ?? $defaults['sql_model'],
+            $defaults['sql_model']
+        );
+
         $embeddingModel = self::normalizeModel(
             $overrides['embedding_model']
                 ?? $session['embedding_model']
@@ -58,6 +68,7 @@ class ModelRoleResolver
             'main_model' => $mainModel,
             'default_model' => $mainModel,
             'sub_model' => $subModel,
+            'sql_model' => $sqlModel,
             'embedding_model' => $embeddingModel,
             'worker_model' => $subModel,
             'integration_model' => $mainModel,
@@ -71,6 +82,7 @@ class ModelRoleResolver
         // 既存ルートは reasoning/synthesis 名を前提にしているため、段階移行中は互換エイリアスを維持する。
         $settings['reasoning_model'] = $settings['main_model'];
         $settings['synthesis_model'] = $settings['sub_model'];
+        $settings['sql_model'] = $settings['sql_model'] ?? $settings['sub_model'];
 
         return $settings;
     }

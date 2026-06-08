@@ -40,25 +40,41 @@ $modelDefaults = ModelRoleResolver::defaults();
 // 4. データの受け取りと正規化
 $prompt = $input['default_prompt'] ?? 'construction_consultant';
 $lang   = $input['default_lang'] ?? 'ja';
-$model  = trim($input['default_model'] ?? $modelDefaults['main_model']);
-$sub_model = trim($input['sub_model'] ?? $modelDefaults['sub_model']);
-$embedding_model = trim($input['embedding_model'] ?? $modelDefaults['embedding_model']);
+$modelInputs = [
+    'default_model' => [
+        'label' => 'メイン使用モデル',
+        'value' => trim($input['default_model'] ?? $modelDefaults['main_model']),
+    ],
+    'sub_model' => [
+        'label' => 'サブモデル',
+        'value' => trim($input['sub_model'] ?? $modelDefaults['sub_model']),
+    ],
+    'sql_model' => [
+        'label' => 'SQLモデル',
+        'value' => trim($input['sql_model'] ?? $input['sub_model'] ?? $modelDefaults['sql_model']),
+    ],
+    'embedding_model' => [
+        'label' => 'Embeddingモデル',
+        'value' => trim($input['embedding_model'] ?? $modelDefaults['embedding_model']),
+    ],
+];
+$model = $modelInputs['default_model']['value'];
+$sub_model = $modelInputs['sub_model']['value'];
+$sql_model = $modelInputs['sql_model']['value'];
+$embedding_model = $modelInputs['embedding_model']['value'];
 // URLの末尾の「/」を取り除く
 $ollama_host = rtrim(trim($input['ollama_host'] ?? 'http://127.0.0.1:11434'), '/');
 $hasEmbeddingModelColumn = UserSettingsSchema::hasEmbeddingModelColumn($pdo);
+$hasSqlModelColumn = UserSettingsSchema::hasSqlModelColumn($pdo);
 
 $missingRequiredFields = [];
 if ($ollama_host === '') {
     $missingRequiredFields[] = 'Ollama 接続先 URL';
 }
-if ($model === '') {
-    $missingRequiredFields[] = 'メイン使用モデル';
-}
-if ($sub_model === '') {
-    $missingRequiredFields[] = 'サブモデル';
-}
-if ($embedding_model === '') {
-    $missingRequiredFields[] = 'Embeddingモデル';
+foreach ($modelInputs as $field) {
+    if ($field['value'] === '') {
+        $missingRequiredFields[] = $field['label'];
+    }
 }
 
 if (!empty($missingRequiredFields)) {
@@ -90,13 +106,10 @@ if (empty($availableModels)) {
     exit;
 }
 
-$requestedModels = [
-    'メイン使用モデル' => $model,
-    'サブモデル' => $sub_model,
-    'Embeddingモデル' => $embedding_model,
-];
 $missingModels = [];
-foreach ($requestedModels as $label => $requestedModel) {
+foreach ($modelInputs as $field) {
+    $label = $field['label'];
+    $requestedModel = $field['value'];
     if ($requestedModel !== '' && OllamaModelCatalog::resolveRequestedModel($requestedModel, $availableModels) === null) {
         $missingModels[] = "{$label}: {$requestedModel}";
     }
@@ -114,6 +127,7 @@ if (!empty($missingModels)) {
 
 $model = OllamaModelCatalog::resolveRequestedModel($model, $availableModels) ?? $model;
 $sub_model = OllamaModelCatalog::resolveRequestedModel($sub_model, $availableModels) ?? $sub_model;
+$sql_model = OllamaModelCatalog::resolveRequestedModel($sql_model, $availableModels) ?? $sql_model;
 $embedding_model = OllamaModelCatalog::resolveRequestedModel($embedding_model, $availableModels) ?? $embedding_model;
 
 try {
@@ -126,6 +140,11 @@ try {
             sub_model = ?,
             ollama_host = ?, ";
     $params = [$prompt, $lang, $model, $sub_model, $ollama_host];
+    if ($hasSqlModelColumn) {
+        $sql .= "
+            sql_model = ?, ";
+        $params[] = $sql_model;
+    }
     if ($hasEmbeddingModelColumn) {
         $sql .= "
             embedding_model = ?, ";
@@ -144,11 +163,13 @@ try {
     $_SESSION['default_lang']   = $lang;
     $_SESSION['default_model']  = $model;
     $_SESSION['sub_model']      = $sub_model;
+    $_SESSION['sql_model']      = $sql_model;
     $_SESSION['embedding_model'] = $embedding_model;
     $_SESSION['ollama_host']    = $ollama_host;
 
     echo json_encode([
         'success' => true,
+        'sql_model_persisted' => $hasSqlModelColumn,
         'embedding_model_persisted' => $hasEmbeddingModelColumn,
         'validated_model_count' => count($availableModels)
     ]);

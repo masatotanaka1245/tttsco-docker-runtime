@@ -214,6 +214,10 @@ async function loadCsvData(csvFileId, fileName) {
         if (data && data.success) {
             const headers = data.headers;
             const rows = data.rows;
+            const totalRowCount = Number(data.total_row_count || rows.length || 0);
+            const displayedRowCount = Number(data.displayed_row_count || rows.length || 0);
+            const previewLimit = Number(data.preview_limit || displayedRowCount || 0);
+            const isPreviewLimited = Boolean(data.preview_limited);
 
             if (headers.length === 0) {
                 container.innerHTML = `<p class="text-xs text-gray-400 text-center py-10 bg-white border rounded-xl italic">表示可能なカラムがありませんでした。</p>`;
@@ -223,7 +227,10 @@ async function loadCsvData(csvFileId, fileName) {
             let tableHtml = `
                 <div class="bg-white border rounded-xl shadow-sm overflow-hidden animate-fadeIn flex flex-col">
                     <div class="bg-teal-50/50 px-4 py-2 border-b flex justify-between items-center text-xs flex-shrink-0">
-                        <span class="font-bold text-[#00758F]">📄 ${escapeHTML(fileName)} (${rows.length}行の構造化データ)</span>
+                        <div class="flex flex-col gap-0.5">
+                            <span class="font-bold text-[#00758F]">📄 ${escapeHTML(fileName)} (${displayedRowCount} / ${totalRowCount} 行を表示)</span>
+                            ${isPreviewLimited ? `<span class="text-[10px] text-slate-500 font-medium">プレビューは先頭 ${previewLimit} レコードまで表示しています。</span>` : ''}
+                        </div>
                         <button onclick="handleDeleteCsv(${csvFileId})" class="text-red-500 hover:text-red-700 font-bold hover:underline">🗑️ CSVを全削除</button>
                     </div>
                     <div class="overflow-x-auto overflow-y-auto max-h-[calc(100vh-290px)] md:max-h-[calc(100vh-250px)] custom-scrollbar">
@@ -237,8 +244,8 @@ async function loadCsvData(csvFileId, fileName) {
                             <tbody class="divide-y divide-slate-100 font-mono">
                                 ${rows.map((row, idx) => `
                                     <tr class="hover:bg-slate-100/70 odd:bg-slate-50/40 transition-colors">
-                                        <td class="p-2 border-r text-center text-slate-400 bg-slate-50/50 sticky left-0 z-10 shadow-[1px_0_0_0_#e2e8f0]">${idx + 1}</td>
-                                        ${headers.map(h => `<td class="p-2 border-r text-slate-700 whitespace-nowrap">${escapeHTML(row[h] !== null && row[h] !== undefined ? String(row[h]) : '')}</td>`).join('')}
+                                        <td class="p-2 border-r text-center text-slate-400 bg-slate-50/50 sticky left-0 z-10 shadow-[1px_0_0_0_#e2e8f0]">${Number(row.__row_index || idx + 1)}</td>
+                                        ${headers.map(h => `<td class="p-2 border-r text-slate-700 whitespace-nowrap">${escapeHTML(row.__row_data && row.__row_data[h] !== null && row.__row_data[h] !== undefined ? String(row.__row_data[h]) : '')}</td>`).join('')}
                                     </tr>
                                 `).join('')}
                             </tbody>

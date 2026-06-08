@@ -34,6 +34,8 @@ ob_end_clean();
 
 header('Content-Type: application/json; charset=utf-8');
 
+const CSV_PREVIEW_LIMIT = 50;
+
 // 2. パラメータ取得と型バリデーション
 $csv_file_id = filter_input(INPUT_GET, 'csv_file_id', FILTER_VALIDATE_INT);
 if (!$csv_file_id) {
@@ -44,7 +46,7 @@ if (!$csv_file_id) {
 
 try {
     // 3. メタ情報（ヘッダーとファイル名、および所属プロジェクトID）の取得
-    $stmtFile = $pdo->prepare("SELECT project_id, file_name, column_headers FROM project_csv_files WHERE id = ?");
+    $stmtFile = $pdo->prepare("SELECT project_id, file_name, column_headers, row_count FROM project_csv_files WHERE id = ?");
     $stmtFile->execute([$csv_file_id]);
     $csvFile = $stmtFile->fetch(PDO::FETCH_ASSOC);
 
@@ -72,23 +74,37 @@ try {
         }
     }
 
-    // 5. 格納されているすべての行データの取得（インデックス順）
-    $stmtRows = $pdo->prepare("SELECT row_data FROM project_csv_rows WHERE csv_file_id = ? ORDER BY row_index ASC");
+    // 5. プレビュー用に先頭50件だけ取得（表示負荷の抑制）
+    $stmtRows = $pdo->prepare("SELECT row_index, row_data FROM project_csv_rows WHERE csv_file_id = ? ORDER BY row_index ASC LIMIT " . CSV_PREVIEW_LIMIT);
     $stmtRows->execute([$csv_file_id]);
     $rows = $stmtRows->fetchAll(PDO::FETCH_ASSOC);
 
     // JSONレコードから復元配列へのパース
     $parsed_rows = [];
     foreach ($rows as $r) {
-        $parsed_rows[] = json_decode($r['row_data'], true);
+        $rowData = json_decode($r['row_data'], true);
+        if (!is_array($rowData)) {
+            $rowData = [];
+        }
+        $parsed_rows[] = [
+            '__row_index' => (int)($r['row_index'] ?? 0),
+            '__row_data' => $rowData,
+        ];
     }
+
+    $totalRowCount = (int)($csvFile['row_count'] ?? count($parsed_rows));
+    $displayedRowCount = count($parsed_rows);
 
     // 6. 正常レスポンスの出力（日本語のエスケープ化防止 ＆ 破損パケットの救済対応）
     echo json_encode([
         'success'   => true,
         'file_name' => $csvFile['file_name'],
         'headers'   => json_decode($csvFile['column_headers'], true),
-        'rows'      => $parsed_rows
+        'rows'      => $parsed_rows,
+        'preview_limit' => CSV_PREVIEW_LIMIT,
+        'displayed_row_count' => $displayedRowCount,
+        'total_row_count' => $totalRowCount,
+        'preview_limited' => $totalRowCount > $displayedRowCount
     ], JSON_UNESCAPED_UNICODE | JSON_PARTIAL_OUTPUT_ON_ERROR);
 
 } catch (Exception $e) {

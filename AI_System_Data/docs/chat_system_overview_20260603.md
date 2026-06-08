@@ -22,7 +22,7 @@
 
 ### 2026-06-04
 
-- 第1優先は、`main / sub / embedding` の 3 層でモデル責務を再設計することです。
+- 第1優先は、`main / sub / sql / embedding` の 4 層でモデル責務を再設計することです。
 - 目標は以下の整理です。
   - `main`: 因数分解、最終統合、最終リライト
   - `sub`: SQL生成、補助分析、分類、画像処理などの中間処理
@@ -79,11 +79,13 @@
 - `chat.php` では `ModelRoleResolver` が
   - `main_model`
   - `sub_model`
+  - `sql_model`
   - `embedding_model`
   を解決する
 - そのうえで、既存 route 互換のために当面は
   - `reasoning_model = main_model`
   - `synthesis_model = sub_model`
+  - `sql_generation_model = sql_model`
   のエイリアスを維持している
 - `normal_rag` は main only
 - `data_analysis` は deterministic な集計を main 側の PHP/SQL で維持しつつ、AI を使う補助処理から段階的に `sub` へ寄せ始めている
@@ -96,7 +98,7 @@
   - `sub`: ReAct ループと中間調査
   へ寄せ始めている
 - embedding は設定画面に入力欄を追加し始めており、チャット入口・通常RAG・アップロード系では resolver 経由の設定へ寄せ始めている
-- 設定保存時は `Ollama /api/tags` を確認し、`main / sub / embedding` のモデル名が実在しない場合は保存しない
+- 設定保存時は `Ollama /api/tags` を確認し、`main / sub / sql / embedding` のモデル名が実在しない場合は保存しない
 - `data_analysis` は次段で以下のように分ける
   - `main`: 因数分解、最終統合、品質評価、最終リライト
   - `sub`: SQL生成と再生成、CSV証拠読解のバッチ分析、semantic 系の補助推定
@@ -112,9 +114,9 @@
   に分離した
 - `CsvSemanticAggregationRunner` は semantic/category 系の補助推定を `sub` で実行し、プリフライトと実行ログにも補助推定モデルを出す
 - `history_summary` / `normal_rag` / `advanced_hybrid` / `global` / `data_analysis` の `result` payload には `model_roles` を含め、最終回答が `main` で着地したことを後から確認できるようにした
-- `ChatRouteDispatcher` は route 決定時に `[MODEL-ROLES]` ログを出し、入口段階でも `main / sub / embedding` の実効値を追えるようにした
+- `ChatRouteDispatcher` は route 決定時に `[MODEL-ROLES]` ログを出し、入口段階でも `main / sub / sql / embedding` の実効値を追えるようにした
 
-次段の改修では、この状態を `data_analysis` とモデル存在チェックまで含めて `main / sub / embedding` の責務分担に揃える。
+次段の改修では、この状態を `data_analysis` とモデル存在チェックまで含めて `main / sub / sql / embedding` の責務分担に揃える。
 
 ## 3. 入力ガード
 

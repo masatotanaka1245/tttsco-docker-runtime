@@ -29,12 +29,13 @@ class ChatRouteDispatcher
 
         $mainModel = (string)($context['main_model'] ?? $context['reasoning_model'] ?? ModelRoleResolver::DEFAULT_MAIN_MODEL);
         $subModel = (string)($context['sub_model'] ?? $context['synthesis_model'] ?? ModelRoleResolver::DEFAULT_SUB_MODEL);
+        $sqlModel = (string)($context['sql_model'] ?? $subModel ?? ModelRoleResolver::DEFAULT_SQL_MODEL);
         $embeddingModel = (string)($context['embedding_model'] ?? ModelRoleResolver::DEFAULT_EMBEDDING_MODEL);
 
         if ($isHistorySummaryMode) {
             $routeName = 'history_summary';
             $this->logFinalRouteDecision($routeName, $routeDetail);
-            $this->logModelRoles($routeName, $mainModel, $subModel, $embeddingModel);
+            $this->logModelRoles($routeName, $mainModel, $subModel, $sqlModel, $embeddingModel);
             require_once $this->apiBasePath . '/chat_history_summary.php';
             runHistorySummaryRoute(
                 $context['pdo'],
@@ -56,7 +57,7 @@ class ChatRouteDispatcher
             $routeName = 'global_cross';
             $this->log("[SMART-ROUTER] 明示的な全社横断キーワードを検出。強制的に「グローバル調査エージェント(ReAct)」をキックします。");
             $this->logFinalRouteDecision($routeName, $routeDetail);
-            $this->logModelRoles($routeName, $mainModel, $subModel, $embeddingModel);
+            $this->logModelRoles($routeName, $mainModel, $subModel, $sqlModel, $embeddingModel);
             require_once $this->apiBasePath . '/chat_global.php';
             runGlobalChatRoute(
                 $context['pdo'],
@@ -64,6 +65,7 @@ class ChatRouteDispatcher
                 $message,
                 $mainModel,
                 $subModel,
+                $sqlModel,
                 $embeddingModel,
                 $context['prompt_key'],
                 $context['user_id'],
@@ -76,7 +78,7 @@ class ChatRouteDispatcher
         if ($projectId === null) {
             $routeName = 'global_no_project';
             $this->logFinalRouteDecision($routeName, $routeDetail);
-            $this->logModelRoles($routeName, $mainModel, $subModel, $embeddingModel);
+            $this->logModelRoles($routeName, $mainModel, $subModel, $sqlModel, $embeddingModel);
             require_once $this->apiBasePath . '/chat_global.php';
             runGlobalChatRoute(
                 $context['pdo'],
@@ -84,6 +86,7 @@ class ChatRouteDispatcher
                 $message,
                 $mainModel,
                 $subModel,
+                $sqlModel,
                 $embeddingModel,
                 $context['prompt_key'],
                 $context['user_id'],
@@ -96,7 +99,7 @@ class ChatRouteDispatcher
         if ($isAnalysisMode && !$advancedReasoning) {
             $routeName = 'data_analysis';
             $this->logFinalRouteDecision($routeName, $routeDetail);
-            $this->logModelRoles($routeName, $mainModel, $subModel, $embeddingModel);
+            $this->logModelRoles($routeName, $mainModel, $subModel, $sqlModel, $embeddingModel);
             require_once $this->apiBasePath . '/chat_analysis.php';
             runAdvancedReasoningRoute(
                 $context['pdo'],
@@ -105,6 +108,7 @@ class ChatRouteDispatcher
                 $message,
                 $mainModel,
                 $subModel,
+                $sqlModel,
                 $embeddingModel,
                 $context['prompt_key'],
                 $context['project_context'],
@@ -121,7 +125,7 @@ class ChatRouteDispatcher
         if ($advancedReasoning) {
             $routeName = 'advanced_hybrid';
             $this->logFinalRouteDecision($routeName, $routeDetail);
-            $this->logModelRoles($routeName, $mainModel, $subModel, $embeddingModel);
+            $this->logModelRoles($routeName, $mainModel, $subModel, $sqlModel, $embeddingModel);
             require_once $this->apiBasePath . '/chat_advanced.php';
             runAdvancedReasoningRoute(
                 $context['pdo'],
@@ -132,6 +136,7 @@ class ChatRouteDispatcher
                 $context['reasoning_id'],
                 $mainModel,
                 $subModel,
+                $sqlModel,
                 $embeddingModel,
                 $context['prompt_key'],
                 $context['project_context'],
@@ -147,7 +152,7 @@ class ChatRouteDispatcher
 
         $routeName = 'normal_rag';
         $this->logFinalRouteDecision($routeName, $routeDetail);
-        $this->logModelRoles($routeName, $mainModel, $subModel, $embeddingModel);
+        $this->logModelRoles($routeName, $mainModel, $subModel, $sqlModel, $embeddingModel);
         require_once $this->apiBasePath . '/chat_normal.php';
 
         $engine = new EmbeddingEngine($context['ollama_host'], $embeddingModel);
@@ -185,9 +190,9 @@ class ChatRouteDispatcher
         }
     }
 
-    private function logModelRoles(string $routeName, string $mainModel, string $subModel, string $embeddingModel): void
+    private function logModelRoles(string $routeName, string $mainModel, string $subModel, string $sqlModel, string $embeddingModel): void
     {
-        $this->log("[MODEL-ROLES] route={$routeName} | main_model={$mainModel} | sub_model={$subModel} | embedding_model={$embeddingModel}");
+        $this->log("[MODEL-ROLES] route={$routeName} | main_model={$mainModel} | sub_model={$subModel} | sql_model={$sqlModel} | embedding_model={$embeddingModel}");
     }
 
     private function logFinalRouteDecision(string $routeName, string $routeDetail = ''): void

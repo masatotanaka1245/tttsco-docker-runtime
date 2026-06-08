@@ -91,14 +91,16 @@ Tailwind CSS	3.x
 
 - 現在の `default_model` は、通常チャット・分析・フル思考の分析側で広く使われている
 - 現在の `sub_model` は、`advanced_hybrid` / `global` / `data_analysis` の中間処理へ寄せ始めている
+- 現在の `sql_model` は、`data_analysis` / `advanced_hybrid` / `global` の Text-to-SQL や SQL 自己修復へ優先適用している
 - `embedding model` は UI 入力欄を追加し始めているが、DB 列が未反映の環境ではセッション上の暫定設定として扱う
 - 2026-06-04 の時点で、既定値と実効値の解決は `ModelRoleResolver` に寄せ始めており、チャット入口・通常RAG・アップロード系では固定 embedding model の撤去を開始している
 - 2026-06-04 の時点で、`advanced_hybrid` と `global` は `main / sub` の受け渡しを route 内へ反映し始めており、`main` は因数分解と最終統合、`sub` は中間処理を担う形へ寄せている
-- 2026-06-04 の時点で、`save_user_settings.php` は `Ollama /api/tags` を使って `main / sub / embedding` のモデル名存在チェックを行い、未取得モデルの保存を防ぐ
+- 2026-06-04 の時点で、`save_user_settings.php` は `Ollama /api/tags` を使って `main / sub / sql / embedding` のモデル名存在チェックを行い、未取得モデルの保存を防ぐ
 - 保存時のモデル検証では、`mxbai-embed-large` と `mxbai-embed-large:latest` のような tag 差を吸収し、Ollama 側の実在名へ正規化して保存する
 - 2026-06-04 の時点で、`data_analysis` も第一段として `sub_model` を受け取り始めており、CSV証拠読解、semantic 系、Text-to-SQL 生成と再生成から順に `sub` へ寄せている
-- 2026-06-05 の時点で、`history_summary / normal_rag / data_analysis / advanced_hybrid / global` の `result` payload には共通 shape の `model_roles` が入り、`main_model` / `sub_model` / `embedding_model` / `applied_role` を後から確認できる
-- 2026-06-04 の時点で、`ChatRouteDispatcher` も `[MODEL-ROLES]` ログを出し、route 決定直後の `main / sub / embedding` を追える
+- 2026-06-08 の時点で、SQL専用に `sql_model` を追加し、`data_analysis` / `advanced_hybrid` / `global` の SQL 生成と SQL 自己修復を main/sub から分離した
+- 2026-06-05 の時点で、`history_summary / normal_rag / data_analysis / advanced_hybrid / global` の `result` payload には共通 shape の `model_roles` が入り、`main_model` / `sub_model` / `sql_model` / `embedding_model` / `applied_role` を後から確認できる
+- 2026-06-04 の時点で、`ChatRouteDispatcher` も `[MODEL-ROLES]` ログを出し、route 決定直後の `main / sub / sql / embedding` を追える
 - 2026-06-04 の時点で、`callOllamaChat()` は `[OLLAMA-PAYLOAD]` と `[OLLAMA-THINK]` ログを出し、Gemma 系モデルで `<|think|>` を自動付与したか、応答に思考トレースが含まれたかを追える
 - `diagram_mode=on` の小規模CSV概要は、`CSV-SUMMARY` の軽量ルートでも deterministic に `json:chart` を返す
 - `登録済みCSVの概要` のような広域要約は、直前履歴の `recent_history` だけで `CSV-AGG` に誤進入しないよう抑制する
@@ -114,7 +116,7 @@ Tailwind CSS	3.x
 - `これまでの会話内容を簡潔にまとめてください` でも、`report_mode=on` なら軽量 `history_summary` より報告書化フローを優先する
 - `これまでの会話内容を簡潔にまとめて報告書を作成してください` は、当然 `report_mode=on` なら報告書化フローへ進む
 - `data_analysis` の第二段として、残る AI 補助工程があれば `main` / `sub` の責務境界を再点検する
-- `embedding_model` 列を本番DBへ反映した環境で、セッション暫定設定から永続設定へ移行できるか確認する
+- `sql_model` / `embedding_model` 列を本番DBへ反映した環境で、セッション暫定設定から永続設定へ移行できるか確認する
 
 ### モデル責務の確認観点
 
@@ -123,6 +125,7 @@ Tailwind CSS	3.x
 - `main_model`
   - その route で最終回答品質を担う設定モデル
 - `sub_model`
+- `sql_model`
   - 中間処理用の設定モデル
   - 軽量 route (`history_summary` / `normal_rag`) でも、未使用なら `applied_role` とは切り離して configured value を返す
 - `embedding_model`
@@ -135,9 +138,11 @@ Tailwind CSS	3.x
   - DB要約のみで返る
   - `result.model_roles.applied_role = main`
   - `result.model_roles.sub_model` は configured value を保持していてよい
+  - `result.model_roles.sql_model` は configured value を保持していてよい
 - `normal_rag`
   - 最終回答は `main` で着地する
   - `result.model_roles.sub_model` は configured value を保持していてよい
+  - `result.model_roles.sql_model` は configured value を保持していてよい
 - `data_analysis`
   - 因数分解・最終統合・評価は `main`
   - SQL生成、CSV証拠読解のバッチ分析、semantic 補助推定は `sub`
@@ -173,7 +178,7 @@ Tailwind CSS	3.x
 主な現行機能
 
 機能	内容	主要ファイル
-ログイン・ユーザー管理	`users` テーブルの `password_hash` による認証、admin/user権限、部署、既定プロンプト・言語・モデル・Ollama接続先の保存	public/login.php, public/user_management.php, public/api/save_user_settings.php
+ログイン・ユーザー管理	`users` テーブルの `password_hash` による認証、admin/user権限、部署、既定プロンプト・言語・モデル・SQLモデル・Ollama接続先の保存	public/login.php, public/user_management.php, public/api/save_user_settings.php
 案件管理	案件の作成、編集、削除、住所・座標・期間・ステータス管理。一般ユーザーは作成案件または参加案件のみ参照可能	public/support.php, public/api/add_project.php, public/api/update_project.php, src/ProjectAccess.php
 案件メンバー管理	案件ごとに manager/member/viewer を割り当て、操作権限を制御	public/api/add_project_member.php, public/api/remove_project_member.php
 PDF登録・RAG化	PDFを案件配下に保存し、テキスト抽出、必要に応じた画像/VLM解析、チャンク化、Embedding生成、`doc_chunks` 登録を実行	public/api/upload.php, src/EmbeddingEngine.php
@@ -826,4 +831,5 @@ users	9	default_lang	varchar(10)	YES		ja	表示言語設定
 users	10	default_model	varchar(50)	YES		gpt-oss:20b	優先使用モデル
 users	11	ollama_host	varchar(255)	YES		http://tsc25dtp116:11434	Ollama接続先URL
 users	12	sub_model	varchar(100)	YES		gpt-oss:20b	中間処理・補助分析用サブモデル
-users	13	embedding_model	varchar(100)	YES		mxbai-embed-large	ベクトル化専用モデル
+users	13	sql_model	varchar(100)	YES		gpt-oss:20b	Text-to-SQL・SQL自己修復用モデル
+users	14	embedding_model	varchar(100)	YES		mxbai-embed-large	ベクトル化専用モデル

@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS users (
     default_model VARCHAR(50) DEFAULT 'gpt-oss:20b' COMMENT '優先使用モデル',
     ollama_host VARCHAR(255) DEFAULT 'http://127.0.0.1:11434' COMMENT 'Ollama接続先URL',
     sub_model VARCHAR(100) DEFAULT 'gpt-oss:20b' COMMENT '中間処理・補助分析用サブモデル',
+    sql_model VARCHAR(100) DEFAULT 'gpt-oss:20b' COMMENT 'Text-to-SQL・SQL自己修復用モデル',
     embedding_model VARCHAR(100) DEFAULT 'mxbai-embed-large' COMMENT 'ベクトル化専用モデル'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='ユーザー認証・所属管理';
 

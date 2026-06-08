@@ -28,9 +28,9 @@ if (!function_exists('chatLogger')) {
 /**
  * 外部からのエントリーポイント（セキュリティ・DIマウント対応版・Freeze Protocol）
  */
-function runGlobalChatRoute($pdo, $ollama_host, $originalMessage, $mainModel, $subModel, $embeddingModel, $promptKey, $user_id, $role, string $routeName = 'global_no_project') {
+function runGlobalChatRoute($pdo, $ollama_host, $originalMessage, $mainModel, $subModel, $sqlModel, $embeddingModel, $promptKey, $user_id, $role, string $routeName = 'global_no_project') {
     $processor = new GlobalChatRouteProcessor(
-        $pdo, $ollama_host, $originalMessage, $mainModel, $subModel, $embeddingModel, $promptKey, $user_id, $role, $routeName
+        $pdo, $ollama_host, $originalMessage, $mainModel, $subModel, $sqlModel, $embeddingModel, $promptKey, $user_id, $role, $routeName
     );
     $processor->execute();
 }
@@ -45,6 +45,7 @@ class GlobalChatRouteProcessor {
     private $originalMessage;
     private $mainModel;
     private $subModel;
+    private $sqlModel;
     private $embeddingModel;
     private $reasoningModel;
     private $synthesisModel;
@@ -82,14 +83,15 @@ class GlobalChatRouteProcessor {
     /**
      * コンストラクタ (完全DI化への整流)
      */
-    public function __construct($pdo, $ollama_host, $originalMessage, $mainModel, $subModel, $embeddingModel, $promptKey, $user_id, $role, string $routeName = 'global_no_project') {
+    public function __construct($pdo, $ollama_host, $originalMessage, $mainModel, $subModel, $sqlModel, $embeddingModel, $promptKey, $user_id, $role, string $routeName = 'global_no_project') {
         $this->pdo             = $pdo;
         $this->ollama_host     = $ollama_host;
         $this->originalMessage = $originalMessage;
         $this->mainModel       = $mainModel;
         $this->subModel        = $subModel;
+        $this->sqlModel        = $sqlModel;
         $this->embeddingModel  = $embeddingModel;
-        $this->reasoningModel  = $subModel;
+        $this->reasoningModel  = $sqlModel;
         $this->synthesisModel  = $mainModel;
         $this->promptKey       = $promptKey;
         $this->user_id         = $user_id;
@@ -102,7 +104,7 @@ class GlobalChatRouteProcessor {
      */
     public function execute(): void {
         chatLogger(">>> [グローバルルート] 完全自律型 ReAct エージェントを起動します");
-        chatLogger("[DEBUG] 引数情報 - Host: {$this->ollama_host} | MainModel: {$this->mainModel} | SubModel: {$this->subModel} | UserID: {$this->user_id} | Role: {$this->role}");
+        chatLogger("[DEBUG] 引数情報 - Host: {$this->ollama_host} | MainModel: {$this->mainModel} | SubModel: {$this->subModel} | SqlModel: {$this->sqlModel} | UserID: {$this->user_id} | Role: {$this->role}");
 
         // 一般ユーザーによる全社情報の盗用のぞき見（BOLA脆弱性）を完全に遮断する絶対防御壁
         if ($this->role !== 'admin') {
@@ -116,7 +118,7 @@ class GlobalChatRouteProcessor {
                 'detected_page'   => null,
                 'hit_count'       => 0,
                 'applied_model'   => $this->synthesisModel,
-                'model_roles'     => ChatModelRolePayload::build($this->mainModel, $this->subModel, $this->embeddingModel, 'main'),
+                'model_roles'     => ChatModelRolePayload::build($this->mainModel, $this->subModel, $this->embeddingModel, 'main', $this->sqlModel),
                 'created_at'      => date('Y/m/d H:i')
             ]);
             return;
@@ -602,7 +604,7 @@ class GlobalChatRouteProcessor {
             'detected_page'   => null,
             'hit_count'       => 0,
             'applied_model'   => $this->synthesisModel,
-            'model_roles'     => ChatModelRolePayload::build($this->mainModel, $this->subModel, $this->embeddingModel, 'main'),
+            'model_roles'     => ChatModelRolePayload::build($this->mainModel, $this->subModel, $this->embeddingModel, 'main', $this->sqlModel),
             'created_at'      => date('Y/m/d H:i')
         ]);
         chatLogger("=== グローバルルート (ReActループ) 処理完了 ===");
@@ -636,7 +638,7 @@ class GlobalChatRouteProcessor {
              . "- `project_faqs` (ナレッジ): id, project_id, question_summary, answer_summary, created_at\n"
              . "- `chat_history` (チャット履歴): id, project_id, user_id, role, message, created_at\n"
              . "- `project_members` (アサイン管理): id, project_id, user_id, role, assigned_at\n"
-             . "- `users` (ユーザー設定情報): id, username, department, role, default_prompt, default_lang, default_model, sub_model, embedding_model, ollama_host, created_at, updated_at\n\n"
+             . "- `users` (ユーザー設定情報): id, username, department, role, default_prompt, default_lang, default_model, sub_model, sql_model, embedding_model, ollama_host, created_at, updated_at\n\n"
              . "【リレーションの基本ルール】\n"
              . "各テーブルは `projects.id` に対して `project_id` を外部キーとして持っています。`doc_chunks` は `documents.id` に紐づきます。";
     }

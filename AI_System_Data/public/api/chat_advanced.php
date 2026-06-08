@@ -49,10 +49,10 @@ if (!function_exists('chatLogger')) {
 /**
  * 外部からのエントリーポイント（他ファイルと一元規格統一のため、最後尾に $role を追記した13引数拡張版・Freeze Protocol）
  */
-function runAdvancedReasoningRoute($pdo, $ollama_host, $projectId, $originalMessage, $searchQuery, $reasoningId, $mainModel, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false) {
+function runAdvancedReasoningRoute($pdo, $ollama_host, $projectId, $originalMessage, $searchQuery, $reasoningId, $mainModel, $subModel, $sqlModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false) {
     $processor = new AdvancedReasoningRouteProcessor(
         $pdo, $ollama_host, $projectId, $originalMessage, $searchQuery,
-        $reasoningId, $mainModel, $subModel, $embeddingModel, $promptKey,
+        $reasoningId, $mainModel, $subModel, $sqlModel, $embeddingModel, $promptKey,
         $projectContext, $historySummaryText, $user_id, $role, $threadId, $reportMode, $diagramMode
     );
     $processor->execute();
@@ -72,6 +72,7 @@ class AdvancedReasoningRouteProcessor {
     private $reasoningId;
     private $mainModel;
     private $subModel;
+    private $sqlModel;
     private $embeddingModel;
     private $reasoningModel;
     private $synthesisModel;
@@ -105,7 +106,7 @@ class AdvancedReasoningRouteProcessor {
     public $lastLoggedLen = 0;
     public $ollamaErrorMsg = "";
 
-    public function __construct($pdo, $ollama_host, $projectId, $originalMessage, $searchQuery, $reasoningId, $mainModel, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false) {
+    public function __construct($pdo, $ollama_host, $projectId, $originalMessage, $searchQuery, $reasoningId, $mainModel, $subModel, $sqlModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false) {
         $this->pdo = $pdo;
         $this->ollama_host = $ollama_host;
         $this->projectId = (int)$projectId;
@@ -114,6 +115,7 @@ class AdvancedReasoningRouteProcessor {
         $this->reasoningId = (string)$reasoningId;
         $this->mainModel = (string)$mainModel;
         $this->subModel = (string)$subModel;
+        $this->sqlModel = (string)$sqlModel;
         $this->embeddingModel = (string)$embeddingModel;
         $this->reasoningModel = $this->subModel;
         $this->synthesisModel = $this->mainModel;
@@ -199,6 +201,7 @@ class AdvancedReasoningRouteProcessor {
             $this->projectId,
             $this->ollama_host,
             $this->reasoningModel,
+            $this->sqlModel,
             $this->searchQuery,
             $this->originalMessage,
             $this->reasoningId,
@@ -363,7 +366,7 @@ class AdvancedReasoningRouteProcessor {
         'project_csv_files' => "テーブル名: project_csv_files\n物理カラム:\n- id (INT, PK)\n- project_id (INT)\n- file_name (VARCHAR: CSV名)\n- column_headers (TEXT: JSON型ヘッダー名一覧)\n- row_count (INT)\n- created_at (DATETIME)",
         'project_csv_rows' => "テーブル名: project_csv_rows\n物理カラム:\n- id (INT, PK)\n- csv_file_id (INT)\n- row_index (INT: 行番号)\n- row_data (JSON: CSVの行データが入ったオブジェクト。値の抽出時は JSON_UNQUOTE(JSON_EXTRACT(row_data, '$.\"カラム名\"')) を使用してください)\n- created_at (DATETIME)\n★注意: このテーブルには row_count カラムはありません。行数は COUNT(id) で集計してください。",
         'project_faqs' => "テーブル名: project_faqs\n物理カラム:\n- id (INT, PK)\n- project_id (INT)\n- chat_history_id (INT: チャット履歴への参照外部キー)\n- question_summary (TEXT: 質問 of 要約・概要)\n- answer_summary (TEXT: 回答 of 要約・概要)\n- created_by (INT: 作成者ユーザーID)\n- created_at (DATETIME)",
-        'users' => "テーブル名: users\n物理カラム:\n- id (INT, PK)\n- username (VARCHAR: ユーザー名)\n- department (VARCHAR: 所属部署)\n- role (VARCHAR: 権限。'admin' または 'member')\n- default_prompt (TEXT)\n- default_lang (VARCHAR)\n- default_model (VARCHAR)\n- sub_model (VARCHAR)\n- embedding_model (VARCHAR)\n- ollama_host (VARCHAR)\n- created_at (DATETIME)\n- updated_at (DATETIME)"
+        'users' => "テーブル名: users\n物理カラム:\n- id (INT, PK)\n- username (VARCHAR: ユーザー名)\n- department (VARCHAR: 所属部署)\n- role (VARCHAR: 権限。'admin' または 'member')\n- default_prompt (TEXT)\n- default_lang (VARCHAR)\n- default_model (VARCHAR)\n- sub_model (VARCHAR)\n- sql_model (VARCHAR: Text-to-SQL / SQL自己修復用モデル)\n- embedding_model (VARCHAR)\n- ollama_host (VARCHAR)\n- created_at (DATETIME)\n- updated_at (DATETIME)"
     ];
 
     /**
@@ -374,7 +377,7 @@ class AdvancedReasoningRouteProcessor {
         $this->model = $this->reasoningModel; // ステートバインド同期維持
 
         chatLogger(">>> [MoAハイブリッド多重推論要塞] 統合ハブコントローラーを起動します");
-        chatLogger("[DEBUG] 引数情報 - Host: {$this->ollama_host} | MainModel: {$this->mainModel} | SubModel: {$this->subModel} | UserID: {$this->user_id} | Role: {$this->role}");
+        chatLogger("[DEBUG] 引数情報 - Host: {$this->ollama_host} | MainModel: {$this->mainModel} | SubModel: {$this->subModel} | SqlModel: {$this->sqlModel} | UserID: {$this->user_id} | Role: {$this->role}");
 
         // 0. BOLA脆弱性防止・アサイン権限チェック（最下部 of 実体を安全にキック）
         $phaseStart = microtime(true);
@@ -1521,7 +1524,7 @@ class AdvancedReasoningRouteProcessor {
                 'hit_count'       => 0,
                 'reasoning_steps' => [],
                 'applied_model'   => $this->synthesisModel,
-                'model_roles'     => ChatModelRolePayload::build($this->mainModel, $this->subModel, $this->embeddingModel, 'main'),
+                'model_roles'     => ChatModelRolePayload::build($this->mainModel, $this->subModel, $this->embeddingModel, 'main', $this->sqlModel),
                 'created_at'      => date('Y/m/d H:i')
             ]);
             return false;

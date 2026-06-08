@@ -50,9 +50,9 @@ if (!function_exists('chatLogger')) {
  * 外部からのエントリーポイント（インターフェース引数100%完全同期維持版・Freeze Protocol）
  * ✨【関数名シンクロ統合】：名前を chat.php 側の呼び出し名 「runAdvancedReasoningRoute」 へ完全同期！
  */
-function runAdvancedReasoningRoute($pdo, $ollama_host, $projectId, $originalMessage, $mainModel, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false) {
+function runAdvancedReasoningRoute($pdo, $ollama_host, $projectId, $originalMessage, $mainModel, $subModel, $sqlModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false) {
     $processor = new AdvancedReasoningRouteProcessor(
-        $pdo, $ollama_host, $projectId, $originalMessage, $mainModel, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, $threadId, $reportMode, $diagramMode
+        $pdo, $ollama_host, $projectId, $originalMessage, $mainModel, $subModel, $sqlModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, $threadId, $reportMode, $diagramMode
     );
     $processor->execute();
 }
@@ -68,6 +68,7 @@ class AdvancedReasoningRouteProcessor {
     private $originalMessage;
     private $model;
     private $subModel;
+    private $sqlModel;
     private $embeddingModel;
     private $promptKey;
     private $projectContext;
@@ -121,13 +122,14 @@ class AdvancedReasoningRouteProcessor {
     /**
      * コンストラクタ (完全DI化)
      */
-    public function __construct($pdo, $ollama_host, $projectId, $originalMessage, $mainModel, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false) {
+    public function __construct($pdo, $ollama_host, $projectId, $originalMessage, $mainModel, $subModel, $sqlModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false) {
         $this->pdo                = $pdo;
         $this->ollama_host        = $ollama_host;
         $this->projectId          = $projectId;
         $this->originalMessage    = $originalMessage;
         $this->model              = $mainModel;
         $this->subModel           = $subModel;
+        $this->sqlModel           = $sqlModel;
         $this->embeddingModel     = $embeddingModel;
         $this->promptKey          = $promptKey;
         $this->projectContext     = $projectContext;
@@ -171,7 +173,7 @@ class AdvancedReasoningRouteProcessor {
         $this->model = $this->model; // ステートバインド同期維持
 
         chatLogger(">>> [データ分析ルート] 動的スキーマ監査型 多段階集計エージェントを起動します");
-        chatLogger("[DEBUG] 引数情報 - Host: {$this->ollama_host} | MainModel: {$this->model} | SubModel: {$this->subModel} | UserID: {$this->user_id} | Role: {$this->role}");
+        chatLogger("[DEBUG] 引数情報 - Host: {$this->ollama_host} | MainModel: {$this->model} | SubModel: {$this->subModel} | SqlModel: {$this->sqlModel} | UserID: {$this->user_id} | Role: {$this->role}");
 
         // 0. BOLA脆弱性防止・アサイン権限チェック
         if (!$this->checkAuthority()) {
@@ -399,7 +401,7 @@ class AdvancedReasoningRouteProcessor {
                 'hit_count'       => 0,
                 'reasoning_steps' => [],
                 'applied_model'   => $this->model,
-                'model_roles'     => ChatModelRolePayload::build($this->model, $this->subModel, $this->embeddingModel, 'main'),
+                'model_roles'     => ChatModelRolePayload::build($this->model, $this->subModel, $this->embeddingModel, 'main', $this->sqlModel),
                 'created_at'      => date('Y/m/d H:i')
             ]);
             return false;
@@ -1298,7 +1300,7 @@ class AdvancedReasoningRouteProcessor {
         $sql_sys_prompt = $this->composeMemoryAwarePrompt($sql_sys_prompt);
 
         $sql_user_prompt = $this->schemaInfo . "\n\n【ユーザーの分析観点】\n" . $subQ;
-        $sql_model = $this->subModel;
+        $sql_model = $this->sqlModel;
         
         // 初回SQL生成オプション引き締め維持
         $sql_json_str = callOllamaChat($this->ollama_host, $sql_model, $sql_sys_prompt, $sql_user_prompt, 'json', ["temperature" => 0.0, "top_p" => 0.1, "num_ctx" => 4096]);
@@ -1467,7 +1469,7 @@ class AdvancedReasoningRouteProcessor {
             // 📢 [超詳細ログ5] 次の周回リトライに向けて、AIの脳みそへ叩き込む「反省用インジェクションデータ」をすべてダンプ
             chatLogger("[OLLAMA-REFLECT-INPUT] (次の一手: 試行 {$retry_count}/{$max_retries}) AIへ送り届ける自己反省材料:\n" . $debug_user_context);
 
-            $sql_model = $this->subModel;
+            $sql_model = $this->sqlModel;
             chatLogger("[OLLAMA-DEBUG] 自律修正リクエストを送信します...");
             
             $retry_json_str = callOllamaChat($this->ollama_host, $sql_model, $debug_sys_prompt, $debug_user_context, 'json', ["temperature" => 0.0, "top_p" => 0.1, "num_ctx" => 4096]);
@@ -1933,7 +1935,7 @@ class AdvancedReasoningRouteProcessor {
             'detected_page'   => null,
             'hit_count'       => 0,
             'applied_model'   => $this->model,
-            'model_roles'     => ChatModelRolePayload::build($this->model, $this->subModel, $this->embeddingModel, 'main'),
+            'model_roles'     => ChatModelRolePayload::build($this->model, $this->subModel, $this->embeddingModel, 'main', $this->sqlModel),
             'created_at'      => date('Y/m/d H:i'),
             'report_document' => $this->reportDocument
         ]);

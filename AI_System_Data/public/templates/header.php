@@ -17,7 +17,38 @@ $userId = $_SESSION['user_id'] ?? 0;
 // ユーザー設定の取得 (DBから最新の状態を反映、未設定時のデフォルト値も定義)
 $modelDefaults = ModelRoleResolver::defaults();
 $hasEmbeddingModelColumn = UserSettingsSchema::hasEmbeddingModelColumn($pdo);
+$hasSqlModelColumn = UserSettingsSchema::hasSqlModelColumn($pdo);
 $userSettings = UserSettingsSessionSynchronizer::sync($pdo, (int)$userId);
+$modelSettingFields = [
+    [
+        'name' => 'default_model',
+        'label' => 'メイン使用モデル',
+        'value' => $userSettings['default_model'],
+        'placeholder' => 'gemma4:e4b',
+        'description' => '※ 因数分解と最終回答の統合に使います。',
+    ],
+    [
+        'name' => 'sub_model',
+        'label' => 'サブモデル (中間処理用)',
+        'value' => $userSettings['sub_model'],
+        'placeholder' => 'gpt-oss:20b',
+        'description' => '※ SQL生成や補助分析などの中間処理に使います。',
+    ],
+    [
+        'name' => 'sql_model',
+        'label' => 'SQLモデル',
+        'value' => $userSettings['sql_model'] ?? $userSettings['sub_model'],
+        'placeholder' => 'gpt-oss:20b',
+        'description' => '※ Text-to-SQL と SQL 自己修復に優先して使います。',
+    ],
+    [
+        'name' => 'embedding_model',
+        'label' => 'Embeddingモデル',
+        'value' => $userSettings['embedding_model'],
+        'placeholder' => 'mxbai-embed-large',
+        'description' => '※ ベクトル化と類似検索の埋め込み生成に使います。',
+    ],
+];
 
 // アクティブページの判定用関数
 if (!function_exists('isActive')) {
@@ -118,28 +149,25 @@ if (!function_exists('isActive')) {
                     <p class="text-[9px] text-gray-400 mt-1">※ AI推論エンジン（GPUサーバー）のIPアドレス・ポートを指定してください。</p>
                 </div>
 
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                        <label class="block font-bold text-[#00758F] mb-1.5 tracking-tighter">メイン使用モデル <span class="text-red-500">*</span></label>
-                        <input type="text" name="default_model" class="w-full border-gray-300 border rounded-lg px-3 py-2 font-mono bg-blue-50/30 focus:ring-2 focus:ring-[#00758F]/20 outline-none"
-                               value="<?= htmlspecialchars($userSettings['default_model']) ?>" required placeholder="gemma4:e4b">
-                        <p class="text-[9px] text-gray-400 mt-1">※ 因数分解と最終回答の統合に使います。</p>
-                    </div>
-
-                    <div>
-                        <label class="block font-bold text-[#00758F] mb-1.5 tracking-tighter">サブモデル (中間処理用) <span class="text-red-500">*</span></label>
-                        <input type="text" name="sub_model" class="w-full border-gray-300 border rounded-lg px-3 py-2 font-mono bg-blue-50/30 focus:ring-2 focus:ring-[#00758F]/20 outline-none"
-                               value="<?= htmlspecialchars($userSettings['sub_model']) ?>" required placeholder="gpt-oss:20b">
-                        <p class="text-[9px] text-gray-400 mt-1">※ SQL生成や補助分析などの中間処理に使います。</p>
-                    </div>
-
-                    <div>
-                        <label class="block font-bold text-[#00758F] mb-1.5 tracking-tighter">Embeddingモデル <span class="text-red-500">*</span></label>
-                        <input type="text" name="embedding_model" class="w-full border-gray-300 border rounded-lg px-3 py-2 font-mono bg-blue-50/30 focus:ring-2 focus:ring-[#00758F]/20 outline-none"
-                               value="<?= htmlspecialchars($userSettings['embedding_model']) ?>" required placeholder="mxbai-embed-large">
-                        <p class="text-[9px] text-gray-400 mt-1">※ ベクトル化と類似検索の埋め込み生成に使います。</p>
-                    </div>
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <?php foreach ($modelSettingFields as $field): ?>
+                        <div>
+                            <label class="block font-bold text-[#00758F] mb-1.5 tracking-tighter"><?= htmlspecialchars($field['label']) ?> <span class="text-red-500">*</span></label>
+                            <input
+                                type="text"
+                                name="<?= htmlspecialchars($field['name']) ?>"
+                                class="w-full border-gray-300 border rounded-lg px-3 py-2 font-mono bg-blue-50/30 focus:ring-2 focus:ring-[#00758F]/20 outline-none"
+                                value="<?= htmlspecialchars($field['value']) ?>"
+                                required
+                                placeholder="<?= htmlspecialchars($field['placeholder']) ?>"
+                            >
+                            <p class="text-[9px] text-gray-400 mt-1"><?= htmlspecialchars($field['description']) ?></p>
+                        </div>
+                    <?php endforeach; ?>
                 </div>
+                <?php if (!$hasSqlModelColumn): ?>
+                    <p class="text-[10px] text-amber-600">※ 現在のDBでは `sql_model` 列が未作成のため、この値はセッション上の暫定設定として扱われます。</p>
+                <?php endif; ?>
                 <?php if (!$hasEmbeddingModelColumn): ?>
                     <p class="text-[10px] text-amber-600">※ 現在のDBでは `embedding_model` 列が未作成のため、この値はセッション上の暫定設定として扱われます。</p>
                 <?php endif; ?>
