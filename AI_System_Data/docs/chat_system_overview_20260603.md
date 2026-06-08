@@ -365,8 +365,9 @@
 FAQ 自動登録は、現在以下のみ候補にします。
 
 - `evaluation_mode=real`
+- `evaluation_source=lightweight_rule_guard` の高スコア軽量回答
 
-つまり、本審査以外の `synthetic` / `fallback` は FAQ 候補にしません。
+つまり、`fallback` は FAQ 候補にせず、軽量系は rule-first の決定論ガードを通ったものだけを候補にします。
 
 ## 11. 回答表示タイミング
 

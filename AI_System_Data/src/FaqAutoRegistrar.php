@@ -14,7 +14,7 @@ class FaqAutoRegistrar {
     /** @var int */
     private $duplicateScanLimit;
 
-    public function __construct(PDO $pdo, int $threshold = 95, int $duplicateScanLimit = 200) {
+    public function __construct(PDO $pdo, int $threshold = 92, int $duplicateScanLimit = 200) {
         $this->pdo = $pdo;
         $this->threshold = $threshold;
         $this->duplicateScanLimit = $duplicateScanLimit;
@@ -91,8 +91,9 @@ class FaqAutoRegistrar {
         }
 
         $evaluationMode = (string)($evalResult['evaluation_mode'] ?? '');
-        if ($evaluationMode !== 'real') {
-            return ['qualified' => false, 'reason' => 'non_real_evaluation_mode'];
+        $evaluationSource = (string)($evalResult['evaluation_source'] ?? '');
+        if (!$this->isEligibleEvaluationMode($evaluationMode, $evaluationSource)) {
+            return ['qualified' => false, 'reason' => 'unsupported_evaluation_mode'];
         }
 
         $feedback = (string)($evalResult['feedback'] ?? '');
@@ -105,7 +106,17 @@ class FaqAutoRegistrar {
         $relevance = (int)($scores['answer_relevance'] ?? 0);
         $faithfulness = (int)($scores['faithfulness'] ?? 0);
 
-        if ($totalScore < $this->threshold || $relevance < 100 || $faithfulness < 90) {
+        $minimumScore = $this->threshold;
+        $minimumRelevance = 95;
+        $minimumFaithfulness = 90;
+
+        if ($evaluationSource === 'lightweight_rule_guard') {
+            // deterministic 軽量ルートは score が安定している前提で少しだけ厳しめに残す
+            $minimumScore = max($minimumScore, 95);
+            $minimumFaithfulness = 95;
+        }
+
+        if ($totalScore < $minimumScore || $relevance < $minimumRelevance || $faithfulness < $minimumFaithfulness) {
             return ['qualified' => false, 'reason' => 'score_below_threshold'];
         }
 
@@ -120,6 +131,19 @@ class FaqAutoRegistrar {
         }
 
         return ['qualified' => true, 'reason' => 'qualified'];
+    }
+
+    private function isEligibleEvaluationMode(string $evaluationMode, string $evaluationSource): bool {
+        if ($evaluationMode === 'real') {
+            return true;
+        }
+
+        if (($evaluationMode === 'rule' || $evaluationMode === 'synthetic')
+            && $evaluationSource === 'lightweight_rule_guard') {
+            return true;
+        }
+
+        return false;
     }
 
     private function findDuplicateFaqId(int $projectId, int $chatHistoryId, string $questionSummary, string $answerSummary): ?int {
