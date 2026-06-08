@@ -1012,7 +1012,7 @@ class AdvancedReasoningRouteProcessor {
             . "\n\n【このサブクエリの回答目標】\n" . $answerGoal;
 
         // 超決定論的パラメータによる最高度引き締めAI射撃
-        $sql_json_str = callOllamaChat($this->ollama_host, $this->reasoningModel, $sql_sys_prompt, $sql_user_prompt, 'json', ["temperature" => 0.0, "top_p" => 0.1, "num_ctx" => 4096]);
+        $sql_json_str = callOllamaChat($this->ollama_host, $this->sqlModel, $sql_sys_prompt, $sql_user_prompt, 'json', ["temperature" => 0.0, "top_p" => 0.1, "num_ctx" => 4096]);
         
         // クレンジングおよびバッチ分割実行エンジンレイヤーへ委譲
         $sub_ans_text = $this->executeAndAnalyzeSql($sql_json_str, $subQ, $step_counter, $stepLabel);
@@ -1129,7 +1129,7 @@ class AdvancedReasoningRouteProcessor {
                                 . "⚠️ 【MySQLから返された生のエラー文】\n" . ($execResult['error'] ?? 'Unknown Error') . "\n\n"
                                 . $repairGuidance;
 
-            $sqlJsonStr = callOllamaChat($this->ollama_host, $this->reasoningModel, $debug_sys_prompt, $debug_user_context, 'json', ["temperature" => 0.0, "top_p" => 0.1, "num_ctx" => 4096]);
+            $sqlJsonStr = callOllamaChat($this->ollama_host, $this->sqlModel, $debug_sys_prompt, $debug_user_context, 'json', ["temperature" => 0.0, "top_p" => 0.1, "num_ctx" => 4096]);
         }
 
         if (!$execResult['success']) {
