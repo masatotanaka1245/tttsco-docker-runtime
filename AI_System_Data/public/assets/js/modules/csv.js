@@ -249,7 +249,11 @@ function closeCsvCreateModal() {
 
 function openCsvCreateModal() {
     const modal = document.getElementById('csv-create-modal');
-    if (!modal) return;
+    if (!modal) {
+        console.warn('csv-create-modal not found');
+        alert('CSV作成モーダルが見つかりません。画面を再読み込みしてください。');
+        return;
+    }
     modal.classList.replace('hidden', 'flex');
 }
 
@@ -313,7 +317,11 @@ function openCsvAiCategorizeModal() {
 
     renderCsvAiCategorizeForm();
     const modal = document.getElementById('csv-ai-categorize-modal');
-    if (!modal) return;
+    if (!modal) {
+        console.warn('csv-ai-categorize-modal not found');
+        alert('AIカテゴリ分けモーダルが見つかりません。画面を再読み込みしてください。');
+        return;
+    }
     modal.classList.replace('hidden', 'flex');
 }
 
@@ -325,8 +333,30 @@ function openCsvAppendModal() {
 
     renderCsvAppendFields();
     const modal = document.getElementById('csv-row-append-modal');
-    if (!modal) return;
+    if (!modal) {
+        console.warn('csv-row-append-modal not found');
+        alert('CSV追記モーダルが見つかりません。画面を再読み込みしてください。');
+        return;
+    }
     modal.classList.replace('hidden', 'flex');
+}
+
+function bindCsvToolbarActions() {
+    const bindings = [
+        ['csv-create-trigger', openCsvCreateModal],
+        ['csv-append-trigger', openCsvAppendModal],
+        ['csv-ai-categorize-trigger', openCsvAiCategorizeModal],
+    ];
+
+    bindings.forEach(([id, handler]) => {
+        const el = document.getElementById(id);
+        if (!el || el.dataset.bound === 'true') return;
+        el.dataset.bound = 'true';
+        el.addEventListener('click', (event) => {
+            event.preventDefault();
+            handler();
+        });
+    });
 }
 
 /**
@@ -999,9 +1029,11 @@ async function handleStartCsvAiCategorizeJob(e) {
 
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', () => {
+            bindCsvToolbarActions();
             loadCsvAiJobHistory().catch(() => {});
         }, { once: true });
     } else {
+        bindCsvToolbarActions();
         loadCsvAiJobHistory().catch(() => {});
     }
 })();
