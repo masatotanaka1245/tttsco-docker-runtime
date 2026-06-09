@@ -14,6 +14,81 @@ require_once __DIR__ . '/../../src/CsvAiCategorizationJobService.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
+/**
+ * AIカテゴリ分け worker 用の CLI PHP を解決する
+ *
+ * Windows + Apache 環境では PHP_BINARY が httpd.exe を指すことがあるため、
+ * そのまま使わず CLI 向け候補を順に探す。
+ *
+ * @return array{binary:string,source:string}
+ */
+function resolveCsvAiWorkerPhpBinary(): array
+{
+    $isWindows = DIRECTORY_SEPARATOR === '\\' || strcasecmp((string)(PHP_OS_FAMILY ?? ''), 'Windows') === 0;
+    $candidates = [];
+
+    $override = trim((string)getenv('CSV_AI_WORKER_PHP'));
+    if ($override !== '') {
+        $candidates[] = ['binary' => $override, 'source' => 'env:CSV_AI_WORKER_PHP'];
+    }
+
+    $phpBinary = trim((string)(PHP_BINARY ?: ''));
+    $phpBinaryBase = strtolower(basename(str_replace('\\', '/', $phpBinary)));
+    if ($phpBinary !== '' && str_starts_with($phpBinaryBase, 'php')) {
+        $candidates[] = ['binary' => $phpBinary, 'source' => 'PHP_BINARY'];
+    }
+
+    $phpBindir = trim((string)(defined('PHP_BINDIR') ? PHP_BINDIR : ''));
+    if ($phpBindir !== '') {
+        if ($isWindows) {
+            $candidates[] = ['binary' => $phpBindir . DIRECTORY_SEPARATOR . 'php.exe', 'source' => 'PHP_BINDIR/php.exe'];
+            $candidates[] = ['binary' => $phpBindir . DIRECTORY_SEPARATOR . 'php-cli.exe', 'source' => 'PHP_BINDIR/php-cli.exe'];
+        } else {
+            $candidates[] = ['binary' => $phpBindir . DIRECTORY_SEPARATOR . 'php', 'source' => 'PHP_BINDIR/php'];
+        }
+    }
+
+    $fallback = $isWindows ? 'php.exe' : 'php';
+    $candidates[] = ['binary' => $fallback, 'source' => 'fallback:' . $fallback];
+
+    foreach ($candidates as $candidate) {
+        $binary = trim((string)$candidate['binary']);
+        if ($binary === '') {
+            continue;
+        }
+
+        $looksLikeCommand = !str_contains($binary, DIRECTORY_SEPARATOR) && !str_contains($binary, '/');
+        if ($looksLikeCommand || file_exists($binary)) {
+            return [
+                'binary' => $binary,
+                'source' => (string)$candidate['source'],
+            ];
+        }
+    }
+
+    return [
+        'binary' => $fallback,
+        'source' => 'fallback:' . $fallback,
+    ];
+}
+
+/**
+ * OS に応じてバックグラウンド worker 起動コマンドを組み立てる
+ */
+function buildCsvAiWorkerLaunchCommand(string $phpBinary, string $scriptPath, string $jobId): string
+{
+    $isWindows = DIRECTORY_SEPARATOR === '\\' || strcasecmp((string)(PHP_OS_FAMILY ?? ''), 'Windows') === 0;
+    $binary = escapeshellarg($phpBinary);
+    $script = escapeshellarg($scriptPath);
+    $job = escapeshellarg($jobId);
+
+    if ($isWindows) {
+        return 'cmd /C start "" /B ' . $binary . ' ' . $script . ' ' . $job . ' > NUL 2>&1';
+    }
+
+    return $binary . ' ' . $script . ' ' . $job . ' > /dev/null 2>&1 &';
+}
+
 $auth = new Auth($pdo);
 if (!$auth->isLoggedIn()) {
     http_response_code(401);
@@ -114,16 +189,19 @@ appLog('csv_ai_job.log', 'job queued', [
     'model' => (string)($resolvedModels['worker_model'] ?? $resolvedModels['sub_model'] ?? $resolvedModels['main_model'] ?? ''),
 ]);
 
-$phpBinary = PHP_BINARY ?: 'php';
+$workerPhp = resolveCsvAiWorkerPhpBinary();
+$phpBinary = $workerPhp['binary'];
 $scriptPath = $jobService->getCliScriptPath();
 $jobId = $job['job_id'];
-$command = escapeshellarg($phpBinary) . ' ' . escapeshellarg($scriptPath) . ' ' . escapeshellarg($jobId) . ' > /dev/null 2>&1 &';
+$command = buildCsvAiWorkerLaunchCommand($phpBinary, $scriptPath, $jobId);
 $execOutput = [];
 $execCode = 0;
 
 appLog('csv_ai_job.log', 'worker launch prepared', [
     'job_id' => $jobId,
+    'os_family' => (string)(PHP_OS_FAMILY ?? PHP_OS),
     'php_binary' => $phpBinary,
+    'php_binary_source' => $workerPhp['source'],
     'php_binary_exists' => $phpBinary !== '' ? file_exists($phpBinary) : false,
     'script_path' => $scriptPath,
     'script_exists' => is_file($scriptPath),
