@@ -106,6 +106,12 @@ class CsvAiCategorizationJobService
             }
 
             $status = $this->readStatus($jobId) ?: [];
+            $effectiveStatus = (string)($status['status'] ?? $job['status'] ?? '');
+            if ($effectiveStatus === 'canceled') {
+                $this->deleteJobArtifacts($jobId);
+                continue;
+            }
+
             $items[] = [
                 'job' => $job,
                 'status' => $status,
@@ -211,6 +217,19 @@ class CsvAiCategorizationJobService
     private function getStatusPath(string $jobId): string
     {
         return $this->jobDir . DIRECTORY_SEPARATOR . 'status_' . preg_replace('/[^a-zA-Z0-9_-]/', '', $jobId) . '.json';
+    }
+
+    private function deleteJobArtifacts(string $jobId): void
+    {
+        $jobPath = $this->getJobPath($jobId);
+        $statusPath = $this->getStatusPath($jobId);
+
+        if (is_file($jobPath)) {
+            @unlink($jobPath);
+        }
+        if (is_file($statusPath)) {
+            @unlink($statusPath);
+        }
     }
 
     private function readJson(string $path): ?array

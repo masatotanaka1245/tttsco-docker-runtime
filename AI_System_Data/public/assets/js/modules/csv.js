@@ -848,7 +848,6 @@ async function handleCancelCsvAiJob(jobId) {
             throw new Error(response?.error || 'キャンセル要求に失敗しました。');
         }
 
-        await loadCsvAiJobHistory();
         const overlay = document.getElementById('csv-ai-job-overlay');
         if (overlay) {
             if (response.completed_now) {
@@ -869,6 +868,10 @@ async function handleCancelCsvAiJob(jobId) {
                 overlay.classList.replace('bg-slate-900', 'bg-amber-900');
             }
         }
+
+        if (!response.completed_now) {
+            await loadCsvAiJobHistory();
+        }
     } catch (err) {
         alert(`キャンセル要求に失敗しました: ${err.message}`);
     }
@@ -883,7 +886,6 @@ async function pollCsvAiJobStatus(jobId) {
     activeCsvAiJobTimer = setInterval(async () => {
         const data = await secureFetch(`api/get_csv_ai_job_status.php?job_id=${encodeURIComponent(jobId)}`, { method: 'GET' });
         if (!data?.success || !data.status) return;
-        await loadCsvAiJobHistory();
 
         const overlay = renderCsvAiJobOverlay(data.status, data.job || {});
         const status = data.status;
@@ -931,7 +933,6 @@ async function pollCsvAiJobStatus(jobId) {
         if (state === 'canceled') {
             clearCsvAiJobTimer();
             activeCsvAiJobId = null;
-            await loadCsvAiJobHistory();
             overlay.classList.replace('bg-slate-900', 'bg-amber-900');
             overlay.innerHTML = `
                 <div class="flex justify-between items-start border-b border-white/10 pb-3">
@@ -961,7 +962,10 @@ async function pollCsvAiJobStatus(jobId) {
                 <div class="text-[11px] leading-snug font-bold text-white">${escapeHTML(status.error || status.message || 'カテゴリ分け処理に失敗しました。')}</div>
             `;
             setTimeout(() => overlay.remove(), 8000);
+            return;
         }
+
+        await loadCsvAiJobHistory();
     }, 2000);
 }
 

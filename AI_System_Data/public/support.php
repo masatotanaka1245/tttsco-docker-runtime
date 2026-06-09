@@ -1303,12 +1303,12 @@ $projectCenterTabs = [
                     </div>
                 </div>
 
-                <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-start md:h-[calc(100vh-250px)]">
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-start md:h-[calc(100vh-320px)]">
                     <div class="col-span-1 min-h-0">
                         <div class="border border-slate-200 rounded-2xl bg-slate-50/60 p-4 shadow-sm flex flex-col gap-4 md:h-full min-h-0">
                             <div class="flex flex-col min-h-0 flex-[1.15]">
                                 <h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest pb-1.5 border-b border-slate-200/60">インポート履歴 (<span id="csv-history-count"><?= count($csv_files) ?></span>)</h4>
-                                <div id="csv-history-list" class="space-y-2 flex-1 min-h-0 overflow-y-auto pr-1 no-scrollbar pt-3">
+                                <div id="csv-history-list" class="space-y-2 flex-1 min-h-0 overflow-y-auto pr-1 pt-3 custom-scrollbar">
                                     <?php renderCsvHistoryItems($csv_files); ?>
                                 </div>
                             </div>
@@ -1318,7 +1318,7 @@ $projectCenterTabs = [
                                     <h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest">AI分類ジョブ</h4>
                                     <span id="csv-ai-job-count" class="text-[9px] font-black text-slate-400 bg-white border border-slate-200 px-2 py-0.5 rounded-full shadow-2xs">0 件</span>
                                 </div>
-                                <div id="csv-ai-job-list" class="space-y-2 flex-1 min-h-0 overflow-y-auto pr-1 no-scrollbar pt-3">
+                                <div id="csv-ai-job-list" class="space-y-2 flex-1 min-h-0 overflow-y-auto pr-1 pt-3 custom-scrollbar">
                                     <p class="text-[10px] text-slate-400 text-center py-4 italic font-medium">AI分類ジョブはまだありません。</p>
                                 </div>
                             </div>

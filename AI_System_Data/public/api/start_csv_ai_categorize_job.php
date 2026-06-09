@@ -9,6 +9,7 @@ require_once __DIR__ . '/../../src/Auth.php';
 require_once __DIR__ . '/../../src/ProjectAccess.php';
 require_once __DIR__ . '/../../src/ModelRoleResolver.php';
 require_once __DIR__ . '/../../src/UserSettingsSessionSynchronizer.php';
+require_once __DIR__ . '/../../src/AppLogger.php';
 require_once __DIR__ . '/../../src/CsvAiCategorizationJobService.php';
 
 header('Content-Type: application/json; charset=utf-8');
@@ -103,11 +104,40 @@ $job = $jobService->createJob([
     'model' => $resolvedModels['worker_model'] ?? $resolvedModels['sub_model'] ?? $resolvedModels['main_model'],
 ]);
 
+appLog('csv_ai_job.log', 'job queued', [
+    'job_id' => $job['job_id'],
+    'project_id' => $projectId,
+    'source_csv_file_id' => $csvFileId,
+    'source_file_name' => (string)$csvFile['file_name'],
+    'target_column' => $targetColumn,
+    'ollama_host' => (string)($resolvedModels['ollama_host'] ?? ''),
+    'model' => (string)($resolvedModels['worker_model'] ?? $resolvedModels['sub_model'] ?? $resolvedModels['main_model'] ?? ''),
+]);
+
 $phpBinary = PHP_BINARY ?: 'php';
 $scriptPath = $jobService->getCliScriptPath();
 $jobId = $job['job_id'];
 $command = escapeshellarg($phpBinary) . ' ' . escapeshellarg($scriptPath) . ' ' . escapeshellarg($jobId) . ' > /dev/null 2>&1 &';
-exec($command);
+$execOutput = [];
+$execCode = 0;
+
+appLog('csv_ai_job.log', 'worker launch prepared', [
+    'job_id' => $jobId,
+    'php_binary' => $phpBinary,
+    'php_binary_exists' => $phpBinary !== '' ? file_exists($phpBinary) : false,
+    'script_path' => $scriptPath,
+    'script_exists' => is_file($scriptPath),
+    'disabled_functions' => (string)ini_get('disable_functions'),
+    'command' => $command,
+]);
+
+exec($command, $execOutput, $execCode);
+
+appLog('csv_ai_job.log', 'worker launch dispatched', [
+    'job_id' => $jobId,
+    'exec_code' => $execCode,
+    'exec_output' => $execOutput,
+]);
 
 echo json_encode([
     'success' => true,
