@@ -7,6 +7,8 @@ import { secureFetch, getConfig } from './api.js?v=4';
 let selectedCsvContext = null;
 let activeCsvAiJobTimer = null;
 let activeCsvAiJobId = null;
+let activeCsvAiJobRequestController = null;
+let csvAiLifecycleBound = false;
 
 /**
  * HTMLエスケープヘルパー (テキストの安全なレンダリング用)
@@ -825,9 +827,39 @@ function renderCsvAiJobOverlay(status, job) {
 
 function clearCsvAiJobTimer() {
     if (activeCsvAiJobTimer) {
-        clearInterval(activeCsvAiJobTimer);
+        clearTimeout(activeCsvAiJobTimer);
         activeCsvAiJobTimer = null;
     }
+}
+
+function abortCsvAiJobRequest() {
+    if (activeCsvAiJobRequestController) {
+        activeCsvAiJobRequestController.abort();
+        activeCsvAiJobRequestController = null;
+    }
+}
+
+function stopCsvAiJobPolling({ resetJobId = false, removeOverlay = false } = {}) {
+    clearCsvAiJobTimer();
+    abortCsvAiJobRequest();
+    if (resetJobId) {
+        activeCsvAiJobId = null;
+    }
+    if (removeOverlay) {
+        document.getElementById('csv-ai-job-overlay')?.remove();
+    }
+}
+
+function bindCsvAiJobLifecycleGuards() {
+    if (csvAiLifecycleBound) return;
+    csvAiLifecycleBound = true;
+
+    const stopForPageExit = () => {
+        stopCsvAiJobPolling({ resetJobId: true, removeOverlay: true });
+    };
+
+    window.addEventListener('pagehide', stopForPageExit);
+    window.addEventListener('beforeunload', stopForPageExit);
 }
 
 async function openCsvAiJobResult(csvFileId, fileName = '') {
@@ -860,8 +892,7 @@ async function handleCancelCsvAiJob(jobId) {
         const overlay = document.getElementById('csv-ai-job-overlay');
         if (overlay) {
             if (response.completed_now) {
-                clearCsvAiJobTimer();
-                activeCsvAiJobId = null;
+                stopCsvAiJobPolling({ resetJobId: true });
                 overlay.classList.replace('bg-slate-900', 'bg-amber-900');
                 overlay.innerHTML = `
                     <div class="flex justify-between items-start border-b border-white/10 pb-3">
@@ -887,94 +918,134 @@ async function handleCancelCsvAiJob(jobId) {
 }
 
 async function pollCsvAiJobStatus(jobId) {
-    clearCsvAiJobTimer();
+    stopCsvAiJobPolling();
     activeCsvAiJobId = jobId;
     renderCsvAiJobOverlay({ progress: 0, current: 0, total: 0, message: 'ジョブを開始しました。進捗を取得しています...' }, {});
     await loadCsvAiJobHistory();
 
-    activeCsvAiJobTimer = setInterval(async () => {
-        const data = await secureFetch(`api/get_csv_ai_job_status.php?job_id=${encodeURIComponent(jobId)}`, { method: 'GET' });
-        if (!data?.success || !data.status) return;
+    const pollOnce = async () => {
+        if (activeCsvAiJobId !== jobId) return;
 
-        const overlay = renderCsvAiJobOverlay(data.status, data.job || {});
-        const status = data.status;
-        const job = data.job || {};
-        const state = String(status.status || status.state || '');
-
-        if (state === 'completed') {
-            clearCsvAiJobTimer();
-            activeCsvAiJobId = null;
-            overlay.classList.replace('bg-slate-900', 'bg-emerald-900');
-            const outputFileName = String(job.output_file_name || 'AIカテゴリ分類結果.csv');
-            const outputCsvFileId = Number(status.output_csv_file_id || 0);
-            overlay.innerHTML = `
-                <div class="flex justify-between items-start border-b border-white/10 pb-3">
-                    <div class="flex flex-col gap-1">
-                        <span class="text-[9px] text-emerald-300 uppercase tracking-widest font-black">AI CSV Categorizer</span>
-                        <span class="text-xs font-bold text-white truncate max-w-[220px]" title="${escapeHTML(outputFileName)}">✅ ${escapeHTML(outputFileName)}</span>
-                    </div>
-                    <span class="text-2xl font-black text-emerald-300 font-mono">100%</span>
-                </div>
-                <div class="text-[11px] leading-snug font-bold text-white">カテゴリ分けCSVを作成しました。左の一覧へ追加して表示します。</div>
-                ${outputCsvFileId > 0 ? `<div class="flex justify-end"><button type="button" onclick="window.openCsvAiJobResult && window.openCsvAiJobResult(${outputCsvFileId}, '${outputFileName.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')" class="text-[10px] font-bold text-emerald-200 bg-white/10 border border-white/10 rounded-full px-3 py-1 hover:bg-white/15 transition-all">結果を開く</button></div>` : ''}
-            `;
-
-            if (outputCsvFileId > 0 && !document.getElementById(`csv-item-${outputCsvFileId}`)) {
-                prependCsvHistoryItem({
-                    id: outputCsvFileId,
-                    file_name: outputFileName,
-                    row_count: Number(status.total || 0),
-                    created_at: new Date().toISOString(),
-                });
-                setCsvHistoryCount(document.querySelectorAll('[id^="csv-item-"]').length);
-                updateCsvBadge(1);
+        let shouldScheduleNext = true;
+        try {
+            activeCsvAiJobRequestController = new AbortController();
+            const data = await secureFetch(`api/get_csv_ai_job_status.php?job_id=${encodeURIComponent(jobId)}`, {
+                method: 'GET',
+                signal: activeCsvAiJobRequestController.signal,
+            });
+            activeCsvAiJobRequestController = null;
+            if (!data?.success || !data.status) {
+                activeCsvAiJobTimer = setTimeout(pollOnce, 2000);
+                return;
             }
 
-            if (outputCsvFileId > 0) {
-                await loadCsvData(outputCsvFileId, outputFileName);
+            const overlay = renderCsvAiJobOverlay(data.status, data.job || {});
+            const status = data.status;
+            const job = data.job || {};
+            const state = String(status.status || status.state || '');
+
+            if (state === 'completed') {
+                shouldScheduleNext = false;
+                stopCsvAiJobPolling({ resetJobId: true });
+                await loadCsvAiJobHistory();
+                overlay.classList.replace('bg-slate-900', 'bg-emerald-900');
+                const outputFileName = String(job.output_file_name || 'AIカテゴリ分類結果.csv');
+                const outputCsvFileId = Number(status.output_csv_file_id || 0);
+                overlay.innerHTML = `
+                    <div class="flex justify-between items-start border-b border-white/10 pb-3">
+                        <div class="flex flex-col gap-1">
+                            <span class="text-[9px] text-emerald-300 uppercase tracking-widest font-black">AI CSV Categorizer</span>
+                            <span class="text-xs font-bold text-white truncate max-w-[220px]" title="${escapeHTML(outputFileName)}">✅ ${escapeHTML(outputFileName)}</span>
+                        </div>
+                        <span class="text-2xl font-black text-emerald-300 font-mono">100%</span>
+                    </div>
+                    <div class="text-[11px] leading-snug font-bold text-white">カテゴリ分けCSVを作成しました。左の一覧へ追加して表示します。</div>
+                    ${outputCsvFileId > 0 ? `<div class="flex justify-end"><button type="button" onclick="window.openCsvAiJobResult && window.openCsvAiJobResult(${outputCsvFileId}, '${outputFileName.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')" class="text-[10px] font-bold text-emerald-200 bg-white/10 border border-white/10 rounded-full px-3 py-1 hover:bg-white/15 transition-all">結果を開く</button></div>` : ''}
+                `;
+
+                if (outputCsvFileId > 0 && !document.getElementById(`csv-item-${outputCsvFileId}`)) {
+                    prependCsvHistoryItem({
+                        id: outputCsvFileId,
+                        file_name: outputFileName,
+                        row_count: Number(status.total || 0),
+                        created_at: new Date().toISOString(),
+                    });
+                    setCsvHistoryCount(document.querySelectorAll('[id^="csv-item-"]').length);
+                    updateCsvBadge(1);
+                }
+
+                if (outputCsvFileId > 0) {
+                    await loadCsvData(outputCsvFileId, outputFileName);
+                }
+
+                setTimeout(() => overlay.remove(), 5000);
+                return;
             }
 
-            setTimeout(() => overlay.remove(), 5000);
-            return;
-        }
-
-        if (state === 'canceled') {
-            clearCsvAiJobTimer();
-            activeCsvAiJobId = null;
-            overlay.classList.replace('bg-slate-900', 'bg-amber-900');
-            overlay.innerHTML = `
-                <div class="flex justify-between items-start border-b border-white/10 pb-3">
-                    <div class="flex flex-col gap-1">
-                        <span class="text-[9px] text-amber-200 uppercase tracking-widest font-black">AI CSV Categorizer</span>
-                        <span class="text-xs font-bold text-white">⏹ ジョブを停止しました</span>
+            if (state === 'canceled') {
+                shouldScheduleNext = false;
+                stopCsvAiJobPolling({ resetJobId: true });
+                overlay.classList.replace('bg-slate-900', 'bg-amber-900');
+                overlay.innerHTML = `
+                    <div class="flex justify-between items-start border-b border-white/10 pb-3">
+                        <div class="flex flex-col gap-1">
+                            <span class="text-[9px] text-amber-200 uppercase tracking-widest font-black">AI CSV Categorizer</span>
+                            <span class="text-xs font-bold text-white">⏹ ジョブを停止しました</span>
+                        </div>
                     </div>
-                </div>
-                <div class="text-[11px] leading-snug font-bold text-white">${escapeHTML(status.message || 'キャンセル要求により停止しました。')}</div>
-            `;
-            setTimeout(() => overlay.remove(), 6000);
-            return;
-        }
+                    <div class="text-[11px] leading-snug font-bold text-white">${escapeHTML(status.message || 'キャンセル要求により停止しました。')}</div>
+                `;
+                setTimeout(() => overlay.remove(), 6000);
+                return;
+            }
 
-        if (state === 'error') {
-            clearCsvAiJobTimer();
-            activeCsvAiJobId = null;
+            if (state === 'error') {
+                shouldScheduleNext = false;
+                stopCsvAiJobPolling({ resetJobId: true });
+                await loadCsvAiJobHistory();
+                overlay.classList.replace('bg-slate-900', 'bg-red-950');
+                overlay.innerHTML = `
+                    <div class="flex justify-between items-start border-b border-white/10 pb-3">
+                        <div class="flex flex-col gap-1">
+                            <span class="text-[9px] text-red-300 uppercase tracking-widest font-black">AI CSV Categorizer</span>
+                            <span class="text-xs font-bold text-white">❌ ジョブ失敗</span>
+                        </div>
+                    </div>
+                    <div class="text-[11px] leading-snug font-bold text-white">${escapeHTML(status.error || status.message || 'カテゴリ分け処理に失敗しました。')}</div>
+                `;
+                setTimeout(() => overlay.remove(), 8000);
+                return;
+            }
+
             await loadCsvAiJobHistory();
-            overlay.classList.replace('bg-slate-900', 'bg-red-950');
-            overlay.innerHTML = `
-                <div class="flex justify-between items-start border-b border-white/10 pb-3">
-                    <div class="flex flex-col gap-1">
-                        <span class="text-[9px] text-red-300 uppercase tracking-widest font-black">AI CSV Categorizer</span>
-                        <span class="text-xs font-bold text-white">❌ ジョブ失敗</span>
-                    </div>
-                </div>
-                <div class="text-[11px] leading-snug font-bold text-white">${escapeHTML(status.error || status.message || 'カテゴリ分け処理に失敗しました。')}</div>
-            `;
-            setTimeout(() => overlay.remove(), 8000);
-            return;
-        }
+        } catch (err) {
+            activeCsvAiJobRequestController = null;
+            if (err?.name === 'AbortError') {
+                shouldScheduleNext = false;
+                return;
+            }
 
-        await loadCsvAiJobHistory();
-    }, 2000);
+            const overlay = document.getElementById('csv-ai-job-overlay');
+            if (overlay) {
+                overlay.classList.replace('bg-slate-900', 'bg-slate-800');
+                overlay.innerHTML = `
+                    <div class="flex justify-between items-start border-b border-white/10 pb-3">
+                        <div class="flex flex-col gap-1">
+                            <span class="text-[9px] text-slate-300 uppercase tracking-widest font-black">AI CSV Categorizer</span>
+                            <span class="text-xs font-bold text-white">⌛ 状態確認を再試行します</span>
+                        </div>
+                    </div>
+                    <div class="text-[11px] leading-snug font-bold text-white">${escapeHTML(err.message || '状態取得に失敗しました。')}</div>
+                `;
+            }
+        } finally {
+            if (shouldScheduleNext && activeCsvAiJobId === jobId) {
+                activeCsvAiJobTimer = setTimeout(pollOnce, 2000);
+            }
+        }
+    };
+
+    activeCsvAiJobTimer = setTimeout(pollOnce, 0);
 }
 
 async function handleStartCsvAiCategorizeJob(e) {
@@ -1076,10 +1147,12 @@ async function handleStartCsvAiCategorizeJob(e) {
 
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', () => {
+            bindCsvAiJobLifecycleGuards();
             bindCsvToolbarActions();
             loadCsvAiJobHistory().catch(() => {});
         }, { once: true });
     } else {
+        bindCsvAiJobLifecycleGuards();
         bindCsvToolbarActions();
         loadCsvAiJobHistory().catch(() => {});
     }

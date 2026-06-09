@@ -30,7 +30,9 @@ export const secureFetch = async (url, options = {}) => {
         }
         return data;
     } catch (error) {
-        console.error('Fetch error:', error);
+        if (error?.name !== 'AbortError') {
+            console.error('Fetch error:', error);
+        }
         throw error;
     }
 };
