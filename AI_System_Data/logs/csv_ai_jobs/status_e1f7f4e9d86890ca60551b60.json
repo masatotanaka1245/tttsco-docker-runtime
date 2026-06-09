@@ -1,0 +1,13 @@
+{
+    "job_id": "e1f7f4e9d86890ca60551b60",
+    "status": "completed",
+    "stage": "completed",
+    "progress": 100,
+    "current": 5,
+    "total": 5,
+    "message": "カテゴリ分けCSVを作成しました。",
+    "error": null,
+    "project_id": 4,
+    "output_csv_file_id": 9,
+    "updated_at": 1781009692
+}

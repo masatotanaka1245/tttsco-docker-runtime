@@ -71,7 +71,8 @@ if (!$result['cancelable']) {
 
 echo json_encode([
     'success' => true,
-    'message' => 'キャンセル要求を受け付けました。',
+    'message' => !empty($result['completed_now']) ? 'ジョブを停止しました。' : 'キャンセル要求を受け付けました。',
     'job' => $result['job'],
     'status' => $result['status'],
+    'completed_now' => !empty($result['completed_now']),
 ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);

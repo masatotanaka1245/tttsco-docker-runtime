@@ -121,7 +121,7 @@ class CsvAiCategorizationJobService
         return array_slice($items, 0, $limit);
     }
 
-    public function requestCancel(string $jobId): ?array
+    public function requestCancel(string $jobId, int $staleAfterSeconds = 180): ?array
     {
         $job = $this->readJob($jobId);
         $status = $this->readStatus($jobId);
@@ -138,6 +138,35 @@ class CsvAiCategorizationJobService
             ];
         }
 
+        $updatedAt = (int)($status['updated_at'] ?? 0);
+        $isStale = $updatedAt > 0 && (time() - $updatedAt) >= max(30, $staleAfterSeconds);
+
+        if ($currentStatus === 'pending' || $isStale) {
+            $updatedJob = $this->updateJob($jobId, [
+                'status' => 'canceled',
+                'finished_at' => date('c'),
+                'cancel_requested' => true,
+                'cancel_requested_at' => date('c'),
+            ]) ?: $job;
+
+            $status = array_merge($status, [
+                'status' => 'canceled',
+                'stage' => 'canceled',
+                'message' => $currentStatus === 'pending'
+                    ? 'キュー待機中のジョブを停止しました。'
+                    : '応答が止まっていたジョブを停止しました。',
+                'cancel_requested' => true,
+            ]);
+            $this->writeStatus($jobId, $status);
+
+            return [
+                'job' => $updatedJob,
+                'status' => $status,
+                'cancelable' => true,
+                'completed_now' => true,
+            ];
+        }
+
         $updatedJob = $this->updateJob($jobId, [
             'cancel_requested' => true,
             'cancel_requested_at' => date('c'),
@@ -151,6 +180,7 @@ class CsvAiCategorizationJobService
             'job' => $updatedJob,
             'status' => $status,
             'cancelable' => true,
+            'completed_now' => false,
         ];
     }
 

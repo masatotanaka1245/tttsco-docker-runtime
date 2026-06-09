@@ -1292,10 +1292,6 @@ $projectCenterTabs = [
                         </div>
 
                         <div class="flex items-center gap-2 flex-nowrap overflow-x-auto no-scrollbar justify-end">
-                            <button id="csv-ai-categorize-trigger" type="button" onclick="window.openCsvAiCategorizeModal && window.openCsvAiCategorizeModal()" class="bg-white hover:bg-slate-50 text-[#00758F] border border-teal-200 px-3 py-1.5 rounded-xl font-bold text-[10px] shadow-2xs flex items-center gap-1 transition-all duration-200 ease-in-out transform active:scale-95 whitespace-nowrap">
-                                <span>🤖 AIカテゴリ分け</span>
-                            </button>
-
                             <button id="csv-create-trigger" type="button" onclick="window.openCsvCreateModal && window.openCsvCreateModal()" class="bg-[#00758F] hover:bg-[#005a6e] text-white border border-[#00758F] px-3 py-1.5 rounded-xl font-bold text-[10px] shadow-2xs flex items-center gap-1 transition-all duration-200 ease-in-out transform active:scale-95 whitespace-nowrap">
                                 <span>➕ CSV台帳を作成</span>
                             </button>

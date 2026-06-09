@@ -62,6 +62,31 @@ if (!$csvFile) {
     exit;
 }
 
+$stmtRows = $pdo->prepare("SELECT row_data FROM project_csv_rows WHERE csv_file_id = ?");
+$stmtRows->execute([$csvFileId]);
+$hasNonEmptyValue = false;
+while ($row = $stmtRows->fetch(PDO::FETCH_ASSOC)) {
+    $rowData = json_decode((string)($row['row_data'] ?? ''), true);
+    if (!is_array($rowData)) {
+        continue;
+    }
+
+    $value = trim((string)($rowData[$targetColumn] ?? ''));
+    if ($value !== '') {
+        $hasNonEmptyValue = true;
+        break;
+    }
+}
+
+if (!$hasNonEmptyValue) {
+    http_response_code(400);
+    echo json_encode([
+        'success' => false,
+        'error' => '選択した列には値が入っている行がありません。別の列を選ぶか、そのままキャンセルしてください。',
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 $basePath = realpath(__DIR__ . '/../../');
 $jobService = new CsvAiCategorizationJobService($pdo, $basePath ?: dirname(__DIR__, 2));
 $job = $jobService->createJob([

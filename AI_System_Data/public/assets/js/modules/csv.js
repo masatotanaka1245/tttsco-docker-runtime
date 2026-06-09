@@ -345,7 +345,6 @@ function bindCsvToolbarActions() {
     const bindings = [
         ['csv-create-trigger', openCsvCreateModal],
         ['csv-append-trigger', openCsvAppendModal],
-        ['csv-ai-categorize-trigger', openCsvAiCategorizeModal],
     ];
 
     bindings.forEach(([id, handler]) => {
@@ -572,7 +571,10 @@ async function loadCsvData(csvFileId, fileName) {
                             <span class="font-bold text-[#00758F]">📄 ${escapeHTML(fileName)} (${displayedRowCount} / ${totalRowCount} 行を表示)</span>
                             ${isPreviewLimited ? `<span class="text-[10px] text-slate-500 font-medium">プレビューは先頭 ${previewLimit} レコードまで表示しています。</span>` : ''}
                         </div>
-                        <button onclick="handleDeleteCsv(${csvFileId})" class="text-red-500 hover:text-red-700 font-bold hover:underline">🗑️ CSVを全削除</button>
+                        <div class="flex items-center gap-3">
+                            <button type="button" onclick="window.openCsvAiCategorizeModal && window.openCsvAiCategorizeModal()" class="text-[#00758F] hover:text-[#005a6e] font-bold hover:underline">🤖 AIカテゴリ分け</button>
+                            <button type="button" onclick="handleDeleteCsv(${csvFileId})" class="text-red-500 hover:text-red-700 font-bold hover:underline">🗑️ CSVを全削除</button>
+                        </div>
                     </div>
                     <div class="overflow-x-auto overflow-y-auto max-h-[calc(100vh-290px)] md:max-h-[calc(100vh-250px)] custom-scrollbar">
                         <table class="w-full text-[10px] text-left border-collapse">
@@ -834,7 +836,7 @@ async function openCsvAiJobResult(csvFileId, fileName = '') {
 
 async function handleCancelCsvAiJob(jobId) {
     if (!jobId) return;
-    if (!confirm('このAI分類ジョブのキャンセルを要求しますか？現在処理中の行が終わり次第停止します。')) return;
+    if (!confirm('このAI分類ジョブを停止しますか？進行中なら現在の行処理が終わり次第、止まっているジョブならその場で停止します。')) return;
 
     try {
         const response = await secureFetch('api/cancel_csv_ai_job.php', {
@@ -849,7 +851,23 @@ async function handleCancelCsvAiJob(jobId) {
         await loadCsvAiJobHistory();
         const overlay = document.getElementById('csv-ai-job-overlay');
         if (overlay) {
-            overlay.classList.replace('bg-slate-900', 'bg-amber-900');
+            if (response.completed_now) {
+                clearCsvAiJobTimer();
+                activeCsvAiJobId = null;
+                overlay.classList.replace('bg-slate-900', 'bg-amber-900');
+                overlay.innerHTML = `
+                    <div class="flex justify-between items-start border-b border-white/10 pb-3">
+                        <div class="flex flex-col gap-1">
+                            <span class="text-[9px] text-amber-200 uppercase tracking-widest font-black">AI CSV Categorizer</span>
+                            <span class="text-xs font-bold text-white">⏹ ジョブを停止しました</span>
+                        </div>
+                    </div>
+                    <div class="text-[11px] leading-snug font-bold text-white">${escapeHTML(response.message || 'ジョブを停止しました。')}</div>
+                `;
+                setTimeout(() => overlay.remove(), 5000);
+            } else {
+                overlay.classList.replace('bg-slate-900', 'bg-amber-900');
+            }
         }
     } catch (err) {
         alert(`キャンセル要求に失敗しました: ${err.message}`);
