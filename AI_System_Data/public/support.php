@@ -490,17 +490,15 @@ if (!function_exists('renderPdfDocumentItems')) {
             $docTitle = (string)($doc['title'] ?? '');
             ?>
             <details class="bg-white border border-slate-200 rounded-2xl shadow-2xs group overflow-hidden transition-all duration-300 ease-in-out hover:shadow-sm">
-                <summary class="p-3.5 px-5 flex justify-between items-center cursor-pointer hover:bg-slate-50/50 transition-colors duration-200 ease-in-out outline-none select-none">
-                    <div class="flex items-center gap-2.5 overflow-hidden pr-2">
-                        <span class="group-open:rotate-90 transition-transform duration-200 ease-in-out text-slate-400 text-[10px] w-4 text-center">▶</span>
-                        <span class="text-xs font-bold text-slate-700 group-hover:text-[#4F5D95] transition-colors duration-200 truncate">📄 <?= h($docTitle) ?></span>
-                    </div>
-                    <div class="flex items-center gap-2 flex-shrink-0">
-                        <button onclick="event.stopPropagation(); if(typeof window.openPdfTab === 'function') { window.openPdfTab(<?= $docId ?>, '<?= h(str_replace("'", "\\'", $docTitle)) ?>', 1); }" class="text-[9px] text-[#4F5D95] hover:bg-indigo-50 border border-slate-200 px-2.5 py-1 rounded-lg font-bold transition-all duration-200 ease-in-out mr-1 shadow-2xs transform active:scale-95">↗ 別タブで開く</button>
-                        <span class="text-[9px] bg-slate-100 border border-slate-200 px-2 py-0.5 rounded font-mono text-slate-400 font-bold">PDF</span>
-                        <button data-doc-id="<?= $docId ?>" class="btn-delete-pdf text-slate-440 hover:text-red-500 hover:bg-red-50 w-7 h-7 rounded-lg flex items-center justify-center transition-all duration-200 ease-in-out transform active:scale-90" title="この資料を完全に削除">🗑️</button>
-                    </div>
+                <summary class="p-3.5 px-5 flex items-center gap-2.5 overflow-hidden pr-2 cursor-pointer hover:bg-slate-50/50 transition-colors duration-200 ease-in-out outline-none select-none">
+                    <span class="group-open:rotate-90 transition-transform duration-200 ease-in-out text-slate-400 text-[10px] w-4 text-center">▶</span>
+                    <span class="text-xs font-bold text-slate-700 group-hover:text-[#4F5D95] transition-colors duration-200 truncate">📄 <?= h($docTitle) ?></span>
                 </summary>
+                <div class="px-5 pb-3 flex justify-end items-center gap-2 flex-wrap bg-white">
+                    <button type="button" onclick="if(typeof window.openPdfTab === 'function') { window.openPdfTab(<?= $docId ?>, '<?= h(str_replace("'", "\\'", $docTitle)) ?>', 1); }" class="text-[9px] text-[#4F5D95] hover:bg-indigo-50 border border-slate-200 px-2.5 py-1 rounded-lg font-bold transition-all duration-200 ease-in-out shadow-2xs transform active:scale-95">↗ 別タブで開く</button>
+                    <span class="text-[9px] bg-slate-100 border border-slate-200 px-2 py-0.5 rounded font-mono text-slate-400 font-bold">PDF</span>
+                    <button type="button" data-doc-id="<?= $docId ?>" class="btn-delete-pdf text-slate-440 hover:text-red-500 hover:bg-red-50 w-7 h-7 rounded-lg flex items-center justify-center transition-all duration-200 ease-in-out transform active:scale-90" title="この資料を完全に削除">🗑️</button>
+                </div>
                 <div class="h-[580px] border-t border-slate-100 bg-slate-50 p-2">
                     <iframe src="viewer.php?id=<?= h((string)$docId) ?>&page=1" class="w-full h-full border-none rounded-xl shadow-inner bg-white" loading="lazy"></iframe>
                 </div>
