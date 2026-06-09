@@ -251,6 +251,97 @@ if (!isset($URL_SVG_XMLNS)) {
     </div>
 </div>
 
+<div id="csv-create-modal" class="fixed inset-0 bg-slate-950/40 backdrop-blur-xs hidden items-center justify-center z-50 p-4 animate-fadeIn duration-200" role="dialog" aria-modal="true" aria-labelledby="modal-title-csv-create">
+    <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-xl mx-auto border border-slate-100/80 transition-all duration-200">
+        <h3 id="modal-title-csv-create" class="text-sm md:text-base font-black tracking-wider text-slate-700 mb-5 border-b border-slate-100 pb-3 uppercase">手作業CSV台帳の作成</h3>
+        <form id="csv-manual-create-form" onsubmit="window.handleCreateManualCsv(event)" class="space-y-4 text-xs">
+            <div>
+                <label class="block font-bold text-slate-600 mb-1.5">CSVファイル名</label>
+                <input type="text" name="file_name" class="w-full border border-slate-200/80 rounded-xl bg-slate-50/30 px-3 py-2.5 font-medium text-slate-700 outline-none focus:bg-white focus:border-teal-400 focus:ring-4 focus:ring-teal-500/5 transition-all duration-200 ease-in-out" placeholder="例: 日次集計ログ.csv">
+            </div>
+            <div>
+                <label class="block font-bold text-slate-600 mb-1.5">列名 <span class="text-red-500 font-bold">*</span></label>
+                <textarea name="headers_text" rows="4" class="w-full border border-slate-200/80 rounded-xl bg-slate-50/30 px-3 py-2.5 font-medium text-slate-700 outline-none focus:bg-white focus:border-teal-400 focus:ring-4 focus:ring-teal-500/5 transition-all duration-200 ease-in-out resize-none leading-relaxed" placeholder="例: 日付, 担当者, 件数&#10;カンマ区切りまたは改行区切りで入力" required></textarea>
+                <p class="text-[10px] text-slate-400 mt-1.5">列名は作成後に固定されます。</p>
+            </div>
+            <div class="flex justify-end gap-2.5 pt-4 border-t border-slate-100">
+                <button type="button" onclick="window.closeCsvCreateModal && window.closeCsvCreateModal()" class="px-5 py-2 bg-slate-100 rounded-xl font-bold text-slate-500 hover:bg-slate-200 hover:text-slate-700 transition-all duration-200 ease-in-out transform active:scale-98">キャンセル</button>
+                <button type="submit" class="px-7 py-2 bg-[#00758F] text-white rounded-xl font-bold shadow-2xs hover:shadow-md hover:bg-[#005a6e] transition-all duration-200 ease-in-out transform active:scale-98">作成する</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div id="csv-row-append-modal" class="fixed inset-0 bg-slate-950/40 backdrop-blur-xs hidden items-center justify-center z-50 p-4 animate-fadeIn duration-200" role="dialog" aria-modal="true" aria-labelledby="modal-title-csv-append">
+    <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-3xl mx-auto border border-slate-100/80 transition-all duration-200">
+        <h3 id="modal-title-csv-append" class="text-sm md:text-base font-black tracking-wider text-slate-700 mb-5 border-b border-slate-100 pb-3 uppercase">CSVへ1行追加</h3>
+        <form id="csv-row-append-form" onsubmit="window.handleAppendCsvRow(event)" class="space-y-4 text-xs">
+            <input type="hidden" name="csv_file_id" value="">
+            <div class="flex items-center justify-between gap-3">
+                <p id="modal-csv-selected-label" class="text-[11px] text-slate-500 font-bold">左の一覧から CSV を選ぶと、ここに追記先が表示されます。</p>
+                <span id="modal-csv-selected-badge" class="text-[9px] text-slate-500 bg-slate-100 border border-slate-200 rounded-full px-2 py-0.5 font-bold">未選択</span>
+            </div>
+            <div id="modal-csv-row-append-fields" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div class="md:col-span-2 text-[10px] text-slate-400 italic bg-slate-50 border border-dashed border-slate-200 rounded-xl px-3 py-4 text-center">
+                    追記先の CSV を選択してください。
+                </div>
+            </div>
+            <div class="flex justify-end gap-2.5 pt-4 border-t border-slate-100">
+                <button type="button" onclick="window.closeCsvAppendModal && window.closeCsvAppendModal()" class="px-5 py-2 bg-slate-100 rounded-xl font-bold text-slate-500 hover:bg-slate-200 hover:text-slate-700 transition-all duration-200 ease-in-out transform active:scale-98">キャンセル</button>
+                <button id="modal-csv-row-append-submit" type="submit" class="px-7 py-2 bg-slate-300 text-white rounded-xl font-bold shadow-sm cursor-not-allowed" disabled>1行追加する</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div id="csv-ai-categorize-modal" class="fixed inset-0 bg-slate-950/40 backdrop-blur-xs hidden items-center justify-center z-50 p-4 animate-fadeIn duration-200" role="dialog" aria-modal="true" aria-labelledby="modal-title-csv-ai-categorize">
+    <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-2xl mx-auto border border-slate-100/80 transition-all duration-200">
+        <h3 id="modal-title-csv-ai-categorize" class="text-sm md:text-base font-black tracking-wider text-slate-700 mb-5 border-b border-slate-100 pb-3 uppercase">AIカテゴリ分けCSVを作成</h3>
+        <form id="csv-ai-categorize-form" onsubmit="window.handleStartCsvAiCategorizeJob(event)" class="space-y-4 text-xs">
+            <input type="hidden" name="csv_file_id" value="">
+            <div class="flex items-center justify-between gap-3">
+                <p id="modal-csv-ai-selected-label" class="text-[11px] text-slate-500 font-bold">左の一覧からカテゴリ分けしたい CSV を選択してください。</p>
+                <span id="modal-csv-ai-selected-badge" class="text-[9px] text-slate-500 bg-slate-100 border border-slate-200 rounded-full px-2 py-0.5 font-bold">未選択</span>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block font-bold text-slate-600 mb-1.5">分類対象列 <span class="text-red-500 font-bold">*</span></label>
+                    <select id="modal-csv-ai-target-column" name="target_column" class="w-full border border-slate-200/80 rounded-xl bg-slate-50/30 px-3 py-2.5 font-medium text-slate-700 outline-none focus:bg-white focus:border-teal-400 focus:ring-4 focus:ring-teal-500/5 transition-all duration-200 ease-in-out" required>
+                        <option value="">列を選択してください</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-600 mb-1.5">出力CSV名 <span class="text-red-500 font-bold">*</span></label>
+                    <input id="modal-csv-ai-output-file-name" type="text" name="output_file_name" class="w-full border border-slate-200/80 rounded-xl bg-slate-50/30 px-3 py-2.5 font-medium text-slate-700 outline-none focus:bg-white focus:border-teal-400 focus:ring-4 focus:ring-teal-500/5 transition-all duration-200 ease-in-out" placeholder="例: 顧客カテゴリ分類結果.csv" required>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block font-bold text-slate-600 mb-1.5">カテゴリ列名</label>
+                    <input type="text" name="category_column_name" value="AIカテゴリ" class="w-full border border-slate-200/80 rounded-xl bg-slate-50/30 px-3 py-2.5 font-medium text-slate-700 outline-none focus:bg-white focus:border-teal-400 focus:ring-4 focus:ring-teal-500/5 transition-all duration-200 ease-in-out">
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-600 mb-1.5">理由列名</label>
+                    <input type="text" name="reason_column_name" value="AI分類理由" class="w-full border border-slate-200/80 rounded-xl bg-slate-50/30 px-3 py-2.5 font-medium text-slate-700 outline-none focus:bg-white focus:border-teal-400 focus:ring-4 focus:ring-teal-500/5 transition-all duration-200 ease-in-out">
+                </div>
+            </div>
+
+            <div>
+                <label class="block font-bold text-slate-600 mb-1.5">分類ルール・補足指示</label>
+                <textarea name="instructions" rows="4" class="w-full border border-slate-200/80 rounded-xl bg-slate-50/30 px-3 py-2.5 font-medium text-slate-700 outline-none focus:bg-white focus:border-teal-400 focus:ring-4 focus:ring-teal-500/5 transition-all duration-200 ease-in-out resize-none leading-relaxed" placeholder="例: 製品名から『保守』『点検』『レポート』『その他』に分類してください。短い理由も添えてください。"></textarea>
+                <p class="text-[10px] text-slate-400 mt-1.5">元のCSVは変更せず、新しい結果CSVを作成します。</p>
+            </div>
+
+            <div class="flex justify-end gap-2.5 pt-4 border-t border-slate-100">
+                <button type="button" onclick="window.closeCsvAiCategorizeModal && window.closeCsvAiCategorizeModal()" class="px-5 py-2 bg-slate-100 rounded-xl font-bold text-slate-500 hover:bg-slate-200 hover:text-slate-700 transition-all duration-200 ease-in-out transform active:scale-98">キャンセル</button>
+                <button id="modal-csv-ai-submit" type="submit" class="px-7 py-2 bg-slate-300 text-white rounded-xl font-bold shadow-sm cursor-not-allowed" disabled>非同期で開始する</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <div id="material-note-modal" class="fixed inset-0 bg-slate-950/40 backdrop-blur-xs hidden items-center justify-center z-50 p-4 animate-fadeIn duration-200" role="dialog" aria-modal="true" aria-labelledby="modal-title-material">
     <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-4xl mx-auto overflow-y-auto max-h-[90vh] border border-slate-100/80 transition-all duration-200">
         <h3 id="modal-title-material" class="text-sm md:text-base font-black tracking-wider text-slate-700 mb-5 border-b border-slate-100 pb-3 uppercase">資料メモの編集</h3>

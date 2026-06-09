@@ -10,7 +10,7 @@
  */
 
 import { openAppModal, closeProjectModal, closeEditModal, bindModalEvents, closeTab, scrollToBottom, initChatInput, injectPdfLoadingMask, switchTab, openPdfTab, initResizer } from './modules/ui.js?v=5';
-import { handleCsvUpload, loadCsvData, handleDeleteCsv, handlePostgresImport, openCsvPreviewByDocId } from './modules/csv.js?v=4';
+import { handleCsvUpload, loadCsvData, handleDeleteCsv, handlePostgresImport, openCsvPreviewByDocId, handleCreateManualCsv, handleAppendCsvRow, openCsvCreateModal, closeCsvCreateModal, openCsvAppendModal, closeCsvAppendModal, handleStartCsvAiCategorizeJob, openCsvAiCategorizeModal, closeCsvAiCategorizeModal } from './modules/csv.js?v=4';
 import { handleChat, appendMsg, initExistingCharts, initMaterialMemoActions, initDebugLogViewer } from './modules/chat.js?v=19';
 import { checkUploadOnLoad as checkUploadOnLoadModule, handleUpload as handleUploadModule } from './modules/upload.js?v=6';
 import * as Project from './modules/project.js?v=6';
@@ -943,6 +943,12 @@ function bindGlobalFunctions() {
     window.handleDeleteCsv = handleDeleteCsv;
     window.handlePostgresImport = handlePostgresImport;
     window.openCsvPreviewByDocId = openCsvPreviewByDocId;
+    window.handleCreateManualCsv = handleCreateManualCsv;
+    window.handleAppendCsvRow = handleAppendCsvRow;
+    window.openCsvCreateModal = openCsvCreateModal;
+    window.closeCsvCreateModal = closeCsvCreateModal;
+    window.openCsvAppendModal = openCsvAppendModal;
+    window.closeCsvAppendModal = closeCsvAppendModal;
     window.checkUploadOnLoad = checkUploadOnLoadModule;
     window.handleUpload = handleUploadModule;
 
@@ -1012,6 +1018,12 @@ export {
     handleDeleteCsv,
     handlePostgresImport,
     openCsvPreviewByDocId,
+    handleCreateManualCsv,
+    handleAppendCsvRow,
+    openCsvCreateModal,
+    closeCsvCreateModal,
+    openCsvAppendModal,
+    closeCsvAppendModal,
     checkUploadOnLoadModule as checkUploadOnLoad,
     handleUploadModule as handleUpload,
     handleChat,

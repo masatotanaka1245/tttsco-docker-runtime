@@ -1277,20 +1277,35 @@ $projectCenterTabs = [
             </div>
 
             <div id="tab-csv" role="tabpanel" class="tab-content <?= $active_tab === 'csv' ? 'active' : '' ?> h-full overflow-y-auto p-6 space-y-6">
-                <div class="flex justify-between items-center border-b border-slate-200/60 pb-2 mb-4">
-                    <h3 class="text-xs font-black text-slate-500 uppercase tracking-wider flex items-center gap-2"><span>Structured Datasets</span> 構造化CSVデータテーブル</h3>
-                    <div class="flex items-center gap-2">
-                        <button type="button" onclick="if(typeof window.openAppModal === 'function') window.openAppModal('postgres-import-modal')" class="bg-teal-50 hover:bg-teal-100 text-[#00758F] border border-teal-200 px-3 py-1.5 rounded-xl font-bold text-[10px] shadow-2xs flex items-center gap-1 transition-all duration-200 ease-in-out transform active:scale-95">
-                            <span>🐘 PostgreSQLから取得</span>
-                        </button>
-
-                        <form id="csv-upload-form" onsubmit="window.handleCsvUpload(event);" class="flex items-center gap-2">
+                <div class="border-b border-slate-200/60 pb-2 mb-4">
+                    <div class="flex items-center justify-between gap-3">
+                        <div class="flex items-center gap-2 flex-nowrap overflow-x-auto no-scrollbar min-w-0">
+                            <form id="csv-upload-form" onsubmit="window.handleCsvUpload(event);" class="flex items-center gap-2 flex-nowrap">
                             <label class="bg-white hover:bg-slate-50 text-slate-600 px-3 py-1.5 rounded-xl border border-slate-200 font-bold text-[10px] cursor-pointer shadow-2xs transition-all duration-200 ease-in-out hover:border-[#00758F] transform active:scale-95">
                                 <span id="csv-file-label-text">📎 CSVファイルを選択</span>
                                 <input type="file" name="csv_file" accept=".csv" class="hidden" onchange="const form = document.getElementById('csv-upload-form'); form.querySelector('button[type=\'submit\']').classList.remove('hidden'); document.getElementById('csv-file-label-text').textContent = '📄 ' + this.files[0].name;">
                             </label>
                             <button type="submit" class="hidden bg-[#00758F] hover:bg-[#005a6e] text-white px-4 py-1.5 rounded-xl font-bold text-[10px] shadow-md transition-all duration-200 ease-in-out transform active:scale-95">インポート開始</button>
-                        </form>
+                            </form>
+
+                            <button type="button" onclick="if(typeof window.openAppModal === 'function') window.openAppModal('postgres-import-modal')" class="bg-teal-50 hover:bg-teal-100 text-[#00758F] border border-teal-200 px-3 py-1.5 rounded-xl font-bold text-[10px] shadow-2xs flex items-center gap-1 transition-all duration-200 ease-in-out transform active:scale-95 whitespace-nowrap">
+                                <span>🐘 PostgreSQLから取得</span>
+                            </button>
+                        </div>
+
+                        <div class="flex items-center gap-2 flex-nowrap overflow-x-auto no-scrollbar justify-end">
+                            <button type="button" onclick="window.openCsvAiCategorizeModal && window.openCsvAiCategorizeModal()" class="bg-white hover:bg-slate-50 text-[#00758F] border border-teal-200 px-3 py-1.5 rounded-xl font-bold text-[10px] shadow-2xs flex items-center gap-1 transition-all duration-200 ease-in-out transform active:scale-95 whitespace-nowrap">
+                                <span>🤖 AIカテゴリ分け</span>
+                            </button>
+
+                            <button type="button" onclick="window.openCsvCreateModal && window.openCsvCreateModal()" class="bg-[#00758F] hover:bg-[#005a6e] text-white border border-[#00758F] px-3 py-1.5 rounded-xl font-bold text-[10px] shadow-2xs flex items-center gap-1 transition-all duration-200 ease-in-out transform active:scale-95 whitespace-nowrap">
+                                <span>➕ CSV台帳を作成</span>
+                            </button>
+
+                            <button type="button" onclick="window.openCsvAppendModal && window.openCsvAppendModal()" class="bg-white hover:bg-slate-50 text-[#00758F] border border-teal-200 px-3 py-1.5 rounded-xl font-bold text-[10px] shadow-2xs flex items-center gap-1 transition-all duration-200 ease-in-out transform active:scale-95 whitespace-nowrap">
+                                <span>✍️ 1行追加</span>
+                            </button>
+                        </div>
                     </div>
                 </div>
 
@@ -1299,6 +1314,16 @@ $projectCenterTabs = [
                         <h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest pb-1.5 border-b border-slate-200/60">インポート履歴 (<span id="csv-history-count"><?= count($csv_files) ?></span>)</h4>
                         <div id="csv-history-list" class="space-y-2 max-h-[400px] overflow-y-auto pr-1 no-scrollbar">
                             <?php renderCsvHistoryItems($csv_files); ?>
+                        </div>
+
+                        <div class="pt-2 border-t border-slate-200/60 space-y-2">
+                            <div class="flex items-center justify-between gap-2">
+                                <h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest">AI分類ジョブ</h4>
+                                <span id="csv-ai-job-count" class="text-[9px] font-black text-slate-400 bg-white border border-slate-200 px-2 py-0.5 rounded-full shadow-2xs">0 件</span>
+                            </div>
+                            <div id="csv-ai-job-list" class="space-y-2 max-h-[220px] overflow-y-auto pr-1 no-scrollbar">
+                                <p class="text-[10px] text-slate-400 text-center py-4 italic font-medium">AI分類ジョブはまだありません。</p>
+                            </div>
                         </div>
                     </div>
 

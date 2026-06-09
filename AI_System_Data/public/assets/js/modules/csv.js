@@ -4,6 +4,10 @@
  */
 import { secureFetch, getConfig } from './api.js?v=4';
 
+let selectedCsvContext = null;
+let activeCsvAiJobTimer = null;
+let activeCsvAiJobId = null;
+
 /**
  * HTMLエスケープヘルパー (テキストの安全なレンダリング用)
  */
@@ -23,6 +27,306 @@ function updateCsvBadge(offset) {
             tabBtn.textContent = `📊 CSVデータ (${newCount})`;
         }
     }
+}
+
+function setCsvHistoryCount(count) {
+    const countEl = document.getElementById('csv-history-count');
+    if (countEl) {
+        countEl.textContent = String(Math.max(0, count));
+    }
+}
+
+function buildCsvHistoryItemHtml(csvFile) {
+    const id = Number(csvFile.id || 0);
+    const fileName = String(csvFile.file_name || '');
+    const rowCount = Number(csvFile.row_count || 0);
+    const createdAt = String(csvFile.created_at || '');
+    const displayDate = createdAt ? new Date(createdAt.replace(/-/g, '/')) : null;
+    const formattedDate = displayDate && !Number.isNaN(displayDate.getTime())
+        ? `${String(displayDate.getMonth() + 1).padStart(2, '0')}/${String(displayDate.getDate()).padStart(2, '0')} ${String(displayDate.getHours()).padStart(2, '0')}:${String(displayDate.getMinutes()).padStart(2, '0')}`
+        : '--/-- --:--';
+    const escapedName = escapeHTML(fileName);
+    const jsSafeName = fileName.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+    return `
+        <div id="csv-item-${id}" onclick="if(typeof window.loadCsvData === 'function') window.loadCsvData(${id}, '${jsSafeName}')" class="p-3 bg-white border border-slate-200 rounded-xl hover:border-[#00758F] hover:shadow-md cursor-pointer shadow-2xs transition-all duration-200 ease-in-out group transform hover:-translate-y-0.5 active:scale-98">
+            <div class="text-xs font-bold text-slate-700 truncate group-hover:text-[#00758F] transition-colors duration-150 mb-1.5" title="📄 ${escapedName}">📄 ${escapedName}</div>
+            <div class="flex justify-between items-center text-[9px] text-slate-400 font-medium">
+                <span class="font-mono bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100 font-bold">${rowCount.toLocaleString()} rows</span>
+                <span>${formattedDate}</span>
+            </div>
+        </div>
+    `;
+}
+
+function ensureCsvHistoryHasContent() {
+    const list = document.getElementById('csv-history-list');
+    if (!list) return;
+    if (list.querySelector('[id^="csv-item-"]')) return;
+    list.innerHTML = '<p class="text-[10px] text-slate-400 text-center py-8 italic font-medium">登録済みのCSVはありません。</p>';
+}
+
+function setCsvAiJobCount(count) {
+    const countEl = document.getElementById('csv-ai-job-count');
+    if (countEl) {
+        countEl.textContent = `${Math.max(0, count)} 件`;
+    }
+}
+
+function formatCsvAiJobTime(isoString) {
+    if (!isoString) return '--/-- --:--';
+    const date = new Date(String(isoString).replace(/-/g, '/'));
+    if (Number.isNaN(date.getTime())) return '--/-- --:--';
+    return `${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
+
+function getCsvAiJobStatusStyle(status) {
+    switch (status) {
+        case 'completed':
+            return 'text-emerald-700 bg-emerald-50 border-emerald-200';
+        case 'canceled':
+            return 'text-amber-700 bg-amber-50 border-amber-200';
+        case 'error':
+            return 'text-red-700 bg-red-50 border-red-200';
+        case 'processing':
+            return 'text-cyan-700 bg-cyan-50 border-cyan-200';
+        default:
+            return 'text-slate-600 bg-slate-100 border-slate-200';
+    }
+}
+
+function getCsvAiJobStatusLabel(status) {
+    switch (status) {
+        case 'completed':
+            return '完了';
+        case 'canceled':
+            return '停止';
+        case 'error':
+            return '失敗';
+        case 'processing':
+            return '実行中';
+        default:
+            return '待機中';
+    }
+}
+
+function buildCsvAiJobItemHtml(item) {
+    const job = item?.job || {};
+    const status = item?.status || {};
+    const jobId = String(job.job_id || '');
+    const sourceFileName = escapeHTML(String(job.source_file_name || 'CSV'));
+    const targetColumn = escapeHTML(String(job.target_column || ''));
+    const outputFileName = escapeHTML(String(job.output_file_name || ''));
+    const rawOutputFileName = String(job.output_file_name || '');
+    const outputCsvFileId = Number(status.output_csv_file_id || job.output_csv_file_id || 0);
+    const state = String(status.status || job.status || 'pending');
+    const progress = Math.max(0, Math.min(100, Number(status.progress || 0)));
+    const current = Number(status.current || 0);
+    const total = Number(status.total || 0);
+    const message = escapeHTML(String(status.message || ''));
+    const createdAt = formatCsvAiJobTime(job.created_at || '');
+    const statusClass = getCsvAiJobStatusStyle(state);
+    const statusLabel = getCsvAiJobStatusLabel(state);
+    const canCancel = state === 'pending' || state === 'processing';
+
+    return `
+        <div id="csv-ai-job-${escapeHTML(jobId)}" class="p-3 bg-white border border-slate-200 rounded-xl shadow-2xs space-y-2">
+            <div class="flex items-start justify-between gap-2">
+                <div class="min-w-0">
+                    <div class="text-[10px] font-bold text-slate-700 truncate" title="${sourceFileName}">${sourceFileName}</div>
+                    <div class="text-[9px] text-slate-400 mt-0.5 truncate" title="${outputFileName}">→ ${outputFileName || '結果CSVを作成中'}</div>
+                </div>
+                <span class="text-[9px] font-bold border rounded-full px-2 py-0.5 whitespace-nowrap ${statusClass}">${statusLabel}</span>
+            </div>
+            <div class="text-[9px] text-slate-500 font-medium">対象列: ${targetColumn || '未指定'}</div>
+            <div class="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                <div class="bg-gradient-to-r from-cyan-500 to-teal-400 h-full transition-all duration-300" style="width:${progress}%"></div>
+            </div>
+            <div class="flex items-center justify-between gap-2 text-[9px] text-slate-400 font-medium">
+                <span class="truncate" title="${message}">${message || 'ジョブを準備しています。'}</span>
+                <span class="font-mono whitespace-nowrap">${current}/${total || '--'}</span>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+                <div class="text-[9px] text-slate-400 font-mono">${createdAt}</div>
+                <div class="flex items-center gap-2">
+                    ${outputCsvFileId > 0 ? `<button type="button" onclick="window.openCsvAiJobResult && window.openCsvAiJobResult(${outputCsvFileId}, '${rawOutputFileName.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')" class="text-[9px] font-bold text-cyan-700 bg-cyan-50 border border-cyan-200 rounded-full px-2 py-0.5 hover:bg-cyan-100 transition-all">結果を開く</button>` : ''}
+                    ${canCancel ? `<button type="button" onclick="window.handleCancelCsvAiJob && window.handleCancelCsvAiJob('${escapeHTML(jobId)}')" class="text-[9px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5 hover:bg-amber-100 transition-all">キャンセル</button>` : ''}
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function renderCsvAiJobHistory(items) {
+    const list = document.getElementById('csv-ai-job-list');
+    if (!list) return;
+
+    const normalized = Array.isArray(items) ? items : [];
+    setCsvAiJobCount(normalized.length);
+
+    if (normalized.length === 0) {
+        list.innerHTML = '<p class="text-[10px] text-slate-400 text-center py-4 italic font-medium">AI分類ジョブはまだありません。</p>';
+        return;
+    }
+
+    list.innerHTML = normalized.map((item) => buildCsvAiJobItemHtml(item)).join('');
+}
+
+async function loadCsvAiJobHistory() {
+    const list = document.getElementById('csv-ai-job-list');
+    if (!list) return;
+
+    const { projectId } = getConfig();
+    if (!projectId) {
+        renderCsvAiJobHistory([]);
+        return;
+    }
+
+    const data = await secureFetch(`api/get_csv_ai_job_list.php?project_id=${encodeURIComponent(projectId)}&limit=8`, { method: 'GET' });
+    if (!data?.success) return;
+    renderCsvAiJobHistory(data.items || []);
+}
+
+function prependCsvHistoryItem(csvFile) {
+    const list = document.getElementById('csv-history-list');
+    if (!list) return;
+    const empty = list.querySelector('p');
+    if (empty) empty.remove();
+    list.insertAdjacentHTML('afterbegin', buildCsvHistoryItemHtml(csvFile));
+}
+
+function setSelectedCsvContext(context) {
+    selectedCsvContext = context;
+    renderCsvAppendFields();
+    renderCsvAiCategorizeForm();
+}
+
+function renderCsvAppendFields() {
+    const label = document.getElementById('modal-csv-selected-label');
+    const badge = document.getElementById('modal-csv-selected-badge');
+    const fields = document.getElementById('modal-csv-row-append-fields');
+    const hiddenInput = document.querySelector('#csv-row-append-form input[name="csv_file_id"]');
+    const submitBtn = document.getElementById('modal-csv-row-append-submit');
+
+    if (!label || !badge || !fields || !hiddenInput || !submitBtn) return;
+
+    if (!selectedCsvContext || !Array.isArray(selectedCsvContext.headers) || selectedCsvContext.headers.length === 0) {
+        label.textContent = '左の一覧から CSV を選ぶと、ここに追記フォームが出ます。';
+        badge.textContent = '未選択';
+        badge.className = 'text-[9px] text-slate-500 bg-slate-100 border border-slate-200 rounded-full px-2 py-0.5 font-bold';
+        hiddenInput.value = '';
+        submitBtn.disabled = true;
+        submitBtn.className = 'bg-slate-300 text-white px-4 py-2 rounded-xl font-bold text-[11px] shadow-sm cursor-not-allowed';
+        fields.innerHTML = `
+            <div class="md:col-span-2 text-[10px] text-slate-400 italic bg-slate-50 border border-dashed border-slate-200 rounded-xl px-3 py-4 text-center">
+                追記先の CSV を選択してください。
+            </div>
+        `;
+        return;
+    }
+
+    label.textContent = `現在の追記先: ${selectedCsvContext.fileName}`;
+    badge.textContent = `${selectedCsvContext.headers.length} 列`;
+    badge.className = 'text-[9px] text-[#00758F] bg-teal-50 border border-teal-200 rounded-full px-2 py-0.5 font-bold';
+    hiddenInput.value = String(selectedCsvContext.id);
+    submitBtn.disabled = false;
+    submitBtn.className = 'bg-[#00758F] hover:bg-[#005a6e] text-white px-4 py-2 rounded-xl font-bold text-[11px] shadow-md transition-all duration-200 ease-in-out transform active:scale-95';
+    fields.innerHTML = selectedCsvContext.headers.map((header) => `
+        <label class="block">
+            <span class="block text-[10px] font-bold text-slate-500 mb-1">${escapeHTML(header)}</span>
+            <input type="text" data-header="${escapeHTML(header)}" class="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs bg-slate-50 focus:bg-white focus:border-[#00758F] outline-none transition-all" placeholder="${escapeHTML(header)}">
+        </label>
+    `).join('');
+}
+
+function closeCsvCreateModal() {
+    const modal = document.getElementById('csv-create-modal');
+    if (!modal) return;
+    modal.classList.replace('flex', 'hidden');
+    const form = document.getElementById('csv-manual-create-form');
+    form?.reset();
+}
+
+function openCsvCreateModal() {
+    const modal = document.getElementById('csv-create-modal');
+    if (!modal) return;
+    modal.classList.replace('hidden', 'flex');
+}
+
+function closeCsvAppendModal() {
+    const modal = document.getElementById('csv-row-append-modal');
+    if (!modal) return;
+    modal.classList.replace('flex', 'hidden');
+}
+
+function closeCsvAiCategorizeModal() {
+    const modal = document.getElementById('csv-ai-categorize-modal');
+    if (!modal) return;
+    modal.classList.replace('flex', 'hidden');
+}
+
+function renderCsvAiCategorizeForm() {
+    const label = document.getElementById('modal-csv-ai-selected-label');
+    const badge = document.getElementById('modal-csv-ai-selected-badge');
+    const select = document.getElementById('modal-csv-ai-target-column');
+    const hiddenInput = document.querySelector('#csv-ai-categorize-form input[name="csv_file_id"]');
+    const outputFileName = document.getElementById('modal-csv-ai-output-file-name');
+    const submitBtn = document.getElementById('modal-csv-ai-submit');
+
+    if (!label || !badge || !select || !hiddenInput || !outputFileName || !submitBtn) return;
+
+    if (!selectedCsvContext || !Array.isArray(selectedCsvContext.headers) || selectedCsvContext.headers.length === 0) {
+        label.textContent = '左の一覧からカテゴリ分けしたい CSV を選択してください。';
+        badge.textContent = '未選択';
+        badge.className = 'text-[9px] text-slate-500 bg-slate-100 border border-slate-200 rounded-full px-2 py-0.5 font-bold';
+        hiddenInput.value = '';
+        select.innerHTML = '<option value="">列を選択してください</option>';
+        outputFileName.value = '';
+        submitBtn.disabled = true;
+        submitBtn.className = 'px-7 py-2 bg-slate-300 text-white rounded-xl font-bold shadow-sm cursor-not-allowed';
+        return;
+    }
+
+    const sourceName = String(selectedCsvContext.fileName || 'ai_categorize_target.csv');
+    const defaultOutputName = sourceName.replace(/\.csv$/i, '') + '_ai_categorized.csv';
+
+    label.textContent = `現在の対象: ${sourceName}`;
+    badge.textContent = `${selectedCsvContext.headers.length} 列`;
+    badge.className = 'text-[9px] text-[#00758F] bg-teal-50 border border-teal-200 rounded-full px-2 py-0.5 font-bold';
+    hiddenInput.value = String(selectedCsvContext.id);
+    select.innerHTML = `
+        <option value="">列を選択してください</option>
+        ${selectedCsvContext.headers.map((header) => `<option value="${escapeHTML(header)}">${escapeHTML(header)}</option>`).join('')}
+    `;
+    if (!outputFileName.value.trim()) {
+        outputFileName.value = defaultOutputName;
+    }
+    submitBtn.disabled = false;
+    submitBtn.className = 'px-7 py-2 bg-[#00758F] text-white rounded-xl font-bold shadow-2xs hover:shadow-md hover:bg-[#005a6e] transition-all duration-200 ease-in-out transform active:scale-98';
+}
+
+function openCsvAiCategorizeModal() {
+    if (!selectedCsvContext || !Array.isArray(selectedCsvContext.headers) || selectedCsvContext.headers.length === 0) {
+        alert('先に左の一覧から分類対象のCSVを選択してください。');
+        return;
+    }
+
+    renderCsvAiCategorizeForm();
+    const modal = document.getElementById('csv-ai-categorize-modal');
+    if (!modal) return;
+    modal.classList.replace('hidden', 'flex');
+}
+
+function openCsvAppendModal() {
+    if (!selectedCsvContext || !Array.isArray(selectedCsvContext.headers) || selectedCsvContext.headers.length === 0) {
+        alert('先に左の一覧から追記先のCSVを選択してください。');
+        return;
+    }
+
+    renderCsvAppendFields();
+    const modal = document.getElementById('csv-row-append-modal');
+    if (!modal) return;
+    modal.classList.replace('hidden', 'flex');
 }
 
 /**
@@ -219,10 +523,17 @@ async function loadCsvData(csvFileId, fileName) {
             const previewLimit = Number(data.preview_limit || displayedRowCount || 0);
             const isPreviewLimited = Boolean(data.preview_limited);
 
-            if (headers.length === 0) {
-                container.innerHTML = `<p class="text-xs text-gray-400 text-center py-10 bg-white border rounded-xl italic">表示可能なカラムがありませんでした。</p>`;
-                return;
-            }
+    setSelectedCsvContext({
+        id: csvFileId,
+        fileName: data.file_name || fileName,
+        headers,
+    });
+    renderCsvAiCategorizeForm();
+
+    if (headers.length === 0) {
+        container.innerHTML = `<p class="text-xs text-gray-400 text-center py-10 bg-white border rounded-xl italic">表示可能なカラムがありませんでした。</p>`;
+        return;
+    }
 
             let tableHtml = `
                 <div class="bg-white border rounded-xl shadow-sm overflow-hidden animate-fadeIn flex flex-col">
@@ -282,13 +593,10 @@ async function handleDeleteCsv(csvFileId) {
                 itemEl.style.transform = 'translateY(-10px)';
                 setTimeout(() => {
                     itemEl.remove();
-                    
+
                     const listContainer = document.querySelector('[id^="csv-item-"]');
                     if (!listContainer) {
-                        const sidebarList = document.querySelector('#tab-csv .space-y-2');
-                        if (sidebarList) {
-                            sidebarList.innerHTML = '<p class="text-[10px] text-slate-400 text-center py-8 italic">登録済みのCSVはありません。</p>';
-                        }
+                        ensureCsvHistoryHasContent();
                     }
                 }, 300);
             }
@@ -303,7 +611,12 @@ async function handleDeleteCsv(csvFileId) {
                 `;
             }
 
+            if (selectedCsvContext && Number(selectedCsvContext.id) === Number(csvFileId)) {
+                setSelectedCsvContext(null);
+            }
+
             updateCsvBadge(-1);
+            setCsvHistoryCount(document.querySelectorAll('[id^="csv-item-"]').length - 1);
 
         } else {
             alert('削除失敗: ' + (response.error || '不明なエラーが発生しました。'));
@@ -345,6 +658,314 @@ async function openCsvPreviewByDocId(docId, cleanTitle) {
     }
 }
 
+async function handleCreateManualCsv(e) {
+    e.preventDefault();
+    const form = e.target;
+    const { projectId } = getConfig();
+    const fileName = String(form.file_name?.value || '').trim();
+    const headersText = String(form.headers_text?.value || '').trim();
+    const headers = headersText
+        .split(/[\n,]/u)
+        .map((item) => item.trim())
+        .filter(Boolean);
+
+    if (!projectId) {
+        alert('案件情報が見つかりません。');
+        return;
+    }
+    if (headers.length === 0) {
+        alert('列名を1つ以上入力してください。');
+        return;
+    }
+
+    try {
+        const response = await secureFetch('api/create_csv_table.php', {
+            method: 'POST',
+            body: JSON.stringify({
+                project_id: Number(projectId),
+                file_name: fileName,
+                headers,
+            }),
+        });
+
+        if (!response?.success || !response.csv_file) {
+            throw new Error(response?.error || 'CSV台帳の作成に失敗しました。');
+        }
+
+        prependCsvHistoryItem(response.csv_file);
+        setCsvHistoryCount(document.querySelectorAll('[id^="csv-item-"]').length);
+        updateCsvBadge(1);
+        form.reset();
+        closeCsvCreateModal();
+        await loadCsvData(response.csv_file.id, response.csv_file.file_name);
+    } catch (err) {
+        alert(`CSV台帳の作成に失敗しました: ${err.message}`);
+    }
+}
+
+async function handleAppendCsvRow(e) {
+    e.preventDefault();
+    const form = e.target;
+    const { projectId } = getConfig();
+    const csvFileId = Number(form.csv_file_id?.value || 0);
+
+    if (!projectId || !csvFileId || !selectedCsvContext) {
+        alert('追記先のCSVを選択してください。');
+        return;
+    }
+
+    const rowData = {};
+    form.querySelectorAll('[data-header]').forEach((input) => {
+        const header = input.dataset.header || '';
+        rowData[header] = input.value || '';
+    });
+
+    try {
+        const response = await secureFetch('api/append_csv_row.php', {
+            method: 'POST',
+            body: JSON.stringify({
+                project_id: Number(projectId),
+                csv_file_id: csvFileId,
+                row_data: rowData,
+            }),
+        });
+
+        if (!response?.success) {
+            throw new Error(response?.error || 'CSVへの追記に失敗しました。');
+        }
+
+        form.reset();
+        closeCsvAppendModal();
+        await loadCsvData(csvFileId, selectedCsvContext.fileName);
+    } catch (err) {
+        alert(`CSVへの追記に失敗しました: ${err.message}`);
+    }
+}
+
+function ensureCsvAiJobOverlay() {
+    let overlay = document.getElementById('csv-ai-job-overlay');
+    if (overlay) return overlay;
+
+    overlay = document.createElement('div');
+    overlay.id = 'csv-ai-job-overlay';
+    overlay.className = 'fixed bottom-6 right-6 bg-slate-900 text-white p-5 rounded-2xl shadow-2xl z-50 text-sm flex flex-col gap-3 min-w-[360px] animate-fadeIn border border-white/10 transition-all duration-500 opacity-100';
+    document.body.appendChild(overlay);
+    return overlay;
+}
+
+function renderCsvAiJobOverlay(status, job) {
+    const overlay = ensureCsvAiJobOverlay();
+    const progress = Math.max(0, Math.min(100, Number(status?.progress || 0)));
+    const total = Number(status?.total || 0);
+    const current = Number(status?.current || 0);
+    const message = escapeHTML(status?.message || 'AI分類ジョブを準備しています...');
+    const sourceName = escapeHTML(job?.source_file_name || job?.source_csv_file_name || 'CSV');
+    const state = String(status?.status || status?.state || job?.status || 'pending');
+    const canCancel = state === 'pending' || state === 'processing';
+
+    overlay.innerHTML = `
+        <div class="flex justify-between items-start border-b border-white/10 pb-3">
+            <div class="flex flex-col gap-1">
+                <span class="text-[9px] text-cyan-400 uppercase tracking-widest font-black">AI CSV Categorizer</span>
+                <span class="text-xs font-bold text-slate-200 truncate max-w-[220px]" title="${sourceName}">🤖 ${sourceName}</span>
+            </div>
+            <span class="text-2xl font-black text-cyan-400 font-mono">${progress}%</span>
+        </div>
+        <div class="mt-1 flex justify-between items-end gap-4">
+            <div class="text-[11px] leading-snug flex items-center font-bold text-slate-100">${message}</div>
+            <div class="text-[10px] text-slate-300 font-mono font-bold bg-white/10 px-2.5 py-0.5 rounded-full border border-white/5">${current} / ${total || '--'} 行</div>
+        </div>
+        <div class="w-full bg-white/10 h-2.5 rounded-full overflow-hidden shadow-inner mt-1"><div class="bg-gradient-to-r from-cyan-500 to-teal-400 h-full transition-all duration-700 ease-out" style="width:${progress}%"></div></div>
+        ${canCancel && activeCsvAiJobId ? `<div class="flex justify-end mt-1"><button type="button" onclick="window.handleCancelCsvAiJob && window.handleCancelCsvAiJob('${escapeHTML(activeCsvAiJobId)}')" class="text-[10px] font-bold text-amber-200 bg-white/10 border border-white/10 rounded-full px-3 py-1 hover:bg-white/15 transition-all">キャンセル</button></div>` : ''}
+    `;
+
+    return overlay;
+}
+
+function clearCsvAiJobTimer() {
+    if (activeCsvAiJobTimer) {
+        clearInterval(activeCsvAiJobTimer);
+        activeCsvAiJobTimer = null;
+    }
+}
+
+async function openCsvAiJobResult(csvFileId, fileName = '') {
+    const id = Number(csvFileId || 0);
+    if (!id) {
+        alert('結果CSVがまだ作成されていません。');
+        return;
+    }
+
+    if (typeof window.switchTab === 'function') {
+        window.switchTab('tab-csv');
+    }
+    await loadCsvData(id, fileName || 'AIカテゴリ分類結果.csv');
+}
+
+async function handleCancelCsvAiJob(jobId) {
+    if (!jobId) return;
+    if (!confirm('このAI分類ジョブのキャンセルを要求しますか？現在処理中の行が終わり次第停止します。')) return;
+
+    try {
+        const response = await secureFetch('api/cancel_csv_ai_job.php', {
+            method: 'POST',
+            body: JSON.stringify({ job_id: jobId }),
+        });
+
+        if (!response?.success) {
+            throw new Error(response?.error || 'キャンセル要求に失敗しました。');
+        }
+
+        await loadCsvAiJobHistory();
+        const overlay = document.getElementById('csv-ai-job-overlay');
+        if (overlay) {
+            overlay.classList.replace('bg-slate-900', 'bg-amber-900');
+        }
+    } catch (err) {
+        alert(`キャンセル要求に失敗しました: ${err.message}`);
+    }
+}
+
+async function pollCsvAiJobStatus(jobId) {
+    clearCsvAiJobTimer();
+    activeCsvAiJobId = jobId;
+    renderCsvAiJobOverlay({ progress: 0, current: 0, total: 0, message: 'ジョブを開始しました。進捗を取得しています...' }, {});
+    await loadCsvAiJobHistory();
+
+    activeCsvAiJobTimer = setInterval(async () => {
+        const data = await secureFetch(`api/get_csv_ai_job_status.php?job_id=${encodeURIComponent(jobId)}`, { method: 'GET' });
+        if (!data?.success || !data.status) return;
+        await loadCsvAiJobHistory();
+
+        const overlay = renderCsvAiJobOverlay(data.status, data.job || {});
+        const status = data.status;
+        const job = data.job || {};
+        const state = String(status.status || status.state || '');
+
+        if (state === 'completed') {
+            clearCsvAiJobTimer();
+            activeCsvAiJobId = null;
+            await loadCsvAiJobHistory();
+            overlay.classList.replace('bg-slate-900', 'bg-emerald-900');
+            const outputFileName = String(job.output_file_name || 'AIカテゴリ分類結果.csv');
+            const outputCsvFileId = Number(status.output_csv_file_id || 0);
+            overlay.innerHTML = `
+                <div class="flex justify-between items-start border-b border-white/10 pb-3">
+                    <div class="flex flex-col gap-1">
+                        <span class="text-[9px] text-emerald-300 uppercase tracking-widest font-black">AI CSV Categorizer</span>
+                        <span class="text-xs font-bold text-white truncate max-w-[220px]" title="${escapeHTML(outputFileName)}">✅ ${escapeHTML(outputFileName)}</span>
+                    </div>
+                    <span class="text-2xl font-black text-emerald-300 font-mono">100%</span>
+                </div>
+                <div class="text-[11px] leading-snug font-bold text-white">カテゴリ分けCSVを作成しました。左の一覧へ追加して表示します。</div>
+                ${outputCsvFileId > 0 ? `<div class="flex justify-end"><button type="button" onclick="window.openCsvAiJobResult && window.openCsvAiJobResult(${outputCsvFileId}, '${outputFileName.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')" class="text-[10px] font-bold text-emerald-200 bg-white/10 border border-white/10 rounded-full px-3 py-1 hover:bg-white/15 transition-all">結果を開く</button></div>` : ''}
+            `;
+
+            if (outputCsvFileId > 0 && !document.getElementById(`csv-item-${outputCsvFileId}`)) {
+                prependCsvHistoryItem({
+                    id: outputCsvFileId,
+                    file_name: outputFileName,
+                    row_count: Number(status.total || 0),
+                    created_at: new Date().toISOString(),
+                });
+                setCsvHistoryCount(document.querySelectorAll('[id^="csv-item-"]').length);
+                updateCsvBadge(1);
+            }
+
+            if (outputCsvFileId > 0) {
+                await loadCsvData(outputCsvFileId, outputFileName);
+            }
+
+            setTimeout(() => overlay.remove(), 5000);
+            return;
+        }
+
+        if (state === 'canceled') {
+            clearCsvAiJobTimer();
+            activeCsvAiJobId = null;
+            await loadCsvAiJobHistory();
+            overlay.classList.replace('bg-slate-900', 'bg-amber-900');
+            overlay.innerHTML = `
+                <div class="flex justify-between items-start border-b border-white/10 pb-3">
+                    <div class="flex flex-col gap-1">
+                        <span class="text-[9px] text-amber-200 uppercase tracking-widest font-black">AI CSV Categorizer</span>
+                        <span class="text-xs font-bold text-white">⏹ ジョブを停止しました</span>
+                    </div>
+                </div>
+                <div class="text-[11px] leading-snug font-bold text-white">${escapeHTML(status.message || 'キャンセル要求により停止しました。')}</div>
+            `;
+            setTimeout(() => overlay.remove(), 6000);
+            return;
+        }
+
+        if (state === 'error') {
+            clearCsvAiJobTimer();
+            activeCsvAiJobId = null;
+            await loadCsvAiJobHistory();
+            overlay.classList.replace('bg-slate-900', 'bg-red-950');
+            overlay.innerHTML = `
+                <div class="flex justify-between items-start border-b border-white/10 pb-3">
+                    <div class="flex flex-col gap-1">
+                        <span class="text-[9px] text-red-300 uppercase tracking-widest font-black">AI CSV Categorizer</span>
+                        <span class="text-xs font-bold text-white">❌ ジョブ失敗</span>
+                    </div>
+                </div>
+                <div class="text-[11px] leading-snug font-bold text-white">${escapeHTML(status.error || status.message || 'カテゴリ分け処理に失敗しました。')}</div>
+            `;
+            setTimeout(() => overlay.remove(), 8000);
+        }
+    }, 2000);
+}
+
+async function handleStartCsvAiCategorizeJob(e) {
+    e.preventDefault();
+    const form = e.target;
+    const { projectId } = getConfig();
+    const csvFileId = Number(form.csv_file_id?.value || 0);
+    const targetColumn = String(form.target_column?.value || '').trim();
+    const outputFileName = String(form.output_file_name?.value || '').trim();
+
+    if (!projectId || !csvFileId || !targetColumn || !outputFileName) {
+        alert('対象CSV・対象列・出力CSV名を入力してください。');
+        return;
+    }
+
+    const submitBtn = document.getElementById('modal-csv-ai-submit');
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = '起動中...';
+    }
+
+    try {
+        const response = await secureFetch('api/start_csv_ai_categorize_job.php', {
+            method: 'POST',
+            body: JSON.stringify({
+                project_id: Number(projectId),
+                csv_file_id: csvFileId,
+                target_column: targetColumn,
+                output_file_name: outputFileName,
+                category_column_name: String(form.category_column_name?.value || 'AIカテゴリ').trim(),
+                reason_column_name: String(form.reason_column_name?.value || 'AI分類理由').trim(),
+                instructions: String(form.instructions?.value || '').trim(),
+            }),
+        });
+
+        if (!response?.success || !response.job_id) {
+            throw new Error(response?.error || 'AIカテゴリ分けジョブの起動に失敗しました。');
+        }
+
+        closeCsvAiCategorizeModal();
+        await pollCsvAiJobStatus(response.job_id);
+    } catch (err) {
+        alert(`AIカテゴリ分けジョブを開始できませんでした: ${err.message}`);
+    } finally {
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = '非同期で開始する';
+        }
+    }
+}
+
 // =========================================================================
 // ★[究極の安全設計] グローバルへの確実なバインドとPDFバッジフック処理
 // =========================================================================
@@ -354,6 +975,17 @@ async function openCsvPreviewByDocId(docId, cleanTitle) {
     window.handleDeleteCsv = handleDeleteCsv;
     window.handlePostgresImport = handlePostgresImport;
     window.openCsvPreviewByDocId = openCsvPreviewByDocId;
+    window.handleCreateManualCsv = handleCreateManualCsv;
+    window.handleAppendCsvRow = handleAppendCsvRow;
+    window.openCsvCreateModal = openCsvCreateModal;
+    window.closeCsvCreateModal = closeCsvCreateModal;
+    window.openCsvAppendModal = openCsvAppendModal;
+    window.closeCsvAppendModal = closeCsvAppendModal;
+    window.handleStartCsvAiCategorizeJob = handleStartCsvAiCategorizeJob;
+    window.openCsvAiCategorizeModal = openCsvAiCategorizeModal;
+    window.closeCsvAiCategorizeModal = closeCsvAiCategorizeModal;
+    window.handleCancelCsvAiJob = handleCancelCsvAiJob;
+    window.openCsvAiJobResult = openCsvAiJobResult;
 
     const originalOpenPdfTab = window.openPdfTab;
     window.openPdfTab = function(docId, title, page) {
@@ -364,6 +996,14 @@ async function openCsvPreviewByDocId(docId, cleanTitle) {
             originalOpenPdfTab(docId, title, page);
         }
     };
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => {
+            loadCsvAiJobHistory().catch(() => {});
+        }, { once: true });
+    } else {
+        loadCsvAiJobHistory().catch(() => {});
+    }
 })();
 
 export {
@@ -372,5 +1012,17 @@ export {
     startStructuredImportTracking,
     loadCsvData,
     handleDeleteCsv,
-    openCsvPreviewByDocId
+    openCsvPreviewByDocId,
+    handleCreateManualCsv,
+    handleAppendCsvRow,
+    openCsvCreateModal,
+    closeCsvCreateModal,
+    openCsvAppendModal,
+    closeCsvAppendModal,
+    handleStartCsvAiCategorizeJob,
+    openCsvAiCategorizeModal,
+    closeCsvAiCategorizeModal,
+    loadCsvAiJobHistory,
+    handleCancelCsvAiJob,
+    openCsvAiJobResult
 };
