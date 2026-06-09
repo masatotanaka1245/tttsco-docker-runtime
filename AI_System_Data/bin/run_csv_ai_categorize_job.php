@@ -77,6 +77,61 @@ $callCategorizer = static function (string $host, string $model, string $system,
     ];
 };
 
+$callCategorizationPlanner = static function (string $host, string $model, string $targetColumn, array $valueStats, int $totalNonEmpty, int $uniqueCount): array {
+    $lines = [];
+    foreach ($valueStats as $item) {
+        $value = (string)($item['value'] ?? '');
+        $count = (int)($item['count'] ?? 0);
+        $lines[] = "- {$value} ({$count}件)";
+    }
+
+    $system = "あなたはCSV列の事前分析アシスタントです。\n"
+        . "列全体の値を観察して、後続のカテゴリ分類で使う分類方針を提案してください。\n"
+        . "出力はJSONのみで、必ず {\"guidance\":\"...\",\"categories\":[\"...\"],\"observations\":[\"...\"]} の形式にしてください。";
+
+    $user = "【対象列】\n{$targetColumn}\n\n"
+        . "【非空セル総数】\n{$totalNonEmpty}\n\n"
+        . "【ユニーク値数】\n{$uniqueCount}\n\n"
+        . "【列全体から集計した値一覧（件数つき）】\n"
+        . implode("\n", $lines);
+
+    $payload = OllamaChatHelper::buildChatPayload($model, $system, $user, 'json', [
+        'temperature' => 0.0,
+        'top_p' => 0.1,
+        'num_ctx' => 4096,
+    ]);
+
+    $ch = curl_init(rtrim($host, '/') . '/api/chat');
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 120);
+
+    $res = curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $err = curl_error($ch);
+    curl_close($ch);
+
+    if ($res === false || $code !== 200) {
+        throw new RuntimeException("Ollama planning API error ({$code}): {$err}");
+    }
+
+    $json = json_decode($res, true);
+    $content = $json['message']['content'] ?? '';
+    $decoded = json_decode($content, true);
+    if (!is_array($decoded)) {
+        throw new RuntimeException('AIの分類方針JSONを解析できませんでした。');
+    }
+
+    return [
+        'guidance' => trim((string)($decoded['guidance'] ?? '')),
+        'categories' => array_values(array_filter(array_map(static fn($v) => trim((string)$v), (array)($decoded['categories'] ?? [])), static fn($v) => $v !== '')),
+        'observations' => array_values(array_filter(array_map(static fn($v) => trim((string)$v), (array)($decoded['observations'] ?? [])), static fn($v) => $v !== '')),
+    ];
+};
+
 $markCanceled = static function (int $current, int $total, int $outputCsvFileId = 0, string $reason = 'cancel requested') use ($jobService, $jobId, $writeStatus, $job, $logJob): never {
     $jobService->updateJob($jobId, [
         'status' => 'canceled',
@@ -185,6 +240,89 @@ try {
     $system = "あなたはCSVデータのカテゴリ分類アシスタントです。\n"
         . "対象列の値を1つの短いカテゴリ名へ分類し、理由も1文で返してください。\n"
         . "出力はJSONのみで、必ず {\"category\":\"...\",\"reason\":\"...\"} の形式にしてください。";
+
+    if (trim((string)$job['instructions']) === '') {
+        $valueCounts = [];
+        $totalNonEmptyValues = 0;
+        foreach ($rows as $row) {
+            $rowData = json_decode((string)($row['row_data'] ?? ''), true);
+            if (!is_array($rowData)) {
+                continue;
+            }
+            $value = trim((string)($rowData[$job['target_column']] ?? ''));
+            if ($value === '') {
+                continue;
+            }
+            $totalNonEmptyValues++;
+            $valueCounts[$value] = ($valueCounts[$value] ?? 0) + 1;
+        }
+
+        if ($totalNonEmptyValues > 0) {
+            arsort($valueCounts);
+            $valueStats = [];
+            foreach ($valueCounts as $value => $count) {
+                $valueStats[] = [
+                    'value' => mb_strimwidth((string)$value, 0, 160, '...', 'UTF-8'),
+                    'count' => (int)$count,
+                ];
+                if (count($valueStats) >= 120) {
+                    break;
+                }
+            }
+
+            $writeStatus([
+                'job_id' => $jobId,
+                'status' => 'processing',
+                'stage' => 'analyzing',
+                'progress' => 0,
+                'current' => 0,
+                'total' => $total,
+                'message' => '列全体を分析して分類方針を組み立てています。',
+                'error' => null,
+                'project_id' => (int)$job['project_id'],
+                'output_csv_file_id' => (int)$outputCsv['id'],
+            ]);
+
+            try {
+                $plan = $callCategorizationPlanner(
+                    (string)$job['ollama_host'],
+                    (string)$job['model'],
+                    (string)$job['target_column'],
+                    $valueStats,
+                    $totalNonEmptyValues,
+                    count($valueCounts)
+                );
+
+                $inferredSections = [];
+                if ($plan['guidance'] !== '') {
+                    $inferredSections[] = "【列全体の分析にもとづく分類方針】\n" . $plan['guidance'];
+                }
+                if (!empty($plan['categories'])) {
+                    $inferredSections[] = "【推奨カテゴリ候補】\n- " . implode("\n- ", $plan['categories']);
+                }
+                if (!empty($plan['observations'])) {
+                    $inferredSections[] = "【観察メモ】\n- " . implode("\n- ", $plan['observations']);
+                }
+
+                if ($inferredSections !== []) {
+                    $system .= "\n" . implode("\n\n", $inferredSections);
+                }
+
+                $logJob('column analysis inferred categorization guidance', [
+                    'target_column' => (string)$job['target_column'],
+                    'non_empty_values' => $totalNonEmptyValues,
+                    'unique_values' => count($valueCounts),
+                    'suggested_categories' => $plan['categories'],
+                ]);
+            } catch (Throwable $plannerError) {
+                $logJob('column analysis fallback to default categorizer', [
+                    'target_column' => (string)$job['target_column'],
+                    'error' => $plannerError->getMessage(),
+                ]);
+            }
+        }
+    }
+
     if (trim((string)$job['instructions']) !== '') {
         $system .= "\n【追加指示】\n" . trim((string)$job['instructions']);
     }
