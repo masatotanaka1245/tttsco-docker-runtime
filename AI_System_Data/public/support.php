@@ -1274,7 +1274,7 @@ $projectCenterTabs = [
                 </div>
             </div>
 
-            <div id="tab-csv" role="tabpanel" class="tab-content <?= $active_tab === 'csv' ? 'active' : '' ?> h-full overflow-y-auto p-6 space-y-6">
+            <div id="tab-csv" role="tabpanel" class="tab-content <?= $active_tab === 'csv' ? 'active' : '' ?> h-full overflow-y-auto md:overflow-hidden p-6 space-y-6">
                 <div class="border-b border-slate-200/60 pb-2 mb-4">
                     <div class="flex items-center justify-between gap-3">
                         <div class="flex items-center gap-2 flex-nowrap overflow-x-auto no-scrollbar min-w-0">
@@ -1303,26 +1303,30 @@ $projectCenterTabs = [
                     </div>
                 </div>
 
-                <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-start">
-                    <div class="col-span-1 border border-slate-200 rounded-2xl bg-slate-50/60 p-4 space-y-3 shadow-sm">
-                        <h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest pb-1.5 border-b border-slate-200/60">インポート履歴 (<span id="csv-history-count"><?= count($csv_files) ?></span>)</h4>
-                        <div id="csv-history-list" class="space-y-2 max-h-[400px] overflow-y-auto pr-1 no-scrollbar">
-                            <?php renderCsvHistoryItems($csv_files); ?>
-                        </div>
-
-                        <div class="pt-2 border-t border-slate-200/60 space-y-2">
-                            <div class="flex items-center justify-between gap-2">
-                                <h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest">AI分類ジョブ</h4>
-                                <span id="csv-ai-job-count" class="text-[9px] font-black text-slate-400 bg-white border border-slate-200 px-2 py-0.5 rounded-full shadow-2xs">0 件</span>
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-start md:h-[calc(100vh-250px)]">
+                    <div class="col-span-1 min-h-0">
+                        <div class="border border-slate-200 rounded-2xl bg-slate-50/60 p-4 shadow-sm flex flex-col gap-4 md:h-full min-h-0">
+                            <div class="flex flex-col min-h-0 flex-[1.15]">
+                                <h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest pb-1.5 border-b border-slate-200/60">インポート履歴 (<span id="csv-history-count"><?= count($csv_files) ?></span>)</h4>
+                                <div id="csv-history-list" class="space-y-2 flex-1 min-h-0 overflow-y-auto pr-1 no-scrollbar pt-3">
+                                    <?php renderCsvHistoryItems($csv_files); ?>
+                                </div>
                             </div>
-                            <div id="csv-ai-job-list" class="space-y-2 max-h-[220px] overflow-y-auto pr-1 no-scrollbar">
-                                <p class="text-[10px] text-slate-400 text-center py-4 italic font-medium">AI分類ジョブはまだありません。</p>
+
+                            <div class="pt-2 border-t border-slate-200/60 flex flex-col min-h-0 flex-1">
+                                <div class="flex items-center justify-between gap-2">
+                                    <h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest">AI分類ジョブ</h4>
+                                    <span id="csv-ai-job-count" class="text-[9px] font-black text-slate-400 bg-white border border-slate-200 px-2 py-0.5 rounded-full shadow-2xs">0 件</span>
+                                </div>
+                                <div id="csv-ai-job-list" class="space-y-2 flex-1 min-h-0 overflow-y-auto pr-1 no-scrollbar pt-3">
+                                    <p class="text-[10px] text-slate-400 text-center py-4 italic font-medium">AI分類ジョブはまだありません。</p>
+                                </div>
                             </div>
                         </div>
                     </div>
 
-                    <div class="col-span-1 md:col-span-3 h-full">
-                        <div id="csv-viewer-container" class="h-full min-h-[400px]">
+                    <div class="col-span-1 md:col-span-3 min-h-0 md:h-full">
+                        <div id="csv-viewer-container" class="min-h-[400px] md:h-full overflow-hidden">
                             <?php renderCsvViewerPlaceholder(); ?>
                         </div>
                     </div>

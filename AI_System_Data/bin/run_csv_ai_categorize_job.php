@@ -30,6 +30,12 @@ if (!$job) {
     exit(1);
 }
 
+$logJob = static function (string $message, array $context = []) use ($jobId): void {
+    appLog('csv_ai_job.log', $message, array_merge([
+        'job_id' => $jobId,
+    ], $context));
+};
+
 $writeStatus = static function (array $status) use ($jobService, $jobId): void {
     $jobService->writeStatus($jobId, $status);
 };
@@ -71,16 +77,17 @@ $callCategorizer = static function (string $host, string $model, string $system,
     ];
 };
 
-$markCanceled = static function (int $current, int $total, int $outputCsvFileId = 0) use ($jobService, $jobId, $writeStatus, $job): never {
+$markCanceled = static function (int $current, int $total, int $outputCsvFileId = 0, string $reason = 'cancel requested') use ($jobService, $jobId, $writeStatus, $job, $logJob): never {
     $jobService->updateJob($jobId, [
         'status' => 'canceled',
         'finished_at' => date('c'),
     ]);
+    $progress = $total > 0 ? (int)min(100, round(($current / $total) * 100)) : 0;
     $writeStatus([
         'job_id' => $jobId,
         'status' => 'canceled',
         'stage' => 'canceled',
-        'progress' => $total > 0 ? (int)min(100, round(($current / $total) * 100)) : 0,
+        'progress' => $progress,
         'current' => $current,
         'total' => $total,
         'message' => 'カテゴリ分けジョブをキャンセルしました。',
@@ -89,18 +96,33 @@ $markCanceled = static function (int $current, int $total, int $outputCsvFileId 
         'output_csv_file_id' => $outputCsvFileId,
         'cancel_requested' => true,
     ]);
+    $logJob('job canceled', [
+        'reason' => $reason,
+        'current' => $current,
+        'total' => $total,
+        'progress' => $progress,
+        'output_csv_file_id' => $outputCsvFileId,
+    ]);
     exit(0);
 };
 
 try {
+    $logJob('job worker booted', [
+        'project_id' => (int)($job['project_id'] ?? 0),
+        'source_csv_file_id' => (int)($job['source_csv_file_id'] ?? 0),
+        'target_column' => (string)($job['target_column'] ?? ''),
+        'model' => (string)($job['model'] ?? ''),
+    ]);
+
     if ($jobService->isCancelRequested($jobId)) {
-        $markCanceled(0, 0, (int)($job['output_csv_file_id'] ?? 0));
+        $markCanceled(0, 0, (int)($job['output_csv_file_id'] ?? 0), 'cancel detected before processing started');
     }
 
     $jobService->updateJob($jobId, [
         'status' => 'processing',
         'started_at' => date('c'),
     ]);
+    $logJob('job status switched to processing');
 
     $sourceCsv = $csvService->findById((int)$job['project_id'], (int)$job['source_csv_file_id']);
     if (!$sourceCsv) {
@@ -142,6 +164,10 @@ try {
     $stmtRows->execute([(int)$job['source_csv_file_id']]);
     $rows = $stmtRows->fetchAll(PDO::FETCH_ASSOC);
     $total = count($rows);
+    $logJob('source rows loaded', [
+        'total' => $total,
+        'output_csv_file_id' => (int)$outputCsv['id'],
+    ]);
 
     $writeStatus([
         'job_id' => $jobId,
@@ -165,7 +191,7 @@ try {
 
     foreach ($rows as $index => $row) {
         if ($jobService->isCancelRequested($jobId)) {
-            $markCanceled($index, $total, (int)$outputCsv['id']);
+            $markCanceled($index, $total, (int)$outputCsv['id'], 'cancel detected during row loop');
         }
 
         $rowData = json_decode((string)($row['row_data'] ?? ''), true);
@@ -221,6 +247,10 @@ try {
         'message' => 'カテゴリ分けCSVを作成しました。',
         'error' => null,
         'project_id' => (int)$job['project_id'],
+        'output_csv_file_id' => (int)$outputCsv['id'],
+    ]);
+    $logJob('job completed', [
+        'total' => $total,
         'output_csv_file_id' => (int)$outputCsv['id'],
     ]);
 } catch (Throwable $e) {

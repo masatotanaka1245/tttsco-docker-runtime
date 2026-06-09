@@ -565,7 +565,7 @@ async function loadCsvData(csvFileId, fileName) {
     }
 
             let tableHtml = `
-                <div class="bg-white border rounded-xl shadow-sm overflow-hidden animate-fadeIn flex flex-col">
+                <div class="bg-white border rounded-xl shadow-sm overflow-hidden animate-fadeIn flex flex-col h-full min-h-0">
                     <div class="bg-teal-50/50 px-4 py-2 border-b flex justify-between items-center text-xs flex-shrink-0">
                         <div class="flex flex-col gap-0.5">
                             <span class="font-bold text-[#00758F]">📄 ${escapeHTML(fileName)} (${displayedRowCount} / ${totalRowCount} 行を表示)</span>
@@ -576,7 +576,7 @@ async function loadCsvData(csvFileId, fileName) {
                             <button type="button" onclick="handleDeleteCsv(${csvFileId})" class="text-red-500 hover:text-red-700 font-bold hover:underline">🗑️ CSVを全削除</button>
                         </div>
                     </div>
-                    <div class="overflow-x-auto overflow-y-auto max-h-[calc(100vh-290px)] md:max-h-[calc(100vh-250px)] custom-scrollbar">
+                    <div class="flex-1 min-h-0 overflow-x-auto overflow-y-auto custom-scrollbar">
                         <table class="w-full text-[10px] text-left border-collapse">
                             <thead>
                                 <tr class="bg-slate-100 text-slate-500 sticky top-0 border-b z-10 font-bold">

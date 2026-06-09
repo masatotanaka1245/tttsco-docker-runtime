@@ -7,6 +7,7 @@ require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../config/session.php';
 require_once __DIR__ . '/../../src/Auth.php';
 require_once __DIR__ . '/../../src/ProjectAccess.php';
+require_once __DIR__ . '/../../src/AppLogger.php';
 require_once __DIR__ . '/../../src/CsvAiCategorizationJobService.php';
 
 header('Content-Type: application/json; charset=utf-8');
@@ -52,14 +53,30 @@ if (!canManageProject($pdo, (int)$job['project_id'], $userId, $role)) {
     exit;
 }
 
+appLog('csv_ai_job.log', 'cancel requested', [
+    'job_id' => $jobId,
+    'project_id' => (int)($job['project_id'] ?? 0),
+    'user_id' => $userId,
+    'job_status' => (string)($job['status'] ?? 'unknown'),
+]);
+
 $result = $jobService->requestCancel($jobId);
 if (!$result) {
+    appLog('csv_ai_job.log', 'cancel request failed', [
+        'job_id' => $jobId,
+        'reason' => 'service returned null',
+    ]);
     http_response_code(500);
     echo json_encode(['success' => false, 'error' => 'キャンセル要求の登録に失敗しました。'], JSON_UNESCAPED_UNICODE);
     exit;
 }
 
 if (!$result['cancelable']) {
+    appLog('csv_ai_job.log', 'cancel request ignored', [
+        'job_id' => $jobId,
+        'status' => (string)($result['status']['status'] ?? $result['job']['status'] ?? 'unknown'),
+        'reason' => 'already finished or stopped',
+    ]);
     echo json_encode([
         'success' => false,
         'error' => 'このジョブはすでに完了または停止済みです。',
@@ -68,6 +85,13 @@ if (!$result['cancelable']) {
     ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
 }
+
+appLog('csv_ai_job.log', !empty($result['completed_now']) ? 'cancel completed immediately' : 'cancel request accepted', [
+    'job_id' => $jobId,
+    'status' => (string)($result['status']['status'] ?? $result['job']['status'] ?? 'unknown'),
+    'completed_now' => !empty($result['completed_now']),
+    'message' => (string)($result['status']['message'] ?? ''),
+]);
 
 echo json_encode([
     'success' => true,
