@@ -267,6 +267,14 @@ function closeCsvAiCategorizeModal() {
     const modal = document.getElementById('csv-ai-categorize-modal');
     if (!modal) return;
     modal.classList.replace('flex', 'hidden');
+    const submitBtn = document.getElementById('modal-csv-ai-submit');
+    if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = '非同期で開始する';
+        submitBtn.className = selectedCsvContext && Array.isArray(selectedCsvContext.headers) && selectedCsvContext.headers.length > 0
+            ? 'px-7 py-2 bg-[#00758F] text-white rounded-xl font-bold shadow-2xs hover:shadow-md hover:bg-[#005a6e] transition-all duration-200 ease-in-out transform active:scale-98'
+            : 'px-7 py-2 bg-slate-300 text-white rounded-xl font-bold shadow-sm cursor-not-allowed';
+    }
 }
 
 function renderCsvAiCategorizeForm() {
@@ -649,6 +657,7 @@ async function handleDeleteCsv(csvFileId) {
 
             updateCsvBadge(-1);
             setCsvHistoryCount(document.querySelectorAll('[id^="csv-item-"]').length - 1);
+            await loadCsvAiJobHistory();
 
         } else {
             alert('削除失敗: ' + (response.error || '不明なエラーが発生しました。'));
@@ -895,7 +904,6 @@ async function pollCsvAiJobStatus(jobId) {
         if (state === 'completed') {
             clearCsvAiJobTimer();
             activeCsvAiJobId = null;
-            await loadCsvAiJobHistory();
             overlay.classList.replace('bg-slate-900', 'bg-emerald-900');
             const outputFileName = String(job.output_file_name || 'AIカテゴリ分類結果.csv');
             const outputCsvFileId = Number(status.output_csv_file_id || 0);
@@ -988,6 +996,19 @@ async function handleStartCsvAiCategorizeJob(e) {
         submitBtn.textContent = '起動中...';
     }
 
+    const pendingSourceName = selectedCsvContext?.fileName || 'CSV';
+    closeCsvAiCategorizeModal();
+    renderCsvAiJobOverlay({
+        progress: 0,
+        current: 0,
+        total: 0,
+        message: 'AI分類ジョブの起動要求を送信しています...',
+        status: 'pending',
+    }, {
+        source_file_name: pendingSourceName,
+        status: 'pending',
+    });
+
     try {
         const response = await secureFetch('api/start_csv_ai_categorize_job.php', {
             method: 'POST',
@@ -1006,10 +1027,14 @@ async function handleStartCsvAiCategorizeJob(e) {
             throw new Error(response?.error || 'AIカテゴリ分けジョブの起動に失敗しました。');
         }
 
-        closeCsvAiCategorizeModal();
         await pollCsvAiJobStatus(response.job_id);
     } catch (err) {
+        const overlay = document.getElementById('csv-ai-job-overlay');
+        if (overlay) {
+            overlay.remove();
+        }
         alert(`AIカテゴリ分けジョブを開始できませんでした: ${err.message}`);
+        openCsvAiCategorizeModal();
     } finally {
         if (submitBtn) {
             submitBtn.disabled = false;

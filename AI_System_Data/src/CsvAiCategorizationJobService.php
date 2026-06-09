@@ -107,7 +107,7 @@ class CsvAiCategorizationJobService
 
             $status = $this->readStatus($jobId) ?: [];
             $effectiveStatus = (string)($status['status'] ?? $job['status'] ?? '');
-            if ($effectiveStatus === 'canceled') {
+            if (in_array($effectiveStatus, ['canceled', 'completed'], true)) {
                 $this->deleteJobArtifacts($jobId);
                 continue;
             }
