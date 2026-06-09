@@ -9,6 +9,7 @@ let activeCsvAiJobTimer = null;
 let activeCsvAiJobId = null;
 let activeCsvAiJobRequestController = null;
 let csvAiLifecycleBound = false;
+let csvAiJobPausedByVisibility = false;
 
 /**
  * HTMLエスケープヘルパー (テキストの安全なレンダリング用)
@@ -791,7 +792,7 @@ function ensureCsvAiJobOverlay() {
 
     overlay = document.createElement('div');
     overlay.id = 'csv-ai-job-overlay';
-    overlay.className = 'fixed bottom-6 right-6 bg-slate-900 text-white p-5 rounded-2xl shadow-2xl z-50 text-sm flex flex-col gap-3 min-w-[360px] animate-fadeIn border border-white/10 transition-all duration-500 opacity-100';
+    overlay.className = 'fixed bottom-6 right-6 bg-slate-900 text-white p-5 rounded-2xl shadow-2xl z-50 text-sm flex flex-col gap-3 min-w-[360px] max-w-[420px] animate-fadeIn border border-white/10 transition-all duration-500 opacity-100 pointer-events-none';
     document.body.appendChild(overlay);
     return overlay;
 }
@@ -819,7 +820,7 @@ function renderCsvAiJobOverlay(status, job) {
             <div class="text-[10px] text-slate-300 font-mono font-bold bg-white/10 px-2.5 py-0.5 rounded-full border border-white/5">${current} / ${total || '--'} 行</div>
         </div>
         <div class="w-full bg-white/10 h-2.5 rounded-full overflow-hidden shadow-inner mt-1"><div class="bg-gradient-to-r from-cyan-500 to-teal-400 h-full transition-all duration-700 ease-out" style="width:${progress}%"></div></div>
-        ${canCancel && activeCsvAiJobId ? `<div class="flex justify-end mt-1"><button type="button" onclick="window.handleCancelCsvAiJob && window.handleCancelCsvAiJob('${escapeHTML(activeCsvAiJobId)}')" class="text-[10px] font-bold text-amber-200 bg-white/10 border border-white/10 rounded-full px-3 py-1 hover:bg-white/15 transition-all">キャンセル</button></div>` : ''}
+        ${canCancel && activeCsvAiJobId ? `<div class="flex justify-end mt-1 pointer-events-auto"><button type="button" onclick="window.handleCancelCsvAiJob && window.handleCancelCsvAiJob('${escapeHTML(activeCsvAiJobId)}')" class="text-[10px] font-bold text-amber-200 bg-white/10 border border-white/10 rounded-full px-3 py-1 hover:bg-white/15 transition-all">キャンセル</button></div>` : ''}
     `;
 
     return overlay;
@@ -860,6 +861,20 @@ function bindCsvAiJobLifecycleGuards() {
 
     window.addEventListener('pagehide', stopForPageExit);
     window.addEventListener('beforeunload', stopForPageExit);
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') {
+            if (activeCsvAiJobId) {
+                csvAiJobPausedByVisibility = true;
+                stopCsvAiJobPolling({ resetJobId: false, removeOverlay: false });
+            }
+            return;
+        }
+
+        if (csvAiJobPausedByVisibility && activeCsvAiJobId && !activeCsvAiJobTimer) {
+            csvAiJobPausedByVisibility = false;
+            pollCsvAiJobStatus(activeCsvAiJobId).catch(() => {});
+        }
+    });
 }
 
 async function openCsvAiJobResult(csvFileId, fileName = '') {
@@ -920,6 +935,7 @@ async function handleCancelCsvAiJob(jobId) {
 async function pollCsvAiJobStatus(jobId) {
     stopCsvAiJobPolling();
     activeCsvAiJobId = jobId;
+    csvAiJobPausedByVisibility = false;
     renderCsvAiJobOverlay({ progress: 0, current: 0, total: 0, message: 'ジョブを開始しました。進捗を取得しています...' }, {});
     await loadCsvAiJobHistory();
 
@@ -927,12 +943,20 @@ async function pollCsvAiJobStatus(jobId) {
         if (activeCsvAiJobId !== jobId) return;
 
         let shouldScheduleNext = true;
+        let timeoutId = null;
         try {
             activeCsvAiJobRequestController = new AbortController();
+            timeoutId = setTimeout(() => {
+                activeCsvAiJobRequestController?.abort();
+            }, 8000);
             const data = await secureFetch(`api/get_csv_ai_job_status.php?job_id=${encodeURIComponent(jobId)}`, {
                 method: 'GET',
                 signal: activeCsvAiJobRequestController.signal,
             });
+            if (timeoutId) {
+                clearTimeout(timeoutId);
+                timeoutId = null;
+            }
             activeCsvAiJobRequestController = null;
             if (!data?.success || !data.status) {
                 activeCsvAiJobTimer = setTimeout(pollOnce, 2000);
@@ -960,7 +984,7 @@ async function pollCsvAiJobStatus(jobId) {
                         <span class="text-2xl font-black text-emerald-300 font-mono">100%</span>
                     </div>
                     <div class="text-[11px] leading-snug font-bold text-white">カテゴリ分けCSVを作成しました。左の一覧へ追加して表示します。</div>
-                    ${outputCsvFileId > 0 ? `<div class="flex justify-end"><button type="button" onclick="window.openCsvAiJobResult && window.openCsvAiJobResult(${outputCsvFileId}, '${outputFileName.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')" class="text-[10px] font-bold text-emerald-200 bg-white/10 border border-white/10 rounded-full px-3 py-1 hover:bg-white/15 transition-all">結果を開く</button></div>` : ''}
+                    ${outputCsvFileId > 0 ? `<div class="flex justify-end pointer-events-auto"><button type="button" onclick="window.openCsvAiJobResult && window.openCsvAiJobResult(${outputCsvFileId}, '${outputFileName.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')" class="text-[10px] font-bold text-emerald-200 bg-white/10 border border-white/10 rounded-full px-3 py-1 hover:bg-white/15 transition-all">結果を開く</button></div>` : ''}
                 `;
 
                 if (outputCsvFileId > 0 && !document.getElementById(`csv-item-${outputCsvFileId}`)) {
@@ -1019,8 +1043,27 @@ async function pollCsvAiJobStatus(jobId) {
 
             await loadCsvAiJobHistory();
         } catch (err) {
+            if (timeoutId) {
+                clearTimeout(timeoutId);
+                timeoutId = null;
+            }
+            const requestWasTimedOut = err?.name === 'AbortError';
             activeCsvAiJobRequestController = null;
-            if (err?.name === 'AbortError') {
+            if (requestWasTimedOut && !csvAiJobPausedByVisibility && activeCsvAiJobId === jobId) {
+                const overlay = document.getElementById('csv-ai-job-overlay');
+                if (overlay) {
+                    overlay.classList.replace('bg-slate-900', 'bg-slate-800');
+                    overlay.innerHTML = `
+                        <div class="flex justify-between items-start border-b border-white/10 pb-3">
+                            <div class="flex flex-col gap-1">
+                                <span class="text-[9px] text-slate-300 uppercase tracking-widest font-black">AI CSV Categorizer</span>
+                                <span class="text-xs font-bold text-white">⌛ 状態取得が遅いため再試行します</span>
+                            </div>
+                        </div>
+                        <div class="text-[11px] leading-snug font-bold text-white">通信が一時的に遅延しています。しばらく待って再取得します。</div>
+                    `;
+                }
+            } else if (err?.name === 'AbortError') {
                 shouldScheduleNext = false;
                 return;
             }
