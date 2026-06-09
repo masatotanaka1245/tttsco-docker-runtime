@@ -41,10 +41,12 @@ class ChatRouteFactorizer
         $hasDocReference = preg_match('/(PDF|pdf|資料|図面|仕様書|文書|設計書|報告書)/u', $message) === 1;
         $hasDocActionIntent = preg_match('/(留意点|注意点|確認すべき|確認事項|法規|基準|安全面|設計上|施工前|不明点|見落とし|箇条書きで抽出|箇条書きで|抽出してください)/u', $message) === 1;
         $hasRecommendationIntent = preg_match('/(おすすめ|オススメ|提案|分析方法|集計方法|どう分析|どう集計|どのように.*分析|分析したら.*よい|どう進め|見るべき|観点|切り口|方針)/u', $message) === 1;
+        $hasMaterialWorkflowIntent = preg_match('/((資料|資料メモ|メモ|markdown|Markdown|mdファイル|MDファイル).*(追加|追記|作成|作って|作っていく|育て|更新|整理|まとめ))|((どのような流れ|どういう流れ|どう進め|進め方).*(資料|資料メモ|メモ))|((資料|資料メモ|メモ).*(どのような流れ|どういう流れ|どう進め|進め方))/u', $message) === 1;
         $hasBroadDetailIntent = preg_match('/(詳細|詳しく|内訳|全体像|全体の傾向|どんなデータ|何がある)/u', $message) === 1;
         $hasCsvExportIntent = preg_match('/(csv化|CSV化|csvにしてください|CSVにしてください|csvファイルにしてください|CSVファイルにしてください|csvファイルを作成|CSVファイルを作成|csvで出力|CSVで出力|一つのcsv|1つのcsv|一つのCSV|1つのCSV)/u', $message) === 1;
         $hasDistinctIntent = preg_match('/(何種類|ユニーク|distinct|重複なし|種類数)/iu', $message) === 1;
-        $hasColumnExplainIntent = preg_match('/(どういう|どのような|説明|意味|何を表|どんなイベント|イベント.*説明|イベント.*意味|それぞれ.*説明)/u', $message) === 1;
+        $hasColumnExplainIntent = !$hasMaterialWorkflowIntent
+            && preg_match('/(どういう|どのような|説明|意味|何を表|どんなイベント|イベント.*説明|イベント.*意味|それぞれ.*説明)/u', $message) === 1;
         $hasColumnExistsIntent = preg_match('/(ありますよね|ありますか|存在しますか|入っていますか|含まれていますか|ありますよね。?)/u', $message) === 1;
         $hasNamingOrFramingIntent = preg_match('/(案件名|名前|名称|呼び方|強調したい|打ち出したい|表現|言い換え|一緒に検討|相談|どうでしょう|候補)/u', $message) === 1;
         $hasAppVerificationIntent = preg_match('/(動作確認|検証中|検証|デバッグ|テスト|試験|ログ確認|回帰確認)/u', $message) === 1;
@@ -67,6 +69,7 @@ class ChatRouteFactorizer
                 $hasAggregateIntent,
                 $hasDateIntent,
                 $hasColumnExplainIntent,
+                $hasMaterialWorkflowIntent,
                 $targetColumn
             )
             && !empty($recentHistory)
@@ -104,6 +107,12 @@ class ChatRouteFactorizer
             $target = 'project_assets';
             $scope = 'project_wide';
             $operation = 'analysis_recommendation';
+            $route = 'advanced_hybrid.multi_source_advice';
+        } elseif ($hasMaterialWorkflowIntent) {
+            $intent = 'consult';
+            $target = 'project_assets';
+            $scope = 'project_wide';
+            $operation = 'material_workflow';
             $route = 'advanced_hybrid.multi_source_advice';
         } elseif ($hasRecommendationIntent && ($hasCsvContext || $hasDocReference || $this->hasRecentProjectAssetContext($recentHistory))) {
             $intent = 'analyze';
@@ -284,8 +293,13 @@ class ChatRouteFactorizer
         bool $hasAggregateIntent,
         bool $hasDateIntent,
         bool $hasColumnExplainIntent,
+        bool $hasMaterialWorkflowIntent,
         ?string $targetColumn
     ): bool {
+        if ($hasMaterialWorkflowIntent) {
+            return false;
+        }
+
         if ($hasColumnExplainIntent) {
             return true;
         }

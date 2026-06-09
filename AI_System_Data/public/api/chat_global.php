@@ -490,12 +490,13 @@ class GlobalChatRouteProcessor {
 
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
-            'model'   => $this->synthesisModel, 
+            'model'   => $this->synthesisModel,
             'prompt'  => "<system>{$system_prompt}</system>\n\n{$prompt_user}\n\n回答（日本語で詳細に）:",
             'stream'  => true,
             'options' => ['temperature' => 0.2, 'top_p' => 0.95, 'num_ctx' => 8192]
         ]));
         curl_setopt($ch, CURLOPT_WRITEFUNCTION, $writeCallback);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
         curl_setopt($ch, CURLOPT_TIMEOUT, 180);
 
         chatLogger("[DEBUG] Ollama最終ストリーム cURL 送信・実行...");
@@ -513,7 +514,7 @@ class GlobalChatRouteProcessor {
         }
 
         if (!$success) {
-            chatLogger("CRITICAL: AIサーバー通信失敗 (cURL Error: {$curl_error})");
+            chatLogger("CRITICAL: AIサーバー通信失敗 (Host: {$this->ollama_host} | cURL Error: {$curl_error})");
             sendSSE('error', ['status' => 'error', 'error' => 'AIサーバーとの通信に失敗しました: ' . $curl_error]);
             return false;
         }

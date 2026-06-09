@@ -104,6 +104,8 @@ class AdvancedReasoningRouteProcessor {
     // 内部ステート管理
     private $reasoningId;
     private $schemaInfo = "";
+    private $schemaInfoByTable = [];
+    private $schemaSummaryMatrix = "";
     private $dynamicTableWhitelist = [];
     private $subQueries = [];
     private $subAnswers = [];
@@ -1154,6 +1156,86 @@ class AdvancedReasoningRouteProcessor {
         chatLogger("[PROMPT-BUDGET] route=data_analysis | phase={$phase} | num_ctx={$numCtx} | totalChars={$totalChars} | " . implode(' | ', $segments));
     }
 
+    private function normalizeSchemaTableList(array $tables): array
+    {
+        $normalized = [];
+        foreach ($tables as $table) {
+            $tableName = trim((string)$table, " \t\n\r\0\x0B`");
+            if ($tableName === '') {
+                continue;
+            }
+            if (in_array($tableName, $this->dynamicTableWhitelist, true) && !in_array($tableName, $normalized, true)) {
+                $normalized[] = $tableName;
+            }
+        }
+        return $normalized;
+    }
+
+    private function inferRelevantSchemaTables(string $text): array
+    {
+        $candidates = [];
+        $lowerText = mb_strtolower($text);
+
+        if (preg_match('/(csv|カラム|列|行数|項目|ヘッダー|ファイル|集計|ランキング|分布|row_data|入荷|出荷|健康診断)/u', $text)) {
+            $candidates[] = 'project_csv_files';
+            $candidates[] = 'project_csv_rows';
+        }
+
+        if (preg_match('/(pdf|資料|文書|図面|報告書|仕様書|ページ|chunk|画像)/u', $lowerText)) {
+            $candidates[] = 'documents';
+            $candidates[] = 'doc_chunks';
+        }
+
+        if (preg_match('/(会話|履歴|チャット|thread|スレッド|要約|まとめ)/u', $text)) {
+            $candidates[] = 'chat_history';
+            $candidates[] = 'chat_reasoning_steps';
+        }
+
+        if (preg_match('/(faq|ナレッジ)/u', $lowerText)) {
+            $candidates[] = 'project_faqs';
+        }
+
+        if (preg_match('/(コメント|comment)/u', $lowerText)) {
+            $candidates[] = 'project_comments';
+        }
+
+        if (preg_match('/(評価|score|faithfulness|relevance|clarity)/u', $lowerText)) {
+            $candidates[] = 'chat_evaluations';
+        }
+
+        if (preg_match('/(案件|プロジェクト|status|住所|開始日|終了日)/u', $text)) {
+            $candidates[] = 'projects';
+        }
+
+        return $this->normalizeSchemaTableList($candidates);
+    }
+
+    private function buildScopedSchemaInfo(array $preferredTables = []): string
+    {
+        $tables = $this->normalizeSchemaTableList($preferredTables);
+        if (empty($tables)) {
+            return $this->schemaInfo;
+        }
+
+        $segments = ["【INFORMATION_SCHEMAコンテキスト (実在データベース構造 / scoped)】"];
+        foreach ($tables as $tableName) {
+            if (!isset($this->schemaInfoByTable[$tableName])) {
+                continue;
+            }
+            $segments[] = rtrim($this->schemaInfoByTable[$tableName]);
+        }
+
+        if (count($segments) === 1) {
+            return $this->schemaInfo;
+        }
+
+        if ($this->schemaSummaryMatrix !== '') {
+            $segments[] = rtrim($this->schemaSummaryMatrix);
+        }
+
+        return implode("\n\n", $segments) . "\n";
+    }
+
     /**
      * 実在構造（SHOW TABLES / DESCRIBE）の取得、およびプロジェクト内全データの動的カウント
      */
@@ -1161,6 +1243,8 @@ class AdvancedReasoningRouteProcessor {
         chatLogger("[DEBUG] データベースの実在スキーマ構造を動的に解析・スキャンします...");
         
         $this->schemaInfo = "【INFORMATION_SCHEMAコンテキスト (実在データベース構造)】\n";
+        $this->schemaInfoByTable = [];
+        $this->schemaSummaryMatrix = "";
         
         try {
             $tablesStmt = $this->pdo->query("SHOW TABLES");
@@ -1168,18 +1252,18 @@ class AdvancedReasoningRouteProcessor {
             $this->dynamicTableWhitelist = $tables; 
             
             foreach ($tables as $tableName) {
-                $this->schemaInfo .= "■ テーブル名: `{$tableName}`\n";
-                
+                $tableSchema = "■ テーブル名: `{$tableName}`\n";
+
                 $descStmt = $this->pdo->query("DESCRIBE `{$tableName}`");
                 $fields = $descStmt->fetchAll(PDO::FETCH_ASSOC);
-                $this->schemaInfo .= "  [物理カラム構成]:\n";
+                $tableSchema .= "  [物理カラム構成]:\n";
                 foreach ($fields as $f) {
-                    $this->schemaInfo .= "    - カラム名: {$f['Field']} (型: {$f['Type']})\n";
+                    $tableSchema .= "    - カラム名: {$f['Field']} (型: {$f['Type']})\n";
                 }
-                
+
                 if ($tableName === 'project_csv_rows') {
-                    $this->schemaInfo .= "  [JSON型属性(row_data)の自律スキャンキー一覧]:\n";
-                    
+                    $tableSchema .= "  [JSON型属性(row_data)の自律スキャンキー一覧]:\n";
+
                     $stmtCsv = $this->pdo->prepare("SELECT id, file_name, column_headers, row_count FROM project_csv_files WHERE project_id = ?");
                     $stmtCsv->execute([$this->projectId]);
                     $csvFiles = $stmtCsv->fetchAll(PDO::FETCH_ASSOC);
@@ -1190,19 +1274,20 @@ class AdvancedReasoningRouteProcessor {
                         $this->availableCsvFileIds[] = (int)$csv['id'];
 
                         $headers = json_decode($csv['column_headers'], true);
-                        $this->schemaInfo .= "    - ファイルID (csv_file_id): {$csv['id']} (元のファイル名: {$csv['file_name']})\n";
-                        $this->schemaInfo .= "      - row_dataの内部に格納されている有効な項目キー名一覧:\n";
-                        $this->schemaInfo .= "        " . implode(", ", $headers) . "\n";
-                        
+                        $tableSchema .= "    - ファイルID (csv_file_id): {$csv['id']} (元のファイル名: {$csv['file_name']})\n";
+                        $tableSchema .= "      - row_dataの内部に格納されている有効な項目キー名一覧:\n";
+                        $tableSchema .= "        " . implode(", ", $headers) . "\n";
+
                         $stmtSample = $this->pdo->prepare("SELECT row_data FROM project_csv_rows WHERE csv_file_id = ? LIMIT 1");
                         $stmtSample->execute([$csv['id']]);
                         $sample = $stmtSample->fetch(PDO::FETCH_ASSOC);
                         if ($sample) {
-                            $this->schemaInfo .= "      - row_data 実データサンプル: " . mb_substr($sample['row_data'], 0, 180) . "...\n";
+                            $tableSchema .= "      - row_data 実データサンプル: " . mb_substr($sample['row_data'], 0, 180) . "...\n";
                         }
                     }
                 }
-                $this->schemaInfo .= "\n";
+                $this->schemaInfoByTable[$tableName] = rtrim($tableSchema) . "\n";
+                $this->schemaInfo .= $this->schemaInfoByTable[$tableName] . "\n";
             }
 
             $cntCsvRows = 0;
@@ -1221,10 +1306,11 @@ class AdvancedReasoningRouteProcessor {
             $stmtCountFaqs->execute([$this->projectId]);
             $cntFaqs = (int)$stmtCountFaqs->fetchColumn();
 
-            $this->schemaInfo .= "【現在のプロジェクト内実在データ総数マトリクス】\n";
-            $this->schemaInfo .= "  - project_csv_rows (CSVデータ行本文の総レコード数): {$cntCsvRows} 件\n";
-            $this->schemaInfo .= "  - project_comments (アサインメンバーからのコメント総数): {$cntComments} 件\n";
-            $this->schemaInfo .= "  - project_faqs (登録済みのFAQナレッジ総数): {$cntFaqs} 件\n\n";
+            $this->schemaSummaryMatrix = "【現在のプロジェクト内実在データ総数マトリクス】\n";
+            $this->schemaSummaryMatrix .= "  - project_csv_rows (CSVデータ行本文の総レコード数): {$cntCsvRows} 件\n";
+            $this->schemaSummaryMatrix .= "  - project_comments (アサインメンバーからのコメント総数): {$cntComments} 件\n";
+            $this->schemaSummaryMatrix .= "  - project_faqs (登録済みのFAQナレッジ総数): {$cntFaqs} 件\n";
+            $this->schemaInfo .= $this->schemaSummaryMatrix . "\n";
 
             chatLogger("網羅調査完了 - CSV行数: {$cntCsvRows}件, コメント: {$cntComments}件, FAQ: {$cntFaqs}件");
             chatLogger("[DEBUG] 動的スキーマ情報およびデータ総数マトリクスの構築完了。文字数: " . mb_strlen($this->schemaInfo) . "文字");
@@ -1351,11 +1437,26 @@ class AdvancedReasoningRouteProcessor {
         // ✨【フェーズ4】初回SQL生成システムプロンプトの最先頭へ記憶プロンプトをインジェクト
         $sql_sys_prompt = $this->composeMemoryAwarePrompt($sql_sys_prompt);
 
-        $sql_user_prompt = $this->schemaInfo . "\n\n【ユーザーの分析観点】\n" . $subQ;
+        $scopedSchemaInfo = $this->buildScopedSchemaInfo($this->inferRelevantSchemaTables($subQ));
+        $sql_user_prompt = $scopedSchemaInfo . "\n\n【ユーザーの分析観点】\n" . $subQ;
         $sql_model = $this->sqlModel;
-        
-        // 初回SQL生成オプション引き締め維持
-        $sql_json_str = callOllamaChat($this->ollama_host, $sql_model, $sql_sys_prompt, $sql_user_prompt, 'json', ["temperature" => 0.0, "top_p" => 0.1, "num_ctx" => 4096]);
+        $presetSql = $this->resolvePresetSqlForMetadataLookup($subQ);
+
+        if ($presetSql !== null) {
+            chatLogger("[AUTO-SQL-PRESET] 軽量定番SQLを適用しました。sub_query=" . $subQ);
+            $sql_json_str = json_encode(['sql' => $presetSql], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        } else {
+            $this->logPromptBudget('sql_generate', [
+                'system' => $sql_sys_prompt,
+                'schema' => $scopedSchemaInfo,
+                'subQuery' => $subQ,
+                'projectMemory' => $this->projectOperatingMemoryPrompt,
+                'databaseMemory' => $this->databaseMemoryPrompt,
+            ], 4096);
+
+            // 初回SQL生成オプション引き締め維持
+            $sql_json_str = callOllamaChat($this->ollama_host, $sql_model, $sql_sys_prompt, $sql_user_prompt, 'json', ["temperature" => 0.0, "top_p" => 0.1, "num_ctx" => 4096]);
+        }
         
         // クレンジングと安全監査実行メソッドの呼び出し（自律デバッグリトライループ層へ移行）
         $sub_ans_text = $this->executeAndAnalyzeSql($sql_json_str, $subQ, $step_counter, $stepLabel);
@@ -1406,6 +1507,124 @@ class AdvancedReasoningRouteProcessor {
         return trim($newSubQ);
     }
 
+    private function resolvePresetSqlForMetadataLookup(string $subQ): ?string
+    {
+        $text = trim($subQ);
+
+        if ($text === '') {
+            return null;
+        }
+
+        if (
+            preg_match('/(CSV|csv|ファイル|データセット)/u', $text)
+            && preg_match('/(件数|何件|総数|数|ファイル数|行数|レコード数)/u', $text)
+        ) {
+            return "SELECT COUNT(*) AS total_csv_files, COALESCE(SUM(row_count), 0) AS total_registered_rows FROM project_csv_files WHERE project_id = {$this->projectId}";
+        }
+
+        if (
+            preg_match('/(PDF|pdf|資料|文書|報告書|図面|仕様書)/u', $text)
+            && preg_match('/(件数|何件|総数|数)/u', $text)
+        ) {
+            return "SELECT COUNT(*) AS total_documents FROM documents WHERE project_id = {$this->projectId} AND title NOT LIKE 'AI報告書%'";
+        }
+
+        if (
+            preg_match('/(会話|履歴|チャット|これまで|要約|まとめ)/u', $text)
+            && preg_match('/(件数|何件|総数|数)/u', $text)
+        ) {
+            $conditions = ["project_id = {$this->projectId}"];
+            if ($this->threadId !== null) {
+                $conditions[] = "thread_id = {$this->threadId}";
+            }
+            if ($this->user_id > 0) {
+                $conditions[] = "user_id = {$this->user_id}";
+            }
+            $where = implode(' AND ', $conditions);
+            return "SELECT COUNT(*) AS total_messages FROM chat_history WHERE {$where}";
+        }
+
+        if (
+            preg_match('/(CSV|csv|ファイル|データセット)/u', $text)
+            && preg_match('/(一覧|概要|内訳|列|カラム|ヘッダー|項目|行数|row_count|棚卸し|把握)/u', $text)
+        ) {
+            return "SELECT file_name, column_headers, row_count FROM project_csv_files WHERE project_id = {$this->projectId} ORDER BY id ASC";
+        }
+
+        if (
+            preg_match('/(PDF|pdf|資料|文書|報告書|図面|仕様書)/u', $text)
+            && preg_match('/(一覧|概要|内訳|把握|棚卸し|確認)/u', $text)
+        ) {
+            return "SELECT title, file_path, created_at FROM documents WHERE project_id = {$this->projectId} AND title NOT LIKE 'AI報告書%' ORDER BY created_at DESC, id DESC LIMIT 20";
+        }
+
+        if (preg_match('/(会話|履歴|チャット|これまで|要約|まとめ)/u', $text)) {
+            $conditions = ["project_id = {$this->projectId}"];
+            if ($this->threadId !== null) {
+                $conditions[] = "thread_id = {$this->threadId}";
+            }
+            if ($this->user_id > 0) {
+                $conditions[] = "user_id = {$this->user_id}";
+            }
+            $where = implode(' AND ', $conditions);
+            return "SELECT role, message, created_at FROM chat_history WHERE {$where} ORDER BY created_at ASC LIMIT 50";
+        }
+
+        return null;
+    }
+
+    private function detectMalformedSql(string $sql): ?string
+    {
+        $trimmed = trim($sql);
+
+        if ($trimmed === '') {
+            return 'SQLが空文字です。';
+        }
+
+        if (!preg_match('/^\s*SELECT\b/i', $trimmed)) {
+            return 'SELECT文で開始していません。';
+        }
+
+        if (preg_match('/^\s*SELECT\b\s*$/i', $trimmed)) {
+            return 'SELECT句だけで停止しています。';
+        }
+
+        if (!preg_match('/\bFROM\b/i', $trimmed)) {
+            return 'FROM句が存在しません。';
+        }
+
+        return null;
+    }
+
+    private function truncateForPrompt(string $text, int $maxChars): string
+    {
+        $trimmed = trim($text);
+        if (mb_strlen($trimmed) <= $maxChars) {
+            return $trimmed;
+        }
+
+        return rtrim(mb_substr($trimmed, 0, $maxChars - 1)) . '…';
+    }
+
+    private function buildSqlRepairContext(string $schemaInfo, string $subQ, string $failedSql, string $error, string $repairGuidance): string
+    {
+        $compactError = $this->truncateForPrompt(preg_replace("/\s+/u", ' ', trim($error)), 500);
+        $compactSql = $this->truncateForPrompt($failedSql, 1200);
+        $compactGuidance = $this->truncateForPrompt($repairGuidance, 1400);
+
+        return "【対象スキーマ】\n" . $schemaInfo . "\n\n"
+            . "【本来の目的】\n" . $subQ . "\n\n"
+            . "【失敗したSQL】\n" . $compactSql . "\n\n"
+            . "【エラー要約】\n" . $compactError . "\n\n"
+            . "【修復ヒント】\n" . $compactGuidance;
+    }
+
+    private function buildSqlFailureAnswer(string $error): string
+    {
+        $compactError = $this->truncateForPrompt(preg_replace("/\s+/u", ' ', trim($error)), 240);
+        return "⚠️ 集計を完了できませんでした。\n\nエラー: {$compactError}";
+    }
+
     /**
      * 共通監査・実行エンジンへの委譲および【自己反省・自律修復リトライループ】統制コア
      * ★[ログ最高解像度・AI脳内ハック超詳細化版]
@@ -1416,6 +1635,7 @@ class AdvancedReasoningRouteProcessor {
         // モード別上限までの自律デバッグループ（while構造）の展開
         $max_retries = $this->maxSqlRepairRetries();
         $retry_count = 0;
+        $usedFallbackSql = false;
         $execResult = ['success' => false, 'error' => 'クエリが初期化されていません。', 'data' => []];
         chatLogger("[SQL-REPAIR-POLICY] max_retries={$max_retries} | report_mode=" . ($this->reportMode ? 'on' : 'off') . " | diagram_mode=" . ($this->diagramMode ? 'on' : 'off'));
 
@@ -1460,14 +1680,6 @@ class AdvancedReasoningRouteProcessor {
             // 📢 [超詳細ログ3] プログラムが構文補正した「後」の、実際にMySQLへ送り込まれる最終確定SQLを記録
             chatLogger("[Text-to-SQL-AFTER]  (試行 {$retry_count}/{$max_retries}) プログラム補正後の最終実行SQL: " . $generated_sql);
 
-            // 動的ホワイトリスト照合回路
-            if (preg_match('/FROM\s+`?([a-zA-Z0-9_-]+)`?/i', $generated_sql, $tableMatch)) {
-                $extractedTable = $tableMatch[1];
-                if (in_array($extractedTable, $this->dynamicTableWhitelist, true)) {
-                    chatLogger("[SECURITY APPROVED] AIが自律特定したテーブル '{$extractedTable}' は動的ホワイトリストに存在するため、監査パスを安全承認します。");
-                }
-            }
-
             // フロントエンド UI への進捗（4段階インジケーター）同期SSEパケット送信
             if ($retry_count > 0) {
                 sendSSE('status', [
@@ -1481,8 +1693,26 @@ class AdvancedReasoningRouteProcessor {
                 ]);
             }
 
-            // 共通実行エンジンへの安全委譲
-            $execResult = $sqlEngine->execute($generated_sql);
+            $malformedReason = $this->detectMalformedSql($generated_sql);
+            if ($malformedReason !== null) {
+                $execResult = [
+                    'success' => false,
+                    'error' => 'LLM出力の事前監査で失敗: ' . $malformedReason,
+                    'data' => [],
+                ];
+                chatLogger("[SQL-MALFORMED-PRECHECK] (試行 {$retry_count}/{$max_retries}) " . $malformedReason . " | sql=" . $generated_sql);
+            } else {
+                // 動的ホワイトリスト照合回路
+                if (preg_match('/FROM\s+`?([a-zA-Z0-9_-]+)`?/i', $generated_sql, $tableMatch)) {
+                    $extractedTable = $tableMatch[1];
+                    if (in_array($extractedTable, $this->dynamicTableWhitelist, true)) {
+                        chatLogger("[SECURITY APPROVED] AIが自律特定したテーブル '{$extractedTable}' は動的ホワイトリストに存在するため、監査パスを安全承認します。");
+                    }
+                }
+
+                // 共通実行エンジンへの安全委譲
+                $execResult = $sqlEngine->execute($generated_sql);
+            }
 
             // 安全に開通（success === true）した瞬間にループを即座に脱出
             if ($execResult['success'] === true) {
@@ -1493,6 +1723,11 @@ class AdvancedReasoningRouteProcessor {
             // 📢 [超詳細ログ4] 実行失敗時、セキュリティ監査の拒否理由やMySQLの生エラー文をダイレクトに記録
             chatLogger("[SQL-EXEC-FAILED] (試行 {$retry_count}/{$max_retries}) 監査拒否またはMySQL生エラー文: " . ($execResult['error'] ?? 'Unknown Error'));
             $repairGuidance = $sqlEngine->buildRepairGuidance($generated_sql, (string)($execResult['error'] ?? 'Unknown Error'), $subQ);
+            $repairTables = $this->inferRelevantSchemaTables($subQ);
+            if (preg_match_all('/(?:FROM|JOIN)\s+`?([a-zA-Z0-9_-]+)`?/i', $generated_sql, $repairMatches)) {
+                $repairTables = array_merge($repairTables, $repairMatches[1]);
+            }
+            $repairSchemaInfo = $this->buildScopedSchemaInfo($repairTables);
 
             $retry_count++;
             if ($retry_count > $max_retries) {
@@ -1512,18 +1747,28 @@ class AdvancedReasoningRouteProcessor {
             // ✨【フェーズ4】自律修復（デバッグ）システムプロンプトの最先頭へ記憶プロンプトをインジェクト
             $debug_sys_prompt = $this->composeMemoryAwarePrompt($debug_sys_prompt);
 
-            $debug_user_context = "【動的INFORMATION_SCHEMA構成】\n" . $this->schemaInfo . "\n\n"
-                                . "【この分析タスクの本来の目的】\n" . $subQ . "\n\n"
-                                . "❌ 【前回失敗した不正なSQL】\n" . $generated_sql . "\n\n"
-                                . "⚠️ 【MySQLから返された生のエラー文】\n" . ($execResult['error'] ?? 'Unknown Error') . "\n\n"
-                                . $repairGuidance;
+            $debug_user_context = $this->buildSqlRepairContext(
+                $repairSchemaInfo,
+                $subQ,
+                $generated_sql,
+                (string)($execResult['error'] ?? 'Unknown Error'),
+                $repairGuidance
+            );
 
             // 📢 [超詳細ログ5] 次の周回リトライに向けて、AIの脳みそへ叩き込む「反省用インジェクションデータ」をすべてダンプ
             chatLogger("[OLLAMA-REFLECT-INPUT] (次の一手: 試行 {$retry_count}/{$max_retries}) AIへ送り届ける自己反省材料:\n" . $debug_user_context);
 
             $sql_model = $this->sqlModel;
             chatLogger("[OLLAMA-DEBUG] 自律修正リクエストを送信します...");
-            
+            $this->logPromptBudget('sql_repair', [
+                'system' => $debug_sys_prompt,
+                'schema' => $repairSchemaInfo,
+                'subQuery' => $subQ,
+                'repairContext' => $debug_user_context,
+                'projectMemory' => $this->projectOperatingMemoryPrompt,
+                'databaseMemory' => $this->databaseMemoryPrompt,
+            ], 4096);
+
             $retry_json_str = callOllamaChat($this->ollama_host, $sql_model, $debug_sys_prompt, $debug_user_context, 'json', ["temperature" => 0.0, "top_p" => 0.1, "num_ctx" => 4096]);
             
             // 次の周回へポインタを同期引き渡し
@@ -1540,13 +1785,14 @@ class AdvancedReasoningRouteProcessor {
                 if (($fallbackResult['success'] ?? false) === true) {
                     $generated_sql = $fallbackResult['sql'] ?? $fallbackSql;
                     $execResult = $fallbackResult;
+                    $usedFallbackSql = true;
                     chatLogger("[FALLBACK-SQL-SUCCESS] 定番SQLによる救済に成功しました。");
                 }
             }
         }
 
         if (!$execResult['success']) {
-            return "⚠️ **{$max_retries}回の自律修復を試みましたが、集計を完了できませんでした。条件を絞り込んで再度ご指示ください。**\n\n最終エラー詳細: " . ($execResult['error'] ?? '不明なエラー。') . "\n\nデバッグ対象クエリ: `{$generated_sql}`";
+            return $this->buildSqlFailureAnswer((string)($execResult['error'] ?? '不明なエラー。'));
         }
 
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1604,7 +1850,8 @@ class AdvancedReasoningRouteProcessor {
             }
         }
         
-        return "【実行SQL】\n" . $fence . "sql\n{$generated_sql}\n" . $fence . "\n\n【段階的分割巡回（全 {$total_batches} バッチ）による最終統合考察】\n{$accumulated_insight}";
+        $prefix = $usedFallbackSql ? "【補足】自動修復では開通しなかったため、定番SQLで集計しました。\n\n" : "";
+        return $prefix . "【実行SQL】\n" . $fence . "sql\n{$generated_sql}\n" . $fence . "\n\n【段階的分割巡回（全 {$total_batches} バッチ）による最終統合考察】\n{$accumulated_insight}";
     }
 
     /**

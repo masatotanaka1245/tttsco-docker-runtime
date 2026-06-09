@@ -5,11 +5,17 @@ require_once __DIR__ . '/ModelRoleResolver.php';
 
 class ReportGenerator
 {
+    private const REPORT_EMBED_TIMEOUT_SECONDS = 20;
+    private const REPORT_EMBED_TOTAL_BUDGET_SECONDS = 45;
+    private const REPORT_EMBED_MAX_SKIPS = 4;
+
     private PDO $pdo;
     private string $basePath;
     private string $ollamaHost;
     private string $embedModel;
     private $logger;
+    private float $embedDeadlineAt = 0.0;
+    private int $embedSkippedChunks = 0;
 
     public function __construct(PDO $pdo, string $basePath, string $ollamaHost, ?callable $logger = null, string $embedModel = ModelRoleResolver::DEFAULT_EMBEDDING_MODEL)
     {
@@ -61,21 +67,38 @@ class ReportGenerator
         $this->log('[REPORT] 検索登録テキスト準備完了: plainChars=' . mb_strlen($plainText)
             . ' | initialChunks=' . count($chunks)
             . ' | embedModel=' . $this->embedModel);
-        $embeddingEngine = new EmbeddingEngine($this->ollamaHost, $this->embedModel);
+        $embeddingEngine = new EmbeddingEngine($this->ollamaHost, $this->embedModel, self::REPORT_EMBED_TIMEOUT_SECONDS);
+        $this->embedDeadlineAt = microtime(true) + self::REPORT_EMBED_TOTAL_BUDGET_SECONDS;
+        $this->embedSkippedChunks = 0;
         $searchChunks = [];
         foreach ($chunks as $idx => $chunk) {
+            if ($this->hasExceededEmbeddingBudget()) {
+                $this->log('[REPORT] embedding時間予算を超過したため、残りチャンクの生成を打ち切ります。');
+                break;
+            }
             $searchChunks = array_merge(
                 $searchChunks,
                 $this->embedChunkWithAdaptiveSplit($embeddingEngine, $chunk, ($idx + 1) . '/' . count($chunks))
             );
+            if ($this->embedSkippedChunks >= self::REPORT_EMBED_MAX_SKIPS) {
+                $this->log('[REPORT] embedding失敗チャンクが上限に達したため、残りチャンクの生成を打ち切ります。skipped=' . $this->embedSkippedChunks);
+                break;
+            }
         }
         if (!$searchChunks) {
             $fallbackChunk = mb_substr($plainText, 0, 180);
-            $fallbackEmbedding = $embeddingEngine->embed($fallbackChunk);
+            $fallbackEmbedding = null;
+            if (!$this->hasExceededEmbeddingBudget()) {
+                try {
+                    $fallbackEmbedding = $embeddingEngine->embed($fallbackChunk);
+                } catch (Throwable $e) {
+                    $this->log('[REPORT] embeddingフォールバックも失敗したため、本文のみを検索対象として登録します。reason=' . $this->summarizeException($e));
+                }
+            }
             $searchChunks[] = ['text' => $fallbackChunk, 'embedding' => $fallbackEmbedding];
             $this->log('[REPORT] embeddingフォールバック生成: 短縮メタ情報を検索対象として登録します。');
         }
-        $this->log('[REPORT] embedding生成フェーズ完了: searchableChunks=' . count($searchChunks));
+        $this->log('[REPORT] embedding生成フェーズ完了: searchableChunks=' . count($searchChunks) . ' | skipped=' . $this->embedSkippedChunks);
         $dbPath = '01_RAG_Documents/' . $projectId . '/' . basename($pdfPath);
 
         $this->pdo->beginTransaction();
@@ -120,6 +143,16 @@ class ReportGenerator
             return [];
         }
 
+        if ($this->hasExceededEmbeddingBudget()) {
+            $this->log("[REPORT] embedding打ち切り: chunk={$label} | reason=budget_exceeded");
+            return [];
+        }
+
+        if ($this->embedSkippedChunks >= self::REPORT_EMBED_MAX_SKIPS) {
+            $this->log("[REPORT] embedding打ち切り: chunk={$label} | reason=skip_limit_reached");
+            return [];
+        }
+
         try {
             $embedding = $embeddingEngine->embed($chunk);
             $this->log("[REPORT] embedding生成: chunk={$label} | chars=" . mb_strlen($chunk));
@@ -138,9 +171,15 @@ class ReportGenerator
                 );
             }
 
+            $this->embedSkippedChunks++;
             $this->log("[REPORT] embedding生成をスキップ: chunk={$label} | chars={$length} | reason=" . $this->summarizeException($e));
             return [];
         }
+    }
+
+    private function hasExceededEmbeddingBudget(): bool
+    {
+        return $this->embedDeadlineAt > 0 && microtime(true) >= $this->embedDeadlineAt;
     }
 
     private function summarizeException(Throwable $e): string
@@ -246,10 +285,10 @@ class ReportGenerator
             'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
         ]);
         if ($browser !== '') {
-            $this->log('[REPORT] PDF変換ツール検出: headless browser=' . $browser);
+            $this->log('[REPORT] PDF変換ツール検出: headless browser=' . $this->describeBinary($browser));
             $version = trim((string)@shell_exec(escapeshellarg($browser) . ' --version 2>&1'));
             if ($version !== '') {
-                $this->log('[REPORT] headless browser version: ' . mb_substr($version, 0, 160));
+                $this->log('[REPORT] headless browser version: ' . $this->summarizeBrowserVersion($version));
             }
             $fileUrl = 'file:///' . str_replace(DIRECTORY_SEPARATOR, '/', realpath($htmlPath));
             $cmd = escapeshellarg($browser)
@@ -370,6 +409,8 @@ class ReportGenerator
 
     private function summarizeCommandOutput(string $output): string
     {
+        $output = $this->normalizeUtf8($output);
+        $output = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $output) ?? $output;
         $output = trim($output);
         if ($output === '') {
             return '出力なし';
@@ -383,9 +424,28 @@ class ReportGenerator
                 || stripos($line, 'warning') !== false;
         }));
         $targetLines = $important ?: $lines;
-        $summary = implode("\n", array_slice($targetLines, -5));
+        $summary = $this->normalizeUtf8(implode("\n", array_slice($targetLines, -5)));
 
         return mb_substr($summary, 0, 1000);
+    }
+
+    private function summarizeBrowserVersion(string $output): string
+    {
+        $output = $this->normalizeUtf8($output);
+        $output = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $output) ?? $output;
+        $output = trim((string)preg_replace('/\s+/u', ' ', trim($output)));
+        if ($output === '') {
+            return 'unknown';
+        }
+
+        return mb_substr($output, 0, 180);
+    }
+
+    private function describeBinary(string $path): string
+    {
+        $normalized = str_replace('\\', '/', $path);
+        $baseName = basename($normalized);
+        return $baseName . ' (' . $normalized . ')';
     }
 
     private function resolveBinary(string $binaryName, array $candidatePaths): string

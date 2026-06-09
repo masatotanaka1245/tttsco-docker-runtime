@@ -109,6 +109,9 @@ if (!function_exists('calculateCosineSimilarity')) {
 if (!function_exists('callOllamaChat')) {
     function callOllamaChat($ollamaHost, $model, $system, $user, $format = null, $options = [], &$thoughtProcess = null) {
         $default_options = ["num_ctx" => 4096, "temperature" => 0.1];
+        $request_connect_timeout = max(2, (int)($options['connect_timeout'] ?? 5));
+        $request_timeout = max($request_connect_timeout + 1, (int)($options['request_timeout'] ?? 180));
+        unset($options['connect_timeout'], $options['request_timeout']);
         $final_options = array_merge($default_options, $options);
 
         $ch = curl_init("{$ollamaHost}/api/chat");
@@ -146,7 +149,8 @@ if (!function_exists('callOllamaChat')) {
         );
 
         curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
-        curl_setopt($ch, CURLOPT_TIMEOUT, 180);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, $request_connect_timeout);
+        curl_setopt($ch, CURLOPT_TIMEOUT, $request_timeout);
 
         $res = curl_exec($ch);
         $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -154,6 +158,11 @@ if (!function_exists('callOllamaChat')) {
         curl_close($ch);
 
         if ($res === false || $code !== 200) {
+            if ($err !== '') {
+                chatLogger(
+                    "[OLLAMA-CONNECTION-FAILED] host={$ollamaHost} | model={$model} | connect_timeout={$request_connect_timeout} | timeout={$request_timeout} | code={$code} | error={$err}"
+                );
+            }
             throw new Exception("Ollama API 通信エラー (Code: {$code}) / 詳細: {$err}");
         }
 
