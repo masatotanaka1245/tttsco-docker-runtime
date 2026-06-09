@@ -2,14 +2,16 @@
  * csv.js - CSVデータのアップロード、プレビュー、削除、およびリモートPostgreSQLデータ抽出インポート制御モジュール
  * (support.js からインポートされてグローバル空間にバインドされるモジュールファイルです)
  */
-import { secureFetch, getConfig } from './api.js?v=4';
+import { secureFetch, getConfig } from './api.js?v=5';
 
 let selectedCsvContext = null;
+let csvColumnDraftHeaders = [];
 let activeCsvAiJobTimer = null;
 let activeCsvAiJobId = null;
 let activeCsvAiJobRequestController = null;
 let csvAiLifecycleBound = false;
 let csvAiJobPausedByVisibility = false;
+let csvAiJobHistoryRequestSeq = 0;
 
 /**
  * HTMLエスケープヘルパー (テキストの安全なレンダリング用)
@@ -185,7 +187,9 @@ async function loadCsvAiJobHistory() {
         return;
     }
 
-    const data = await secureFetch(`api/get_csv_ai_job_list.php?project_id=${encodeURIComponent(projectId)}&limit=8`, { method: 'GET' });
+    const requestSeq = ++csvAiJobHistoryRequestSeq;
+    const data = await secureFetch(`api/get_csv_ai_job_list.php?project_id=${encodeURIComponent(projectId)}&limit=8&_=${Date.now()}`, { method: 'GET' });
+    if (requestSeq !== csvAiJobHistoryRequestSeq) return;
     if (!data?.success) return;
     renderCsvAiJobHistory(data.items || []);
 }
@@ -202,6 +206,7 @@ function setSelectedCsvContext(context) {
     selectedCsvContext = context;
     renderCsvAppendFields();
     renderCsvAiCategorizeForm();
+    renderCsvColumnEditForm();
 }
 
 function renderCsvAppendFields() {
@@ -280,6 +285,82 @@ function closeCsvAiCategorizeModal() {
     }
 }
 
+function closeCsvColumnEditModal() {
+    const modal = document.getElementById('csv-column-edit-modal');
+    if (!modal) return;
+    modal.classList.replace('flex', 'hidden');
+    csvColumnDraftHeaders = [];
+    const input = document.getElementById('modal-csv-new-column-name');
+    if (input) {
+        input.value = '';
+    }
+}
+
+function renderCsvColumnDraftList() {
+    const list = document.getElementById('modal-csv-column-edit-list');
+    if (!list) return;
+
+    if (!selectedCsvContext) {
+        list.innerHTML = `
+            <div class="text-[10px] text-slate-400 italic bg-white border border-dashed border-slate-200 rounded-xl px-3 py-4 text-center">
+                編集対象の CSV を選択してください。
+            </div>
+        `;
+        return;
+    }
+
+    if (csvColumnDraftHeaders.length === 0) {
+        list.innerHTML = `
+            <div class="text-[10px] text-slate-400 italic bg-white border border-dashed border-slate-200 rounded-xl px-3 py-4 text-center">
+                少なくとも1列は残してください。
+            </div>
+        `;
+        return;
+    }
+
+    list.innerHTML = csvColumnDraftHeaders.map((header, index) => `
+        <div class="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2">
+            <span class="text-[11px] font-bold text-slate-700 break-all">${escapeHTML(header)}</span>
+            <button type="button" onclick="window.handleRemoveCsvColumnDraft && window.handleRemoveCsvColumnDraft(${index})" class="text-[10px] font-bold text-red-500 hover:text-red-700 hover:underline whitespace-nowrap">削除</button>
+        </div>
+    `).join('');
+}
+
+function renderCsvColumnEditForm() {
+    const label = document.getElementById('modal-csv-column-edit-label');
+    const badge = document.getElementById('modal-csv-column-edit-badge');
+    const hiddenInput = document.querySelector('#csv-column-edit-form input[name="csv_file_id"]');
+    const submitBtn = document.getElementById('modal-csv-column-edit-submit');
+
+    if (!label || !badge || !hiddenInput || !submitBtn) return;
+
+    if (!selectedCsvContext || !Array.isArray(selectedCsvContext.headers) || selectedCsvContext.headers.length === 0) {
+        label.textContent = '左の一覧から CSV を選ぶと、ここで列を編集できます。';
+        badge.textContent = '未選択';
+        badge.className = 'text-[9px] text-slate-500 bg-slate-100 border border-slate-200 rounded-full px-2 py-0.5 font-bold';
+        hiddenInput.value = '';
+        csvColumnDraftHeaders = [];
+        submitBtn.disabled = true;
+        submitBtn.className = 'px-7 py-2 bg-slate-300 text-white rounded-xl font-bold shadow-sm cursor-not-allowed';
+        renderCsvColumnDraftList();
+        return;
+    }
+
+    if (!Array.isArray(csvColumnDraftHeaders) || csvColumnDraftHeaders.length === 0) {
+        csvColumnDraftHeaders = [...selectedCsvContext.headers];
+    }
+
+    label.textContent = `現在の対象: ${selectedCsvContext.fileName}`;
+    badge.textContent = `${csvColumnDraftHeaders.length} 列`;
+    badge.className = 'text-[9px] text-[#00758F] bg-teal-50 border border-teal-200 rounded-full px-2 py-0.5 font-bold';
+    hiddenInput.value = String(selectedCsvContext.id);
+    submitBtn.disabled = csvColumnDraftHeaders.length === 0;
+    submitBtn.className = csvColumnDraftHeaders.length > 0
+        ? 'px-7 py-2 bg-[#00758F] text-white rounded-xl font-bold shadow-2xs hover:shadow-md hover:bg-[#005a6e] transition-all duration-200 ease-in-out transform active:scale-98'
+        : 'px-7 py-2 bg-slate-300 text-white rounded-xl font-bold shadow-sm cursor-not-allowed';
+    renderCsvColumnDraftList();
+}
+
 function renderCsvAiCategorizeForm() {
     const label = document.getElementById('modal-csv-ai-selected-label');
     const badge = document.getElementById('modal-csv-ai-selected-badge');
@@ -336,6 +417,27 @@ function openCsvAiCategorizeModal() {
     modal.classList.replace('hidden', 'flex');
 }
 
+function openCsvColumnEditModal() {
+    if (!selectedCsvContext || !Array.isArray(selectedCsvContext.headers) || selectedCsvContext.headers.length === 0) {
+        alert('先に左の一覧から編集対象のCSVを選択してください。');
+        return;
+    }
+
+    csvColumnDraftHeaders = [...selectedCsvContext.headers];
+    renderCsvColumnEditForm();
+    const input = document.getElementById('modal-csv-new-column-name');
+    if (input) {
+        input.value = '';
+    }
+    const modal = document.getElementById('csv-column-edit-modal');
+    if (!modal) {
+        console.warn('csv-column-edit-modal not found');
+        alert('CSV列編集モーダルが見つかりません。画面を再読み込みしてください。');
+        return;
+    }
+    modal.classList.replace('hidden', 'flex');
+}
+
 function openCsvAppendModal() {
     if (!selectedCsvContext || !Array.isArray(selectedCsvContext.headers) || selectedCsvContext.headers.length === 0) {
         alert('先に左の一覧から追記先のCSVを選択してください。');
@@ -350,6 +452,37 @@ function openCsvAppendModal() {
         return;
     }
     modal.classList.replace('hidden', 'flex');
+}
+
+function handleAddCsvColumnDraft() {
+    if (!selectedCsvContext) {
+        alert('先に編集対象のCSVを選択してください。');
+        return;
+    }
+
+    const input = document.getElementById('modal-csv-new-column-name');
+    const rawValue = String(input?.value || '').trim();
+    if (!rawValue) {
+        alert('追加する列名を入力してください。');
+        return;
+    }
+    if (csvColumnDraftHeaders.includes(rawValue)) {
+        alert('同じ列名は追加できません。');
+        return;
+    }
+
+    csvColumnDraftHeaders.push(rawValue);
+    if (input) {
+        input.value = '';
+        input.focus();
+    }
+    renderCsvColumnEditForm();
+}
+
+function handleRemoveCsvColumnDraft(index) {
+    if (!Array.isArray(csvColumnDraftHeaders)) return;
+    csvColumnDraftHeaders = csvColumnDraftHeaders.filter((_, currentIndex) => currentIndex !== index);
+    renderCsvColumnEditForm();
 }
 
 function bindCsvToolbarActions() {
@@ -584,6 +717,7 @@ async function loadCsvData(csvFileId, fileName) {
                         </div>
                         <div class="flex items-center gap-3">
                             <button type="button" onclick="window.openCsvAiCategorizeModal && window.openCsvAiCategorizeModal()" class="text-[#00758F] hover:text-[#005a6e] font-bold hover:underline">🤖 AIカテゴリ分け</button>
+                            <button type="button" onclick="window.openCsvColumnEditModal && window.openCsvColumnEditModal()" class="text-[#00758F] hover:text-[#005a6e] font-bold hover:underline">📝 編集</button>
                             <button type="button" onclick="handleDeleteCsv(${csvFileId})" class="text-red-500 hover:text-red-700 font-bold hover:underline">🗑️ CSVを全削除</button>
                         </div>
                     </div>
@@ -786,6 +920,60 @@ async function handleAppendCsvRow(e) {
     }
 }
 
+async function handleUpdateCsvColumns(e) {
+    e.preventDefault();
+    const form = e.target;
+    const { projectId } = getConfig();
+    const csvFileId = Number(form.csv_file_id?.value || 0);
+
+    if (!projectId || !csvFileId || !selectedCsvContext) {
+        alert('編集対象のCSVを選択してください。');
+        return;
+    }
+    if (!Array.isArray(csvColumnDraftHeaders) || csvColumnDraftHeaders.length === 0) {
+        alert('列を1つ以上残してください。');
+        return;
+    }
+
+    const submitBtn = document.getElementById('modal-csv-column-edit-submit');
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = '保存中...';
+    }
+
+    try {
+        const response = await secureFetch('api/update_csv_columns.php', {
+            method: 'POST',
+            body: JSON.stringify({
+                project_id: Number(projectId),
+                csv_file_id: csvFileId,
+                headers: csvColumnDraftHeaders,
+            }),
+        });
+
+        if (!response?.success || !response.csv_file) {
+            throw new Error(response?.error || 'CSV列の更新に失敗しました。');
+        }
+
+        selectedCsvContext = {
+            id: response.csv_file.id,
+            fileName: response.csv_file.file_name || selectedCsvContext.fileName,
+            headers: Array.isArray(response.csv_file.headers) ? response.csv_file.headers : csvColumnDraftHeaders,
+        };
+
+        closeCsvColumnEditModal();
+        await loadCsvData(response.csv_file.id, response.csv_file.file_name);
+    } catch (err) {
+        alert(`CSV列の更新に失敗しました: ${err.message}`);
+        renderCsvColumnEditForm();
+    } finally {
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = '保存する';
+        }
+    }
+}
+
 function ensureCsvAiJobOverlay() {
     let overlay = document.getElementById('csv-ai-job-overlay');
     if (overlay) return overlay;
@@ -949,7 +1137,7 @@ async function pollCsvAiJobStatus(jobId) {
             timeoutId = setTimeout(() => {
                 activeCsvAiJobRequestController?.abort();
             }, 8000);
-            const data = await secureFetch(`api/get_csv_ai_job_status.php?job_id=${encodeURIComponent(jobId)}`, {
+            const data = await secureFetch(`api/get_csv_ai_job_status.php?job_id=${encodeURIComponent(jobId)}&_=${Date.now()}`, {
                 method: 'GET',
                 signal: activeCsvAiJobRequestController.signal,
             });
@@ -1172,6 +1360,11 @@ async function handleStartCsvAiCategorizeJob(e) {
     window.closeCsvCreateModal = closeCsvCreateModal;
     window.openCsvAppendModal = openCsvAppendModal;
     window.closeCsvAppendModal = closeCsvAppendModal;
+    window.openCsvColumnEditModal = openCsvColumnEditModal;
+    window.closeCsvColumnEditModal = closeCsvColumnEditModal;
+    window.handleAddCsvColumnDraft = handleAddCsvColumnDraft;
+    window.handleRemoveCsvColumnDraft = handleRemoveCsvColumnDraft;
+    window.handleUpdateCsvColumns = handleUpdateCsvColumns;
     window.handleStartCsvAiCategorizeJob = handleStartCsvAiCategorizeJob;
     window.openCsvAiCategorizeModal = openCsvAiCategorizeModal;
     window.closeCsvAiCategorizeModal = closeCsvAiCategorizeModal;
@@ -1214,6 +1407,11 @@ export {
     closeCsvCreateModal,
     openCsvAppendModal,
     closeCsvAppendModal,
+    openCsvColumnEditModal,
+    closeCsvColumnEditModal,
+    handleAddCsvColumnDraft,
+    handleRemoveCsvColumnDraft,
+    handleUpdateCsvColumns,
     handleStartCsvAiCategorizeJob,
     openCsvAiCategorizeModal,
     closeCsvAiCategorizeModal,

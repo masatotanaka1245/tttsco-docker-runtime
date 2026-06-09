@@ -342,6 +342,42 @@ if (!isset($URL_SVG_XMLNS)) {
     </div>
 </div>
 
+<div id="csv-column-edit-modal" class="fixed inset-0 bg-slate-950/40 backdrop-blur-xs hidden items-center justify-center z-50 p-4 animate-fadeIn duration-200" role="dialog" aria-modal="true" aria-labelledby="modal-title-csv-column-edit">
+    <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-2xl mx-auto border border-slate-100/80 transition-all duration-200">
+        <h3 id="modal-title-csv-column-edit" class="text-sm md:text-base font-black tracking-wider text-slate-700 mb-5 border-b border-slate-100 pb-3 uppercase">CSV列の編集</h3>
+        <form id="csv-column-edit-form" onsubmit="window.handleUpdateCsvColumns && window.handleUpdateCsvColumns(event)" class="space-y-4 text-xs">
+            <input type="hidden" name="csv_file_id" value="">
+            <div class="flex items-center justify-between gap-3">
+                <p id="modal-csv-column-edit-label" class="text-[11px] text-slate-500 font-bold">左の一覧から CSV を選ぶと、ここで列を編集できます。</p>
+                <span id="modal-csv-column-edit-badge" class="text-[9px] text-slate-500 bg-slate-100 border border-slate-200 rounded-full px-2 py-0.5 font-bold">未選択</span>
+            </div>
+
+            <div class="space-y-2">
+                <label class="block font-bold text-slate-600">現在の列</label>
+                <div id="modal-csv-column-edit-list" class="min-h-[7rem] max-h-[16rem] overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/50 p-3 space-y-2">
+                    <div class="text-[10px] text-slate-400 italic bg-white border border-dashed border-slate-200 rounded-xl px-3 py-4 text-center">
+                        編集対象の CSV を選択してください。
+                    </div>
+                </div>
+            </div>
+
+            <div class="space-y-2">
+                <label for="modal-csv-new-column-name" class="block font-bold text-slate-600">列を追加</label>
+                <div class="flex items-center gap-2">
+                    <input id="modal-csv-new-column-name" type="text" class="flex-1 border border-slate-200/80 rounded-xl bg-slate-50/30 px-3 py-2.5 font-medium text-slate-700 outline-none focus:bg-white focus:border-teal-400 focus:ring-4 focus:ring-teal-500/5 transition-all duration-200 ease-in-out" placeholder="例: AI判定メモ">
+                    <button type="button" onclick="window.handleAddCsvColumnDraft && window.handleAddCsvColumnDraft()" class="px-4 py-2 bg-slate-100 rounded-xl font-bold text-slate-600 hover:bg-slate-200 hover:text-slate-700 transition-all duration-200 ease-in-out transform active:scale-98 whitespace-nowrap">列を追加</button>
+                </div>
+                <p class="text-[10px] text-slate-400">削除した列は既存行の値もあわせて外れます。追加した列には空欄が入ります。</p>
+            </div>
+
+            <div class="flex justify-end gap-2.5 pt-4 border-t border-slate-100">
+                <button type="button" onclick="window.closeCsvColumnEditModal && window.closeCsvColumnEditModal()" class="px-5 py-2 bg-slate-100 rounded-xl font-bold text-slate-500 hover:bg-slate-200 hover:text-slate-700 transition-all duration-200 ease-in-out transform active:scale-98">キャンセル</button>
+                <button id="modal-csv-column-edit-submit" type="submit" class="px-7 py-2 bg-slate-300 text-white rounded-xl font-bold shadow-sm cursor-not-allowed" disabled>保存する</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <div id="material-note-modal" class="fixed inset-0 bg-slate-950/40 backdrop-blur-xs hidden items-center justify-center z-50 p-4 animate-fadeIn duration-200" role="dialog" aria-modal="true" aria-labelledby="modal-title-material">
     <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-4xl mx-auto overflow-y-auto max-h-[90vh] border border-slate-100/80 transition-all duration-200">
         <h3 id="modal-title-material" class="text-sm md:text-base font-black tracking-wider text-slate-700 mb-5 border-b border-slate-100 pb-3 uppercase">資料メモの編集</h3>

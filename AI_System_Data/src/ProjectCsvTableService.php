@@ -82,6 +82,81 @@ class ProjectCsvTableService
         return $updated;
     }
 
+    public function updateColumns(int $projectId, int $csvFileId, array $headers): array
+    {
+        $file = $this->findById($projectId, $csvFileId);
+        if (!$file) {
+            throw new RuntimeException('対象のCSVファイルが見つかりません。');
+        }
+
+        $newHeaders = $this->normalizeHeaders($headers);
+        if ($newHeaders === []) {
+            throw new InvalidArgumentException('列名を1つ以上残してください。');
+        }
+
+        $currentHeaders = $this->decodeHeaders((string)($file['column_headers'] ?? ''));
+        $removedHeaders = array_values(array_diff($currentHeaders, $newHeaders));
+        $addedHeaders = array_values(array_diff($newHeaders, $currentHeaders));
+
+        $this->pdo->beginTransaction();
+        try {
+            $stmtRows = $this->pdo->prepare("SELECT id, row_data FROM project_csv_rows WHERE csv_file_id = ?");
+            $stmtRows->execute([$csvFileId]);
+            $rows = $stmtRows->fetchAll(PDO::FETCH_ASSOC);
+
+            if ($rows !== []) {
+                $stmtUpdateRow = $this->pdo->prepare("UPDATE project_csv_rows SET row_data = ? WHERE id = ?");
+                foreach ($rows as $row) {
+                    $rowData = json_decode((string)($row['row_data'] ?? ''), true);
+                    if (!is_array($rowData)) {
+                        $rowData = [];
+                    }
+
+                    foreach ($removedHeaders as $header) {
+                        unset($rowData[$header]);
+                    }
+                    foreach ($addedHeaders as $header) {
+                        if (!array_key_exists($header, $rowData)) {
+                            $rowData[$header] = '';
+                        }
+                    }
+
+                    $normalizedRowData = [];
+                    foreach ($newHeaders as $header) {
+                        $value = $rowData[$header] ?? '';
+                        if (is_array($value)) {
+                            $value = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                        }
+                        $normalizedRowData[$header] = trim((string)$value);
+                    }
+
+                    $stmtUpdateRow->execute([
+                        json_encode($normalizedRowData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                        (int)$row['id'],
+                    ]);
+                }
+            }
+
+            $stmtUpdateFile = $this->pdo->prepare("UPDATE project_csv_files SET column_headers = ? WHERE id = ? AND project_id = ?");
+            $stmtUpdateFile->execute([
+                json_encode($newHeaders, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                $csvFileId,
+                $projectId,
+            ]);
+
+            $this->pdo->commit();
+        } catch (Throwable $e) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+            throw $e;
+        }
+
+        $updated = $this->findById($projectId, $csvFileId);
+        $updated['headers'] = $newHeaders;
+        return $updated;
+    }
+
     public function findById(int $projectId, int $csvFileId): ?array
     {
         $stmt = $this->pdo->prepare("

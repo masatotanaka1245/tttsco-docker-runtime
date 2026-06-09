@@ -21,7 +21,12 @@ export const secureFetch = async (url, options = {}) => {
     }
     
     try {
-        const response = await fetch(url, { ...options, headers, credentials: 'same-origin' });
+        const response = await fetch(url, {
+            cache: 'no-store',
+            ...options,
+            headers,
+            credentials: 'same-origin'
+        });
         const data = await response.json().catch(() => null);
 
         if (!response.ok) {
