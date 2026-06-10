@@ -366,10 +366,10 @@ async function openPdfTab(docId, title, pageNumber = 1) {
     btn.innerHTML = `<span onclick="switchTab('${tabId}')" class="truncate max-w-[120px]">📄 ${title}</span><div onclick="closeTab('${tabId}', '${btnId}', event)" class="hover:text-red-500 px-1 ml-1 cursor-pointer">×</div>`;
     document.getElementById('tab-header').appendChild(btn);
     
-    const content = document.createElement('div'); 
-    content.id = tabId; 
-    content.className = 'tab-content h-full w-full bg-slate-50 relative';
-    content.innerHTML = `<iframe src="${pdfUrl}" class="w-full h-full border-none"></iframe>`;
+    const content = document.createElement('div');
+    content.id = tabId;
+    content.className = 'tab-content h-full w-full min-h-0 bg-slate-50 relative';
+    content.innerHTML = `<iframe src="${pdfUrl}" class="w-full h-full min-h-0 border-none flex-1"></iframe>`;
     document.getElementById('tab-container').appendChild(content);
     
     switchTab(tabId);

@@ -87,6 +87,8 @@ $callCategorizationPlanner = static function (string $host, string $model, strin
 
     $system = "あなたはCSV列の事前分析アシスタントです。\n"
         . "列全体の値を観察して、後続のカテゴリ分類で使う分類方針を提案してください。\n"
+        . "似た意味の値はできるだけ同じカテゴリへ統合し、カテゴリ数は必要最小限に抑えてください。\n"
+        . "categories には短く分かりやすいカテゴリ名だけを入れ、最大6件までにしてください。\n"
         . "出力はJSONのみで、必ず {\"guidance\":\"...\",\"categories\":[\"...\"],\"observations\":[\"...\"]} の形式にしてください。";
 
     $user = "【対象列】\n{$targetColumn}\n\n"
@@ -130,6 +132,56 @@ $callCategorizationPlanner = static function (string $host, string $model, strin
         'categories' => array_values(array_filter(array_map(static fn($v) => trim((string)$v), (array)($decoded['categories'] ?? [])), static fn($v) => $v !== '')),
         'observations' => array_values(array_filter(array_map(static fn($v) => trim((string)$v), (array)($decoded['observations'] ?? [])), static fn($v) => $v !== '')),
     ];
+};
+
+$normalizeCandidateCategories = static function (array $categories, int $max = 6): array {
+    $normalized = [];
+    $seen = [];
+    foreach ($categories as $category) {
+        $category = preg_replace('/\s+/u', ' ', trim((string)$category)) ?? trim((string)$category);
+        if ($category === '') {
+            continue;
+        }
+        $key = mb_strtolower(preg_replace('/[\s\-_・\/]+/u', '', $category) ?? $category, 'UTF-8');
+        if (isset($seen[$key])) {
+            continue;
+        }
+        $seen[$key] = true;
+        $normalized[] = $category;
+        if (count($normalized) >= $max) {
+            break;
+        }
+    }
+
+    return $normalized;
+};
+
+$resolveCategoryToCandidate = static function (string $rawCategory, array $candidateCategories): string {
+    $rawCategory = preg_replace('/\s+/u', ' ', trim($rawCategory)) ?? trim($rawCategory);
+    if ($rawCategory === '' || $candidateCategories === []) {
+        return $rawCategory;
+    }
+
+    $normalize = static function (string $value): string {
+        $value = preg_replace('/[\s\-_・\/()（）]+/u', '', trim($value)) ?? trim($value);
+        return mb_strtolower($value, 'UTF-8');
+    };
+
+    $rawKey = $normalize($rawCategory);
+    foreach ($candidateCategories as $candidate) {
+        if ($rawKey === $normalize($candidate)) {
+            return $candidate;
+        }
+    }
+
+    foreach ($candidateCategories as $candidate) {
+        $candidateKey = $normalize($candidate);
+        if ($candidateKey !== '' && (mb_strpos($rawKey, $candidateKey) !== false || mb_strpos($candidateKey, $rawKey) !== false)) {
+            return $candidate;
+        }
+    }
+
+    return $candidateCategories[0];
 };
 
 $markCanceled = static function (int $current, int $total, int $outputCsvFileId = 0, string $reason = 'cancel requested') use ($jobService, $jobId, $writeStatus, $job, $logJob): never {
@@ -240,6 +292,7 @@ try {
     $system = "あなたはCSVデータのカテゴリ分類アシスタントです。\n"
         . "対象列の値を1つの短いカテゴリ名へ分類し、理由も1文で返してください。\n"
         . "出力はJSONのみで、必ず {\"category\":\"...\",\"reason\":\"...\"} の形式にしてください。";
+    $candidateCategories = [];
 
     if (trim((string)$job['instructions']) === '') {
         $valueCounts = [];
@@ -297,8 +350,10 @@ try {
                 if ($plan['guidance'] !== '') {
                     $inferredSections[] = "【列全体の分析にもとづく分類方針】\n" . $plan['guidance'];
                 }
-                if (!empty($plan['categories'])) {
-                    $inferredSections[] = "【推奨カテゴリ候補】\n- " . implode("\n- ", $plan['categories']);
+                $candidateCategories = $normalizeCandidateCategories((array)($plan['categories'] ?? []), 6);
+                if (!empty($candidateCategories)) {
+                    $inferredSections[] = "【推奨カテゴリ候補】\n- " . implode("\n- ", $candidateCategories);
+                    $inferredSections[] = "【分類時の厳守ルール】\nカテゴリ名は必ず上の候補から1つだけ選んでください。似た意味の新しいカテゴリ名を増やさないでください。";
                 }
                 if (!empty($plan['observations'])) {
                     $inferredSections[] = "【観察メモ】\n- " . implode("\n- ", $plan['observations']);
@@ -312,7 +367,7 @@ try {
                     'target_column' => (string)$job['target_column'],
                     'non_empty_values' => $totalNonEmptyValues,
                     'unique_values' => count($valueCounts),
-                    'suggested_categories' => $plan['categories'],
+                    'suggested_categories' => $candidateCategories,
                 ]);
             } catch (Throwable $plannerError) {
                 $logJob('column analysis fallback to default categorizer', [
@@ -348,6 +403,18 @@ try {
             $result = $callCategorizer((string)$job['ollama_host'], (string)$job['model'], $system, $user);
             $category = $result['category'] !== '' ? $result['category'] : '未分類';
             $reason = $result['reason'] !== '' ? $result['reason'] : '理由は返却されませんでした。';
+            if ($candidateCategories !== []) {
+                $resolvedCategory = $resolveCategoryToCandidate($category, $candidateCategories);
+                if ($resolvedCategory !== $category) {
+                    $logJob('category normalized to candidate', [
+                        'target_column' => (string)$job['target_column'],
+                        'target_value' => mb_strimwidth($targetValue, 0, 160, '...', 'UTF-8'),
+                        'raw_category' => $category,
+                        'resolved_category' => $resolvedCategory,
+                    ]);
+                }
+                $category = $resolvedCategory;
+            }
         }
 
         $outputRow = $rowData;

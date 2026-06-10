@@ -663,8 +663,17 @@ $projectCenterTabs = [
     <script src="<?= !empty($URL_LEAFLET_JS) ? h($URL_LEAFLET_JS) : 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js' ?>"></script>
     <link rel="stylesheet" href="assets/css/styles.css?v=11">
     <style>
-        .tab-content { display: none; }
-        .tab-content.active { display: block; }
+        .tab-content {
+            display: none;
+            width: 100%;
+            height: 100%;
+            min-height: 0;
+        }
+        .tab-content.active {
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
         
         .tab-btn.active { 
             background-color: #ffffff; 
@@ -1136,8 +1145,8 @@ $projectCenterTabs = [
 
             </div>
 
-            <div id="tab-materials" role="tabpanel" class="tab-content <?= $active_tab === 'materials' ? 'active' : '' ?> h-full overflow-y-auto p-6 space-y-6">
-                <div class="bg-white border border-slate-200/80 rounded-2xl overflow-hidden shadow-sm transition-all duration-300 hover:shadow-md">
+            <div id="tab-materials" role="tabpanel" class="tab-content <?= $active_tab === 'materials' ? 'active' : '' ?> h-full min-h-0 overflow-hidden p-6">
+                <div class="bg-white border border-slate-200/80 rounded-2xl overflow-hidden shadow-sm transition-all duration-300 hover:shadow-md h-full min-h-0 flex flex-col">
                     <div class="bg-slate-50/70 p-3.5 px-5 font-bold text-slate-700 flex justify-between items-center text-xs border-b border-slate-100">
                         <div class="flex items-center gap-3">
                             <span class="font-extrabold tracking-wide text-slate-600">資料メモ</span>
@@ -1159,8 +1168,8 @@ $projectCenterTabs = [
                         </div>
                     </div>
 
-                    <div class="p-5 space-y-5">
-                        <div id="material-flash-container"><?php renderProjectMaterialFlash((string)$material_flash); ?></div>
+                    <div class="p-5 space-y-5 flex-1 min-h-0 flex flex-col">
+                        <div id="material-flash-container" class="flex-shrink-0"><?php renderProjectMaterialFlash((string)$material_flash); ?></div>
                         <script type="application/json" id="material-note-editor-data"><?= json_encode([
                             'selected' => [
                                 'id' => (int)($selected_material_document['id'] ?? 0),
@@ -1169,20 +1178,20 @@ $projectCenterTabs = [
                             ],
                         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
 
-                        <p class="text-[11px] text-slate-500 leading-relaxed">
+                        <p class="text-[11px] text-slate-500 leading-relaxed flex-shrink-0">
                             PDFの報告書と別に、案件の補足資料や途中メモを Markdown で蓄積します。保存すると資料ファイルとして登録され、以後の検索対象にも含められます。
                         </p>
 
-                        <div class="grid grid-cols-1 xl:grid-cols-[18rem_minmax(0,1fr)] gap-5 items-start">
-                            <div class="space-y-3">
+                        <div class="grid grid-cols-1 xl:grid-cols-[18rem_minmax(0,1fr)] gap-5 items-start flex-1 min-h-0">
+                            <div class="space-y-3 min-h-0 flex flex-col">
                                 <div class="text-[10px] font-black text-slate-400 uppercase tracking-widest">資料一覧</div>
-                                <div id="material-document-list" class="space-y-2.5">
+                                <div id="material-document-list" class="space-y-2.5 flex-1 min-h-0 overflow-y-auto pr-1 custom-scrollbar">
                                     <?php renderProjectMaterialItems($material_documents, (int)$selected_project_id, $selected_material_document ? (int)$selected_material_document['id'] : null); ?>
                                 </div>
                             </div>
 
-                            <div class="space-y-4">
-                                <div class="border border-slate-200 rounded-2xl overflow-hidden bg-white shadow-2xs">
+                            <div class="space-y-4 min-h-0 flex flex-col">
+                                <div class="border border-slate-200 rounded-2xl overflow-hidden bg-white shadow-2xs flex-1 min-h-0 flex flex-col">
                                     <div class="px-4 py-2.5 bg-slate-50 text-[10px] font-black text-slate-400 tracking-widest uppercase flex items-center justify-between">
                                         <span>Preview</span>
                                         <?php if ($selected_material_document): ?>
@@ -1191,7 +1200,7 @@ $projectCenterTabs = [
                                             <span id="material-preview-title" class="normal-case tracking-normal text-slate-400 font-bold"></span>
                                         <?php endif; ?>
                                     </div>
-                                    <div id="material-preview-body" class="p-5 markdown-body chat-markdown prose prose-slate max-w-none text-sm">
+                                    <div id="material-preview-body" class="p-5 markdown-body chat-markdown prose prose-slate max-w-none text-sm flex-1 min-h-0 overflow-y-auto custom-scrollbar">
                                         <?php if ($selected_material_preview_html !== ''): ?>
                                             <?= $selected_material_preview_html ?>
                                         <?php else: ?>
@@ -1565,7 +1574,7 @@ $projectCenterTabs = [
 
     // ★ 究極の安全設計: import * as 構文を使用し、1096エラー(SyntaxError)を原理的に100%防止
     // ✨ ここを ?v=4 から ?v=5 へ書き換えてキャッシュを強制粉砕！
-    import * as Support from './assets/js/support.js?v=24';
+    import * as Support from './assets/js/support.js?v=25';
 
     // ★要件4: 隔離コンテナ内のJSONデータを仲介して安全にマウント・パースするイベントハンドラの実装
     window.openProjectEditModal = (lat, lng) => {
