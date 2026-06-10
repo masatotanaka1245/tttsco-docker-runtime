@@ -169,6 +169,16 @@ class AdvancedReasoningRouteProcessor {
         return $normalized;
     }
 
+    private function isAllowedTargetTable(string $tableName): bool
+    {
+        $normalized = trim($tableName, " \t\n\r\0\x0B`");
+        if ($normalized === '') {
+            return false;
+        }
+
+        return in_array($normalized, $this->dynamicTableWhitelist, true);
+    }
+
     private function buildScopedSchemaInfo(array $preferredTables = []): string
     {
         $tables = $this->normalizeSchemaTableList($preferredTables);
