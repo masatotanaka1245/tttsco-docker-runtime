@@ -49,6 +49,86 @@ if (!function_exists('resolveDocumentAbsolutePath')) {
     }
 }
 
+if (!function_exists('streamPdfFile')) {
+    function streamPdfFile(string $fullPath): void
+    {
+        $fileSize = filesize($fullPath);
+        if ($fileSize === false) {
+            http_response_code(500);
+            exit('Failed to determine file size');
+        }
+
+        $start = 0;
+        $end = $fileSize - 1;
+        $length = $fileSize;
+
+        header('Accept-Ranges: bytes');
+
+        $rangeHeader = $_SERVER['HTTP_RANGE'] ?? '';
+        if ($rangeHeader !== '' && preg_match('/bytes=(\d*)-(\d*)/i', $rangeHeader, $matches)) {
+            $rangeStart = $matches[1];
+            $rangeEnd = $matches[2];
+
+            if ($rangeStart === '' && $rangeEnd === '') {
+                http_response_code(416);
+                header("Content-Range: bytes */{$fileSize}");
+                exit;
+            }
+
+            if ($rangeStart === '') {
+                $suffixLength = (int)$rangeEnd;
+                if ($suffixLength > 0) {
+                    $start = max(0, $fileSize - $suffixLength);
+                }
+            } else {
+                $start = (int)$rangeStart;
+            }
+
+            if ($rangeEnd !== '') {
+                $end = min((int)$rangeEnd, $fileSize - 1);
+            }
+
+            if ($start > $end || $start >= $fileSize) {
+                http_response_code(416);
+                header("Content-Range: bytes */{$fileSize}");
+                exit;
+            }
+
+            $length = $end - $start + 1;
+            http_response_code(206);
+            header("Content-Range: bytes {$start}-{$end}/{$fileSize}");
+        }
+
+        header('Content-Length: ' . $length);
+
+        $handle = fopen($fullPath, 'rb');
+        if ($handle === false) {
+            http_response_code(500);
+            exit('Failed to open PDF file');
+        }
+
+        if ($start > 0) {
+            fseek($handle, $start);
+        }
+
+        $remaining = $length;
+        $chunkSize = 8192;
+
+        while (!feof($handle) && $remaining > 0) {
+            $readLength = min($chunkSize, $remaining);
+            $buffer = fread($handle, $readLength);
+            if ($buffer === false) {
+                break;
+            }
+            echo $buffer;
+            flush();
+            $remaining -= strlen($buffer);
+        }
+
+        fclose($handle);
+    }
+}
+
 $auth = new Auth($pdo);
 if (!$auth->isLoggedIn()) {
     http_response_code(401);          // 未認証
@@ -97,11 +177,11 @@ $displayTitle = !empty($doc['title']) ? $doc['title'] : basename($fullPath);
 $encodedTitle = urlencode($displayTitle);
 header('Content-Disposition: inline; filename*=UTF-8\'\'' . $encodedTitle);
 
-header('Content-Length: ' . filesize($fullPath));
 header('Cache-Control: private, max-age=0, must-revalidate');
 header('Pragma: no-cache');
 header('Expires: 0');
+header('X-Content-Type-Options: nosniff');
 
 /* ③ ファイル送信 */
-readfile($fullPath);
+streamPdfFile($fullPath);
 exit;
