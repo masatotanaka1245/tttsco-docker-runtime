@@ -8,6 +8,11 @@
 // =========================================================================
 const phpCanvasSwitchTab = typeof window.switchTab === 'function' ? window.switchTab : null;
 
+function getPublicBasePath() {
+    const configEl = document.getElementById('support-config');
+    return configEl?.dataset?.publicBase || '';
+}
+
 // =========================================================================
 // 1. ドラッグ式リサイザブル・スプリットビュー
 // =========================================================================
@@ -350,7 +355,8 @@ async function openPdfTab(docId, title, pageNumber = 1) {
     }
 
     const tabId = 'tab-doc-' + docId;
-    const pdfUrl = `api/view_pdf.php?id=${docId}&_=${Date.now()}#page=${Math.max(1, Number(pageNumber) || 1)}`;
+    const publicBase = getPublicBasePath();
+    const pdfUrl = `${publicBase}/api/view_pdf.php?id=${docId}&_=${Date.now()}#page=${Math.max(1, Number(pageNumber) || 1)}`;
     
     if (document.getElementById(tabId)) {
         const iframe = document.querySelector(`#${tabId} iframe`);
