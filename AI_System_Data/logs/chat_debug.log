@@ -86,3 +86,23 @@
 [2026-06-09 20:19:14] [CHAT_STREAM] === Text-to-SQL 自律修復型分析パイプライン完了 ===
 [2026-06-09 20:19:14] [CHAT_STREAM] [CSV-SUMMARY] 小規模CSV即答ルートが完了しました。totalElapsed: 0.05秒
 [2026-06-09 20:19:14] [CHAT_STREAM] [SMART-ROUTER] ルート処理完了: data_analysis | detail=data_analysis.csv_summary | elapsed: 0.08秒
+[2026-06-10 11:03:47] [CHAT_STREAM] === 新着チャット受信 | Host: http://host.docker.internal:11434 | Model: gemma4:e4b ===
+[2026-06-10 11:03:47] [CHAT_STREAM] ユーザー: admin (ID: 1) | 案件ID: NULL (汎用)
+[2026-06-10 11:03:47] [CHAT_STREAM] 質問内容: 現在の全プロジェクト状況を150文字程度で、毎朝のビジネスブリーフィング風に、本日の要約と次の推奨ア...
+[2026-06-10 11:03:47] [CHAT_STREAM] [INPUT-MODE] prompt_mode=general_chat | advanced_reasoning=off | reasoning_id=none | report_mode=off | diagram_mode=off | csv_mode=off
+[2026-06-10 11:03:47] [CHAT_STREAM] [SMART-ROUTER] 案件未選択の汎用質問を検知。ハイブリッド多重推論ではなくグローバルルートを優先します。
+[2026-06-10 11:03:47] [CHAT_STREAM] [SMART-ROUTER] 最終ルート決定: global_no_project
+[2026-06-10 11:03:47] [CHAT_STREAM] [MODEL-ROLES] route=global_no_project | main_model=gemma4:e4b | sub_model=gemma4:e2b | sql_model=codellama:7b | embedding_model=mxbai-embed-large
+[2026-06-10 11:03:47] [CHAT_STREAM] >>> [グローバルルート] 完全自律型 ReAct エージェントを起動します
+[2026-06-10 11:03:47] [CHAT_STREAM] [DEBUG] 引数情報 - Host: http://host.docker.internal:11434 | MainModel: gemma4:e4b | SubModel: gemma4:e2b | SqlModel: codellama:7b | UserID: 1 | Role: admin
+[2026-06-10 11:03:47] [CHAT_STREAM] >>> [ReAct ループ 1/4] 思考・行動の生成中...
+[2026-06-10 11:03:47] [CHAT_STREAM] [OLLAMA-PAYLOAD] model=codellama:7b | think_mode=standard | think_token_sent=no | format=json | num_ctx=8192 | temperature=0.2
+[2026-06-10 11:04:09] [CHAT_STREAM] [OLLAMA-THINK] model=codellama:7b | think_mode=standard | thinking_field=no | thought_trace=no | thought_chars=0
+[2026-06-10 11:04:09] [CHAT_STREAM] [DEBUG] ReAct [1] Ollama生応答: {
+"thought": "今日は、進行中のプロジェクト一覧を確認することにします。",
+"action": "execute_sql",
+"action_input": "SELECT * FROM projects WHERE status = 'active'"
+}
+[2026-06-10 11:04:09] [CHAT_STREAM] [DEBUG] ReAct [1] 組み立てられた実行クエリ: SELECT * FROM projects WHERE status = 'active'
+[2026-06-10 11:04:09] [CHAT_STREAM] [DEBUG] ReAct [1] データベースから 1 件の監査済みデータを抽出。
+[2026-06-10 11:04:09] [CHAT_STREAM] >>> [ReAct ループ 2/4] 思考・行動の生成中...

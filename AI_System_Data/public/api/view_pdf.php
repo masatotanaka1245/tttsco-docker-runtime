@@ -9,6 +9,7 @@ require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../config/session.php';
 require_once __DIR__ . '/../../src/Auth.php';
 require_once __DIR__ . '/../../src/ProjectAccess.php';
+require_once __DIR__ . '/../../src/AppLogger.php';
 
 if (!function_exists('resolveDocumentAbsolutePath')) {
     function resolveDocumentAbsolutePath(string $filePath, string $publicBaseDir): ?string
@@ -129,14 +130,31 @@ if (!function_exists('streamPdfFile')) {
     }
 }
 
+if (!function_exists('viewPdfLog')) {
+    function viewPdfLog(string $message, array $context = []): void
+    {
+        appLog('pdf_view.log', $message, $context);
+    }
+}
+
 $auth = new Auth($pdo);
 if (!$auth->isLoggedIn()) {
+    viewPdfLog('unauthorized access', [
+        'id' => filter_input(INPUT_GET, 'id', FILTER_UNSAFE_RAW),
+        'user_id' => $_SESSION['user_id'] ?? null,
+        'uri' => $_SERVER['REQUEST_URI'] ?? '',
+        'range' => $_SERVER['HTTP_RANGE'] ?? '',
+    ]);
     http_response_code(401);          // 未認証
     exit('Unauthorized');
 }
 
 $id = filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT);
 if (!$id) {
+    viewPdfLog('invalid id', [
+        'raw_id' => $_GET['id'] ?? null,
+        'uri' => $_SERVER['REQUEST_URI'] ?? '',
+    ]);
     http_response_code(400);          // ID が不正
     exit('Bad Request');
 }
@@ -147,11 +165,21 @@ $stmt->execute([$id]);
 $doc = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$doc) {
+    viewPdfLog('document not found in database', [
+        'id' => $id,
+        'uri' => $_SERVER['REQUEST_URI'] ?? '',
+    ]);
     http_response_code(404);          // ドキュメントが存在しない
     exit('Document not found in database');
 }
 
 if (!canAccessProject($pdo, (int)$doc['project_id'], (int)$_SESSION['user_id'], $_SESSION['role'] ?? 'user')) {
+    viewPdfLog('forbidden document access', [
+        'id' => $id,
+        'project_id' => (int)$doc['project_id'],
+        'user_id' => (int)($_SESSION['user_id'] ?? 0),
+        'role' => $_SESSION['role'] ?? '',
+    ]);
     http_response_code(403);
     exit('Forbidden');
 }
@@ -165,9 +193,29 @@ $fullPath = $publicBaseDir !== false
 
 // セキュリティ: パストラバーサル対策 ＆ ファイル存在チェック
 if ($fullPath === null || $allowedBaseDir === false || strpos($fullPath, $allowedBaseDir) !== 0 || !file_exists($fullPath)) {
+    viewPdfLog('file path resolution failed', [
+        'id' => $id,
+        'file_path' => (string)$doc['file_path'],
+        'resolved_path' => $fullPath,
+        'public_base' => $publicBaseDir,
+        'allowed_base' => $allowedBaseDir,
+        'uri' => $_SERVER['REQUEST_URI'] ?? '',
+        'host' => $_SERVER['HTTP_HOST'] ?? '',
+        'range' => $_SERVER['HTTP_RANGE'] ?? '',
+    ]);
     http_response_code(404);          // ファイルが見つからない、または不正アクセス
     exit('File not found on server or access denied');
 }
+
+viewPdfLog('stream started', [
+    'id' => $id,
+    'title' => (string)($doc['title'] ?? ''),
+    'file_path' => (string)$doc['file_path'],
+    'resolved_path' => $fullPath,
+    'host' => $_SERVER['HTTP_HOST'] ?? '',
+    'uri' => $_SERVER['REQUEST_URI'] ?? '',
+    'range' => $_SERVER['HTTP_RANGE'] ?? '',
+]);
 
 /* ② ヘッダー設定 */
 header('Content-Type: application/pdf');
