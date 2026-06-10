@@ -45,7 +45,7 @@ try {
         exit;
     }
 
-    $content = $service->readContent((string)$selectedDocument['file_path']);
+    $content = $service->readContent((string)$selectedDocument['file_path'], (int)($selectedDocument['id'] ?? 0));
     $previewHtml = $content !== '' ? $markdownPreviewParser->text($content) : '';
 
     echo json_encode([

@@ -169,7 +169,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (string)($_POST['action'] ?? '') ==
         $baseContent = $contentInput;
 
         if ($baseContent === '' && $existingDocument) {
-            $baseContent = $materialDocumentService->readContent((string)$existingDocument['file_path']);
+            $baseContent = $materialDocumentService->readContent((string)$existingDocument['file_path'], (int)($existingDocument['id'] ?? 0));
         }
 
         if ($appendNote !== '') {
@@ -392,7 +392,10 @@ if ($selected_project_id) {
                     $selected_material_document = $material_documents[0];
                 }
                 if ($selected_material_document) {
-                    $selected_material_content = $materialDocumentService->readContent((string)($selected_material_document['file_path'] ?? ''));
+                    $selected_material_content = $materialDocumentService->readContent(
+                        (string)($selected_material_document['file_path'] ?? ''),
+                        (int)($selected_material_document['id'] ?? 0)
+                    );
                     $selected_material_preview_html = $selected_material_content !== ''
                         ? $markdownPreviewParser->text($selected_material_content)
                         : '';

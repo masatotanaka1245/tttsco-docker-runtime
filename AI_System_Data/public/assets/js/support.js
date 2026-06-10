@@ -558,14 +558,14 @@ function bindMaterialDocumentListNavigation() {
     const listEl = document.getElementById('material-document-list');
     if (!listEl || listEl.dataset.navigationBound === 'true') return;
 
-    listEl.addEventListener('click', (event) => {
+    listEl.addEventListener('click', async (event) => {
         const link = event.target.closest('a[data-material-document-id]');
         if (!link) return;
-        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) {
-            return;
-        }
         event.preventDefault();
-        window.location.assign(link.href);
+
+        const materialDocumentId = Number(link.dataset.materialDocumentId || 0);
+        if (!materialDocumentId) return;
+        await loadMaterialDocument(materialDocumentId);
     });
 
     listEl.dataset.navigationBound = 'true';

@@ -60,7 +60,7 @@ try {
     $baseContent = $contentInput;
 
     if ($baseContent === '' && $existingDocument) {
-        $baseContent = $service->readContent((string)$existingDocument['file_path']);
+        $baseContent = $service->readContent((string)$existingDocument['file_path'], (int)($existingDocument['id'] ?? 0));
     }
 
     if ($appendNote !== '') {

@@ -62,7 +62,7 @@ try {
     $appendBlock .= "### 回答\n\n{$answer}\n";
 
     if ($existingDocument) {
-        $baseContent = $service->readContent((string)$existingDocument['file_path']);
+        $baseContent = $service->readContent((string)$existingDocument['file_path'], (int)($existingDocument['id'] ?? 0));
         $nextContent = trim($baseContent) !== ''
             ? rtrim($baseContent) . "\n\n" . $appendBlock
             : '# ' . trim((string)$existingDocument['title']) . "\n\n" . $appendBlock;

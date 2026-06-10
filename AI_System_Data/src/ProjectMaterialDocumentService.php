@@ -32,15 +32,24 @@ class ProjectMaterialDocumentService
         return $document;
     }
 
-    public function readContent(string $relativePath): string
+    public function readContent(string $relativePath, ?int $documentId = null): string
     {
         $absolutePath = $this->toAbsolutePath($relativePath);
-        if (!is_file($absolutePath)) {
-            return '';
+        if (is_file($absolutePath)) {
+            $content = file_get_contents($absolutePath);
+            if ($content !== false && trim((string)$content) !== '') {
+                return (string)$content;
+            }
         }
 
-        $content = file_get_contents($absolutePath);
-        return $content === false ? '' : (string)$content;
+        if ($documentId && $documentId > 0) {
+            $fallback = $this->readContentFromChunks($documentId);
+            if ($fallback !== '') {
+                return $fallback;
+            }
+        }
+
+        return '';
     }
 
     public function getModifiedAt(string $relativePath): ?string
@@ -329,5 +338,25 @@ class ProjectMaterialDocumentService
             'modified_at' => $modifiedAt,
             'modified_label' => $modifiedAt !== '' ? date('Y/m/d H:i', strtotime($modifiedAt)) : '更新時刻なし',
         ];
+    }
+
+    private function readContentFromChunks(int $documentId): string
+    {
+        if ($documentId <= 0) {
+            return '';
+        }
+
+        $stmt = $this->pdo->prepare(
+            'SELECT chunk_text FROM doc_chunks WHERE doc_id = ? ORDER BY page_number ASC, id ASC'
+        );
+        $stmt->execute([$documentId]);
+        $chunks = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+        if (!$chunks) {
+            return '';
+        }
+
+        $content = trim(implode("\n\n", array_map(static fn($chunk): string => trim((string)$chunk), $chunks)));
+        return $content !== '' ? $content . "\n" : '';
     }
 }

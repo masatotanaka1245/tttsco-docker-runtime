@@ -59,7 +59,7 @@ try {
     $selectedContent = '';
     $previewHtml = '';
     if ($selectedDocument) {
-        $selectedContent = $service->readContent((string)$selectedDocument['file_path']);
+        $selectedContent = $service->readContent((string)$selectedDocument['file_path'], (int)($selectedDocument['id'] ?? 0));
         $previewHtml = $selectedContent !== '' ? $markdownPreviewParser->text($selectedContent) : '';
     }
 
