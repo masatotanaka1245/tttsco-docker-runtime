@@ -46,7 +46,63 @@ if (!function_exists('resolveDocumentAbsolutePath')) {
             }
         }
 
+        $basename = basename($normalized);
+        if ($basename !== '' && $basename !== '.' && $basename !== '..') {
+            $searchRoots = [
+                $publicBaseDir . DIRECTORY_SEPARATOR . '01_RAG_Documents',
+                $projectRoot . DIRECTORY_SEPARATOR . '01_RAG_Documents',
+                dirname($projectRoot) . DIRECTORY_SEPARATOR . '01_RAG_Documents',
+                dirname(dirname($projectRoot)) . DIRECTORY_SEPARATOR . '01_RAG_Documents',
+            ];
+
+            foreach (array_unique($searchRoots) as $root) {
+                $rootReal = realpath($root);
+                if ($rootReal === false || !is_dir($rootReal)) {
+                    continue;
+                }
+
+                try {
+                    $iterator = new RecursiveIteratorIterator(
+                        new RecursiveDirectoryIterator($rootReal, FilesystemIterator::SKIP_DOTS)
+                    );
+                    foreach ($iterator as $fileInfo) {
+                        if (!$fileInfo->isFile()) {
+                            continue;
+                        }
+                        if (strcasecmp($fileInfo->getFilename(), $basename) === 0) {
+                            return $fileInfo->getRealPath() ?: null;
+                        }
+                    }
+                } catch (Throwable $e) {
+                    // 検索不能なルートは静かにスキップ
+                }
+            }
+        }
+
         return null;
+    }
+}
+
+if (!function_exists('resolveAllowedDocumentBaseDirs')) {
+    function resolveAllowedDocumentBaseDirs(string $publicBaseDir): array
+    {
+        $projectRoot = dirname($publicBaseDir);
+        $candidates = [
+            $publicBaseDir . DIRECTORY_SEPARATOR . '01_RAG_Documents',
+            $projectRoot . DIRECTORY_SEPARATOR . '01_RAG_Documents',
+            dirname($projectRoot) . DIRECTORY_SEPARATOR . '01_RAG_Documents',
+            dirname(dirname($projectRoot)) . DIRECTORY_SEPARATOR . '01_RAG_Documents',
+        ];
+
+        $allowed = [];
+        foreach ($candidates as $candidate) {
+            $resolved = realpath($candidate);
+            if ($resolved !== false && is_dir($resolved)) {
+                $allowed[] = $resolved;
+            }
+        }
+
+        return array_values(array_unique($allowed));
     }
 }
 
@@ -186,19 +242,29 @@ if (!canAccessProject($pdo, (int)$doc['project_id'], (int)$_SESSION['user_id'], 
 
 /* ① ファイルパスを絶対パスで解決（複数の保存流儀を吸収） */
 $publicBaseDir = realpath(__DIR__ . '/..');
-$allowedBaseDir = $publicBaseDir !== false ? realpath($publicBaseDir . DIRECTORY_SEPARATOR . '01_RAG_Documents') : false;
+$allowedBaseDirs = $publicBaseDir !== false ? resolveAllowedDocumentBaseDirs($publicBaseDir) : [];
 $fullPath = $publicBaseDir !== false
     ? resolveDocumentAbsolutePath((string)$doc['file_path'], $publicBaseDir)
     : null;
 
+$isAllowedPath = false;
+if ($fullPath !== null) {
+    foreach ($allowedBaseDirs as $allowedBaseDir) {
+        if (strpos($fullPath, $allowedBaseDir) === 0) {
+            $isAllowedPath = true;
+            break;
+        }
+    }
+}
+
 // セキュリティ: パストラバーサル対策 ＆ ファイル存在チェック
-if ($fullPath === null || $allowedBaseDir === false || strpos($fullPath, $allowedBaseDir) !== 0 || !file_exists($fullPath)) {
+if ($fullPath === null || !$isAllowedPath || !file_exists($fullPath)) {
     viewPdfLog('file path resolution failed', [
         'id' => $id,
         'file_path' => (string)$doc['file_path'],
         'resolved_path' => $fullPath,
         'public_base' => $publicBaseDir,
-        'allowed_base' => $allowedBaseDir,
+        'allowed_bases' => $allowedBaseDirs,
         'uri' => $_SERVER['REQUEST_URI'] ?? '',
         'host' => $_SERVER['HTTP_HOST'] ?? '',
         'range' => $_SERVER['HTTP_RANGE'] ?? '',

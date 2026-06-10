@@ -47,7 +47,63 @@ if (!function_exists('resolveDocumentAbsolutePath')) {
             }
         }
 
+        $basename = basename($normalized);
+        if ($basename !== '' && $basename !== '.' && $basename !== '..') {
+            $searchRoots = [
+                $publicBaseDir . DIRECTORY_SEPARATOR . '01_RAG_Documents',
+                $projectRoot . DIRECTORY_SEPARATOR . '01_RAG_Documents',
+                dirname($projectRoot) . DIRECTORY_SEPARATOR . '01_RAG_Documents',
+                dirname(dirname($projectRoot)) . DIRECTORY_SEPARATOR . '01_RAG_Documents',
+            ];
+
+            foreach (array_unique($searchRoots) as $root) {
+                $rootReal = realpath($root);
+                if ($rootReal === false || !is_dir($rootReal)) {
+                    continue;
+                }
+
+                try {
+                    $iterator = new RecursiveIteratorIterator(
+                        new RecursiveDirectoryIterator($rootReal, FilesystemIterator::SKIP_DOTS)
+                    );
+                    foreach ($iterator as $fileInfo) {
+                        if (!$fileInfo->isFile()) {
+                            continue;
+                        }
+                        if (strcasecmp($fileInfo->getFilename(), $basename) === 0) {
+                            return $fileInfo->getRealPath() ?: null;
+                        }
+                    }
+                } catch (Throwable $e) {
+                    // スキップ
+                }
+            }
+        }
+
         return null;
+    }
+}
+
+if (!function_exists('resolveAllowedDocumentBaseDirs')) {
+    function resolveAllowedDocumentBaseDirs(string $publicBaseDir): array
+    {
+        $projectRoot = dirname($publicBaseDir);
+        $candidates = [
+            $publicBaseDir . DIRECTORY_SEPARATOR . '01_RAG_Documents',
+            $projectRoot . DIRECTORY_SEPARATOR . '01_RAG_Documents',
+            dirname($projectRoot) . DIRECTORY_SEPARATOR . '01_RAG_Documents',
+            dirname(dirname($projectRoot)) . DIRECTORY_SEPARATOR . '01_RAG_Documents',
+        ];
+
+        $allowed = [];
+        foreach ($candidates as $candidate) {
+            $resolved = realpath($candidate);
+            if ($resolved !== false && is_dir($resolved)) {
+                $allowed[] = $resolved;
+            }
+        }
+
+        return array_values(array_unique($allowed));
     }
 }
 
@@ -103,10 +159,19 @@ try {
     $realPath = $baseDir !== false
         ? resolveDocumentAbsolutePath((string)$doc['file_path'], $baseDir)
         : null;
-    $allowedDir = $baseDir !== false ? realpath($baseDir . '/01_RAG_Documents') : false;
+    $allowedDirs = $baseDir !== false ? resolveAllowedDocumentBaseDirs($baseDir) : [];
+    $isAllowedPath = false;
+    if ($realPath !== null) {
+        foreach ($allowedDirs as $allowedDir) {
+            if (strpos($realPath, $allowedDir) === 0) {
+                $isAllowedPath = true;
+                break;
+            }
+        }
+    }
 
     // 指定ディレクトリ（01_RAG_Documents）内のファイルであることの厳密な確認
-    if ($realPath !== null && $allowedDir !== false && strpos($realPath, $allowedDir) === 0 && file_exists($realPath)) {
+    if ($realPath !== null && $isAllowedPath && file_exists($realPath)) {
         @unlink($realPath); // サーバーから物理ファイルを削除
     }
 
