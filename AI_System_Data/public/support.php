@@ -1185,15 +1185,15 @@ $projectCenterTabs = [
                             PDFの報告書と別に、案件の補足資料や途中メモを Markdown で蓄積します。保存すると資料ファイルとして登録され、以後の検索対象にも含められます。
                         </p>
 
-                        <div class="grid grid-cols-1 xl:grid-cols-[18rem_minmax(0,1fr)] gap-5 items-start flex-1 min-h-0">
-                            <div class="space-y-3 min-h-0 flex flex-col">
+                        <div class="grid grid-cols-1 xl:grid-cols-[18rem_minmax(0,1fr)] gap-5 items-stretch flex-1 min-h-0">
+                            <div class="space-y-3 min-h-0 h-full flex flex-col">
                                 <div class="text-[10px] font-black text-slate-400 uppercase tracking-widest">資料一覧</div>
                                 <div id="material-document-list" class="space-y-2.5 flex-1 min-h-0 overflow-y-auto pr-1 custom-scrollbar">
                                     <?php renderProjectMaterialItems($material_documents, (int)$selected_project_id, $selected_material_document ? (int)$selected_material_document['id'] : null); ?>
                                 </div>
                             </div>
 
-                            <div class="space-y-4 min-h-0 flex flex-col">
+                            <div class="space-y-4 min-h-0 h-full flex flex-col">
                                 <div class="border border-slate-200 rounded-2xl overflow-hidden bg-white shadow-2xs flex-1 min-h-0 flex flex-col">
                                     <div class="px-4 py-2.5 bg-slate-50 text-[10px] font-black text-slate-400 tracking-widest uppercase flex items-center justify-between">
                                         <span>Preview</span>
@@ -1206,6 +1206,8 @@ $projectCenterTabs = [
                                     <div id="material-preview-body" class="p-5 markdown-body chat-markdown prose prose-slate max-w-none text-sm flex-1 min-h-0 overflow-y-auto custom-scrollbar">
                                         <?php if ($selected_material_preview_html !== ''): ?>
                                             <?= $selected_material_preview_html ?>
+                                        <?php elseif ($selected_material_content !== ''): ?>
+                                            <pre class="whitespace-pre-wrap break-words text-sm leading-6 text-slate-700 font-sans"><?= h((string)$selected_material_content) ?></pre>
                                         <?php else: ?>
                                             <div class="text-center py-10 text-xs text-slate-400 italic">ここに資料メモのプレビューが表示されます。</div>
                                         <?php endif; ?>
@@ -1577,7 +1579,7 @@ $projectCenterTabs = [
 
     // ★ 究極の安全設計: import * as 構文を使用し、1096エラー(SyntaxError)を原理的に100%防止
     // ✨ ここを ?v=4 から ?v=5 へ書き換えてキャッシュを強制粉砕！
-    import * as Support from './assets/js/support.js?v=26';
+    import * as Support from './assets/js/support.js?v=28';
 
     // ★要件4: 隔離コンテナ内のJSONデータを仲介して安全にマウント・パースするイベントハンドラの実装
     window.openProjectEditModal = (lat, lng) => {

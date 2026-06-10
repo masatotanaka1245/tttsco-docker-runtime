@@ -362,6 +362,14 @@ function getMaterialPreviewPlaceholderHtml() {
     return '<div class="text-center py-10 text-xs text-slate-400 italic">ここに資料メモのプレビューが表示されます。</div>';
 }
 
+function buildMaterialPreviewFallbackHtml(content = '') {
+    if (!content) {
+        return getMaterialPreviewPlaceholderHtml();
+    }
+
+    return `<pre class="whitespace-pre-wrap break-words text-sm leading-6 text-slate-700 font-sans">${escapeMaterialHtml(content)}</pre>`;
+}
+
 function buildMaterialFlashHtml(message = '') {
     if (!message) return '';
     return `<div class="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">${escapeMaterialHtml(message)}</div>`;
@@ -467,7 +475,7 @@ function updateMaterialTabView(payload) {
         const previewHtml = String(selected?.preview_html || '');
         previewBodyEl.innerHTML = previewHtml !== ''
             ? previewHtml
-            : getMaterialPreviewPlaceholderHtml();
+            : buildMaterialPreviewFallbackHtml(String(selected?.content || ''));
     }
 
     updateMaterialEditorPayload({
@@ -550,14 +558,14 @@ function bindMaterialDocumentListNavigation() {
     const listEl = document.getElementById('material-document-list');
     if (!listEl || listEl.dataset.navigationBound === 'true') return;
 
-    listEl.addEventListener('click', async (event) => {
+    listEl.addEventListener('click', (event) => {
         const link = event.target.closest('a[data-material-document-id]');
         if (!link) return;
+        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) {
+            return;
+        }
         event.preventDefault();
-
-        const materialDocumentId = Number(link.dataset.materialDocumentId || 0);
-        if (!materialDocumentId) return;
-        await loadMaterialDocument(materialDocumentId);
+        window.location.assign(link.href);
     });
 
     listEl.dataset.navigationBound = 'true';
@@ -645,7 +653,7 @@ async function openMaterialNoteModal(mode = 'edit') {
     const isNew = mode === 'new';
     const docIdInput = document.getElementById('modal-material-document-id');
 
-    if (!isNew && Number(selected?.id || 0) > 0 && String(selected?.content || '').trim() === '') {
+    if (!isNew && Number(selected?.id || 0) > 0) {
         const { projectId } = getConfig();
         if (projectId) {
             const refresh = await secureFetch(`api/get_material.php?project_id=${encodeURIComponent(projectId)}&material_document_id=${encodeURIComponent(String(selected.id))}`, {
