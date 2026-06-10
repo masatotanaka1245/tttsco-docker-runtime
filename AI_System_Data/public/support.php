@@ -670,6 +670,9 @@ $projectCenterTabs = [
             min-height: 0;
         }
         .tab-content.active {
+            display: block;
+        }
+        #tab-materials.active {
             display: flex;
             flex-direction: column;
             min-height: 0;
@@ -1271,7 +1274,7 @@ $projectCenterTabs = [
                 
                 <form id="comment-form" onsubmit="window.handleAsyncAddComment(event);" class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 mb-6 relative overflow-hidden transition-all duration-300 ease-in-out focus-within:shadow-md">
                     <div class="absolute top-0 left-0 w-1 h-full bg-[#4F5D95]"></div>
-                    <textarea name="comment" id="comment-textarea" rows="1" class="w-full border border-slate-200 rounded-xl p-3.5 text-xs outline-none bg-slate-50/50 focus:bg-white focus:border-indigo-400/80 transition-all duration-200 ease-in-out resize-none font-medium text-slate-700 placeholder-slate-400" style="max-height: 220px; overflow-y: auto; height: auto;" placeholder="プロジェクトの進捗や、参考リンク of URL(http...)を入力... (Shift+Enterで改行)"></textarea>
+                    <textarea name="comment" id="comment-textarea" rows="4" class="w-full border border-slate-200 rounded-xl p-3.5 text-xs outline-none bg-slate-50/50 focus:bg-white focus:border-indigo-400/80 transition-all duration-200 ease-in-out resize-none font-medium text-slate-700 placeholder-slate-400" style="min-height: 112px; max-height: 220px; overflow-y: auto; height: auto;" placeholder="プロジェクトの進捗や、参考リンク of URL(http...)を入力... (Shift+Enterで改行)"></textarea>
                     <div class="flex justify-between items-center mt-3">
                         <span class="text-[10px] text-slate-400 font-medium ml-1">URLは自動でリンクに変換されます</span>
                         <button type="submit" class="bg-[#4F5D95] text-white px-6 py-2 rounded-xl text-xs font-bold shadow-md hover:bg-[#3f4a7a] hover:shadow-lg transition-all duration-200 ease-in-out transform active:scale-95">送信する</button>
@@ -1574,7 +1577,7 @@ $projectCenterTabs = [
 
     // ★ 究極の安全設計: import * as 構文を使用し、1096エラー(SyntaxError)を原理的に100%防止
     // ✨ ここを ?v=4 から ?v=5 へ書き換えてキャッシュを強制粉砕！
-    import * as Support from './assets/js/support.js?v=25';
+    import * as Support from './assets/js/support.js?v=26';
 
     // ★要件4: 隔離コンテナ内のJSONデータを仲介して安全にマウント・パースするイベントハンドラの実装
     window.openProjectEditModal = (lat, lng) => {

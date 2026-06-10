@@ -623,7 +623,7 @@ function bindMaterialDeleteForm() {
     form.dataset.deleteBound = 'true';
 }
 
-function openMaterialNoteModal(mode = 'edit') {
+async function openMaterialNoteModal(mode = 'edit') {
     const {
         modal,
         editorPayloadEl: source,
@@ -641,9 +641,24 @@ function openMaterialNoteModal(mode = 'edit') {
         console.warn('material-note-editor-data parse error:', error);
     }
 
-    const selected = payload?.selected || {};
+    let selected = payload?.selected || {};
     const isNew = mode === 'new';
     const docIdInput = document.getElementById('modal-material-document-id');
+
+    if (!isNew && Number(selected?.id || 0) > 0 && String(selected?.content || '').trim() === '') {
+        const { projectId } = getConfig();
+        if (projectId) {
+            const refresh = await secureFetch(`api/get_material.php?project_id=${encodeURIComponent(projectId)}&material_document_id=${encodeURIComponent(String(selected.id))}`, {
+                method: 'GET',
+                headers: {}
+            });
+
+            if (refresh?.success && refresh?.material_document) {
+                updateMaterialTabView(refresh);
+                selected = refresh.material_document;
+            }
+        }
+    }
 
     if (docIdInput) docIdInput.value = isNew ? '' : String(selected.id || '');
     if (titleInput) titleInput.value = isNew ? '' : String(selected.title || '');
