@@ -13,6 +13,10 @@ if (!$auth->isLoggedIn()) {
     exit('Unauthorized');
 }
 
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Pragma: no-cache');
+header('Expires: 0');
+
 // パラメータ取得
 $id   = filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT);
 $page = filter_input(INPUT_GET, 'page', FILTER_VALIDATE_INT);
@@ -30,7 +34,8 @@ $targetPage = ($page === null || $page < 1) ? 1 : $page;
 
 // 既存の表示用APIのURLを構築
 // #page=N を付与することで、ブラウザ内蔵ビューアーが自動で該当ページへスクロールします
-$pdfUrl = "api/view_pdf.php?id={$id}#page={$targetPage}";
+$cacheBust = time();
+$pdfUrl = "api/view_pdf.php?id={$id}&_={$cacheBust}#page={$targetPage}";
 ?>
 <!DOCTYPE html>
 <html lang="ja">

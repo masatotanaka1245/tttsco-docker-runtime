@@ -350,7 +350,7 @@ async function openPdfTab(docId, title, pageNumber = 1) {
     }
 
     const tabId = 'tab-doc-' + docId;
-    const pdfUrl = `viewer.php?id=${docId}&page=${pageNumber}`;
+    const pdfUrl = `viewer.php?id=${docId}&page=${pageNumber}&_=${Date.now()}`;
     
     if (document.getElementById(tabId)) {
         const iframe = document.querySelector(`#${tabId} iframe`);

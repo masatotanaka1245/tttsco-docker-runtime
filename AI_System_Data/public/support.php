@@ -488,6 +488,7 @@ if (!function_exists('renderPdfDocumentItems')) {
         foreach ($documents as $doc) {
             $docId = (int)($doc['id'] ?? 0);
             $docTitle = (string)($doc['title'] ?? '');
+            $viewerCacheKey = urlencode((string)strtotime((string)($doc['created_at'] ?? 'now')));
             ?>
             <details class="bg-white border border-slate-200 rounded-2xl shadow-2xs group overflow-hidden transition-all duration-300 ease-in-out hover:shadow-sm">
                 <summary class="p-3.5 px-5 flex items-center gap-2.5 overflow-hidden pr-2 cursor-pointer hover:bg-slate-50/50 transition-colors duration-200 ease-in-out outline-none select-none">
@@ -500,7 +501,7 @@ if (!function_exists('renderPdfDocumentItems')) {
                     <button type="button" data-doc-id="<?= $docId ?>" class="btn-delete-pdf text-slate-440 hover:text-red-500 hover:bg-red-50 w-7 h-7 rounded-lg flex items-center justify-center transition-all duration-200 ease-in-out transform active:scale-90" title="この資料を完全に削除">🗑️</button>
                 </div>
                 <div class="h-[580px] border-t border-slate-100 bg-slate-50 p-2">
-                    <iframe src="viewer.php?id=<?= h((string)$docId) ?>&page=1" class="w-full h-full border-none rounded-xl shadow-inner bg-white" loading="lazy"></iframe>
+                    <iframe src="viewer.php?id=<?= h((string)$docId) ?>&page=1&_=<?= h($viewerCacheKey) ?>" class="w-full h-full border-none rounded-xl shadow-inner bg-white" loading="lazy"></iframe>
                 </div>
             </details>
             <?php
@@ -1579,7 +1580,7 @@ $projectCenterTabs = [
 
     // ★ 究極の安全設計: import * as 構文を使用し、1096エラー(SyntaxError)を原理的に100%防止
     // ✨ ここを ?v=4 から ?v=5 へ書き換えてキャッシュを強制粉砕！
-    import * as Support from './assets/js/support.js?v=29';
+    import * as Support from './assets/js/support.js?v=30';
 
     // ★要件4: 隔離コンテナ内のJSONデータを仲介して安全にマウント・パースするイベントハンドラの実装
     window.openProjectEditModal = (lat, lng) => {
