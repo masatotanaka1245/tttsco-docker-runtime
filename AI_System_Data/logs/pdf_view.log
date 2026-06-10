@@ -1,0 +1,1 @@
+[2026-06-10 11:13:13] stream started {"id":6,"title":"PDF図面2.pdf","file_path":"01_RAG_Documents/4/doc_6a1eb38339009.pdf","resolved_path":"/var/www/html/public/01_RAG_Documents/4/doc_6a1eb38339009.pdf","host":"localhost:8080","uri":"/api/view_pdf.php?id=6&_=1780396931","range":""}

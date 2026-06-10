@@ -9,6 +9,21 @@ if (!function_exists('h')) {
     }
 }
 
+if (!function_exists('supportPublicBasePath')) {
+    function supportPublicBasePath(): string {
+        $requestPath = (string)(parse_url((string)($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH) ?? '');
+        $scriptName = (string)($_SERVER['SCRIPT_NAME'] ?? '/support.php');
+        $candidate = $requestPath !== '' ? $requestPath : $scriptName;
+        $basePath = rtrim(str_replace('\\', '/', dirname($candidate)), '/');
+
+        if ($basePath === '/' || $basePath === '.') {
+            return '';
+        }
+
+        return $basePath;
+    }
+}
+
 if (!function_exists('formatChatThreadMeta')) {
     function formatChatThreadMeta($threadMetaAt, $messageCount) {
         $timestamp = trim((string)$threadMetaAt);
@@ -485,10 +500,7 @@ if (!function_exists('renderPdfAnalysisModeOptions')) {
 
 if (!function_exists('renderPdfDocumentItems')) {
     function renderPdfDocumentItems(array $documents): void {
-        $publicBasePath = rtrim(str_replace('\\', '/', dirname((string)($_SERVER['SCRIPT_NAME'] ?? '/support.php'))), '/');
-        if ($publicBasePath === '/' || $publicBasePath === '.') {
-            $publicBasePath = '';
-        }
+        $publicBasePath = supportPublicBasePath();
         foreach ($documents as $doc) {
             $docId = (int)($doc['id'] ?? 0);
             $docTitle = (string)($doc['title'] ?? '');
@@ -1051,7 +1063,7 @@ $projectCenterTabs = [
 <div id="support-config"
      data-csrf-token="<?= h($csrfToken) ?>"
      data-project-id="<?= h((string)$selected_project_id) ?>"
-     data-public-base="<?= h((($__pb = rtrim(str_replace('\\', '/', dirname((string)($_SERVER['SCRIPT_NAME'] ?? '/support.php'))), '/')) === '/' || $__pb === '.') ? '' : $__pb) ?>"
+     data-public-base="<?= h(supportPublicBasePath()) ?>"
      data-selected-material-document-id="<?= h((string)($selected_material_document['id'] ?? '')) ?>"
      data-thread-id="<?= h((string)$selected_thread_id) ?>"
      data-can-manage-material="<?= $can_manage_material_documents ? '1' : '0' ?>"
