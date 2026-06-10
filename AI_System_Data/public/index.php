@@ -601,11 +601,18 @@ if ($isAjax) {
         <div id="ai-concierge-board" class="bg-white border border-slate-200/60 rounded-2xl shadow-2xs mb-6 flex overflow-hidden min-h-[76px] transition-all duration-300 ease-in-out">
             <div class="w-1 bg-[#0f766e] self-stretch flex-shrink-0"></div>
             <div class="p-4.5 flex flex-col justify-center w-full">
-                <div id="ai-concierge-text" class="text-xs font-semibold text-slate-600 leading-relaxed animate-pulse flex items-center gap-2">
-                    <span class="inline-block w-3 h-3 border-2 border-[#0f766e] border-t-transparent rounded-full animate-spin flex-shrink-0"></span>
-                    <span>🧠 本日の業務状況をAIコンシェルジュが自律走査・分析中...</span>
+                <div id="ai-concierge-text" class="text-xs font-semibold text-slate-600 leading-relaxed flex items-center gap-2">
+                    <span>🧠 GPU負荷を抑えるため、ダッシュボード要約は必要なときだけ実行できます。</span>
+                </div>
+                <div class="mt-3 flex flex-wrap gap-2">
+                    <button type="button" id="btn-ai-concierge-generate" class="text-[10px] bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-full px-3 py-1 font-extrabold text-emerald-700 shadow-2xs transition-all duration-200 ease-in-out transform active:scale-95 flex items-center gap-1">
+                        🧠 AI要約を生成
+                    </button>
                 </div>
                 <div id="ai-concierge-actions" class="mt-3 flex flex-wrap gap-2 hidden opacity-0 transition-all duration-200 ease-in-out">
+                    <button type="button" id="btn-ai-concierge-regenerate" class="text-[10px] bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-full px-3 py-1 font-extrabold text-emerald-700 shadow-2xs transition-all duration-200 ease-in-out transform active:scale-95 flex items-center gap-1">
+                        🔄 再生成
+                    </button>
                     <a href="support.php" class="text-[10px] bg-slate-50 hover:bg-slate-100 border border-slate-200/80 rounded-full px-3 py-1 font-extrabold text-slate-600 shadow-2xs transition-all duration-200 ease-in-out transform active:scale-95 flex items-center gap-1">📊 業務支援コンソールを即座に起動</a>
                     <button type="button" onclick="window.openGlobalChat()" class="text-[10px] bg-slate-50 hover:bg-slate-100 border border-slate-200/80 rounded-full px-3 py-1 font-extrabold text-slate-600 shadow-2xs transition-all duration-200 ease-in-out transform active:scale-95 flex items-center gap-1">💬 全体に横断質問する</button>
                 </div>
@@ -1230,16 +1237,29 @@ if ($isAjax) {
     document.addEventListener('DOMContentLoaded', () => {
         initPanelResizeAndToggle();
 
-        // ─── 【仕様維持】初期ロード時のAIコンシェルジュ・自律RAGストリーミングブリーフィング ───
+        // ─── AIコンシェルジュ要約はボタン実行式へ変更（GPU節約） ───
         const triggerAiConcierge = async () => {
             const boardText = document.getElementById('ai-concierge-text');
             const boardActions = document.getElementById('ai-concierge-actions');
+            const generateButton = document.getElementById('btn-ai-concierge-generate');
+            const regenerateButton = document.getElementById('btn-ai-concierge-regenerate');
             const configEl = document.getElementById('support-config');
             if (!boardText || !configEl) return;
 
             const projectsContextText = configEl.getAttribute('data-projects-context') || '';
             const csrfTokenVal = document.querySelector('meta[name="csrf-token"]')?.content || '';
-            
+            if (generateButton) {
+                generateButton.disabled = true;
+                generateButton.classList.add('opacity-60', 'cursor-wait');
+            }
+            if (regenerateButton) {
+                regenerateButton.disabled = true;
+                regenerateButton.classList.add('opacity-60', 'cursor-wait');
+            }
+
+            boardText.className = 'text-xs font-semibold text-slate-600 leading-relaxed animate-pulse flex items-center gap-2';
+            boardText.innerHTML = '<span class="inline-block w-3 h-3 border-2 border-[#0f766e] border-t-transparent rounded-full animate-spin flex-shrink-0"></span><span>🧠 本日の業務状況をAIコンシェルジュが分析中...</span>';
+
             const initialPrompt = "現在の全プロジェクト状況を150文字程度で、毎朝のビジネスブリーフィング風に、本日の要約と次の推奨アクションを日本語で簡潔に1つの段落で述べてください。挨拶は不要です。\n\n" + projectsContextText;
 
             try {
@@ -1293,10 +1313,24 @@ if ($isAjax) {
             } catch (err) {
                 boardText.classList.remove('animate-pulse');
                 boardText.innerHTML = '⚠️ 本日の自律業務ブリーフィング生成に一時的な遅延が発生しました。サイドバーまたは業務支援コンソールより直接データを確認してください。';
+            } finally {
+                if (generateButton) {
+                    generateButton.disabled = false;
+                    generateButton.classList.remove('opacity-60', 'cursor-wait');
+                }
+                if (regenerateButton) {
+                    regenerateButton.disabled = false;
+                    regenerateButton.classList.remove('opacity-60', 'cursor-wait');
+                }
             }
         };
 
-        triggerAiConcierge();
+        document.getElementById('btn-ai-concierge-generate')?.addEventListener('click', () => {
+            triggerAiConcierge();
+        });
+        document.getElementById('btn-ai-concierge-regenerate')?.addEventListener('click', () => {
+            triggerAiConcierge();
+        });
 
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {

@@ -106,3 +106,59 @@
 [2026-06-10 11:04:09] [CHAT_STREAM] [DEBUG] ReAct [1] 組み立てられた実行クエリ: SELECT * FROM projects WHERE status = 'active'
 [2026-06-10 11:04:09] [CHAT_STREAM] [DEBUG] ReAct [1] データベースから 1 件の監査済みデータを抽出。
 [2026-06-10 11:04:09] [CHAT_STREAM] >>> [ReAct ループ 2/4] 思考・行動の生成中...
+[2026-06-11 05:32:45] [CHAT_STREAM] === 新着チャット受信 | Host: http://host.docker.internal:11434 | Model: gemma4:e4b ===
+[2026-06-11 05:32:45] [CHAT_STREAM] ユーザー: admin (ID: 1) | 案件ID: NULL (汎用)
+[2026-06-11 05:32:45] [CHAT_STREAM] 質問内容: 現在の全プロジェクト状況を150文字程度で、毎朝のビジネスブリーフィング風に、本日の要約と次の推奨ア...
+[2026-06-11 05:32:45] [CHAT_STREAM] [INPUT-MODE] prompt_mode=general_chat | advanced_reasoning=off | reasoning_id=none | report_mode=off | diagram_mode=off | csv_mode=off
+[2026-06-11 05:32:45] [CHAT_STREAM] [SMART-ROUTER] 案件未選択の汎用質問を検知。ハイブリッド多重推論ではなくグローバルルートを優先します。
+[2026-06-11 05:32:45] [CHAT_STREAM] [SMART-ROUTER] 最終ルート決定: global_no_project
+[2026-06-11 05:32:45] [CHAT_STREAM] [MODEL-ROLES] route=global_no_project | main_model=gemma4:e4b | sub_model=gemma4:e2b | sql_model=codellama:7b | embedding_model=mxbai-embed-large
+[2026-06-11 05:32:45] [CHAT_STREAM] >>> [グローバルルート] 完全自律型 ReAct エージェントを起動します
+[2026-06-11 05:32:45] [CHAT_STREAM] [DEBUG] 引数情報 - Host: http://host.docker.internal:11434 | MainModel: gemma4:e4b | SubModel: gemma4:e2b | SqlModel: codellama:7b | UserID: 1 | Role: admin
+[2026-06-11 05:32:45] [CHAT_STREAM] >>> [ReAct ループ 1/4] 思考・行動の生成中...
+[2026-06-11 05:32:45] [CHAT_STREAM] [OLLAMA-PAYLOAD] model=codellama:7b | think_mode=standard | think_token_sent=no | format=json | num_ctx=8192 | temperature=0.2
+[2026-06-11 05:32:53] [CHAT_STREAM] [OLLAMA-THINK] model=codellama:7b | think_mode=standard | thinking_field=no | thought_trace=no | thought_chars=0
+[2026-06-11 05:32:53] [CHAT_STREAM] [DEBUG] ReAct [1] 思考・行動生成が完了しました。elapsed=8.49秒 | totalElapsed=8.49秒
+[2026-06-11 05:32:53] [CHAT_STREAM] [DEBUG] ReAct [1] Ollama生応答: {
+"thought": "今日は、進行中のプロジェクト一覧を確認することにします。",
+"action": "execute_sql",
+"action_input": "SELECT * FROM projects WHERE status = 'active'"
+}
+[2026-06-11 05:32:53] [CHAT_STREAM] [DEBUG] ReAct [1] 組み立てられた実行クエリ: SELECT * FROM projects WHERE status = 'active'
+[2026-06-11 05:32:53] [CHAT_STREAM] [DEBUG] ReAct [1] データベースから 1 件の監査済みデータを抽出。
+[2026-06-11 05:32:53] [CHAT_STREAM] [DEBUG] ReAct [1] SQLアクション処理を完了しました。observationChars=346
+[2026-06-11 05:32:53] [CHAT_STREAM] >>> [ReAct ループ 2/4] 思考・行動の生成中...
+[2026-06-11 05:32:53] [CHAT_STREAM] [OLLAMA-PAYLOAD] model=codellama:7b | think_mode=standard | think_token_sent=no | format=json | num_ctx=8192 | temperature=0.2
+[2026-06-11 05:32:54] [CHAT_STREAM] === 新着チャット受信 | Host: http://host.docker.internal:11434 | Model: gemma4:e4b ===
+[2026-06-11 05:32:54] [CHAT_STREAM] ユーザー: admin (ID: 1) | 案件ID: NULL (汎用)
+[2026-06-11 05:32:54] [CHAT_STREAM] 質問内容: 現在の全プロジェクト状況を150文字程度で、毎朝のビジネスブリーフィング風に、本日の要約と次の推奨ア...
+[2026-06-11 05:32:54] [CHAT_STREAM] [INPUT-MODE] prompt_mode=general_chat | advanced_reasoning=off | reasoning_id=none | report_mode=off | diagram_mode=off | csv_mode=off
+[2026-06-11 05:32:54] [CHAT_STREAM] [SMART-ROUTER] 重複リクエストを抑止しました。hash: 510b6d9842b44e8c1187c2eeec2f6ac1efaaad40eba410f3f9a3519d4f3093f9 | age: 9s
+[2026-06-11 05:32:58] [CHAT_STREAM] [OLLAMA-THINK] model=codellama:7b | think_mode=standard | thinking_field=no | thought_trace=no | thought_chars=0
+[2026-06-11 05:32:58] [CHAT_STREAM] [DEBUG] ReAct [2] 思考・行動生成が完了しました。elapsed=4.42秒 | totalElapsed=12.92秒
+[2026-06-11 05:32:58] [CHAT_STREAM] [DEBUG] ReAct [2] Ollama生応答: {
+"thought": "現在進行中のプロジェクト一覧を取得し、それぞれの概要と状態を確認する。",
+"action": "execute_sql",
+"action_input": "SELECT * FROM projects WHERE status = 'active'"
+}
+[2026-06-11 05:54:49] [CHAT_STREAM] === 新着チャット受信 | Host: http://host.docker.internal:11434 | Model: gemma4:e4b ===
+[2026-06-11 05:54:49] [CHAT_STREAM] ユーザー: admin (ID: 1) | 案件ID: 4
+[2026-06-11 05:54:49] [CHAT_STREAM] 質問内容: これまでの会話内容を詳しくまとめてください。
+[2026-06-11 05:54:49] [CHAT_STREAM] [INPUT-MODE] prompt_mode=general_chat | advanced_reasoning=on | reasoning_id=401faf8e-8db4-4fb3-a907-086a03ed080d | report_mode=off | diagram_mode=off | csv_mode=off
+[2026-06-11 05:54:49] [CHAT_STREAM] [PROJECT-MEMORY] route=factorizer | loaded=agents,readme,todo | chars=2930
+[2026-06-11 05:54:49] [CHAT_STREAM] [SMART-ROUTER] 質問因数分解: {"intent":"summarize","target":"chat_history","target_file_name":"aaa.csv","target_column":"い","scope":"conversation_thread","operation":"summarize","time_axis":"none","output_format":"prose","route":"history_summary"}
+[2026-06-11 05:54:49] [CHAT_STREAM] [SMART-ROUTER] 会話履歴要約要求を検知。report_mode より軽量履歴サマリールートを優先します。
+[2026-06-11 05:54:49] [CHAT_STREAM] [SMART-ROUTER] 最終ルート決定: history_summary
+[2026-06-11 05:54:49] [CHAT_STREAM] [MODEL-ROLES] route=history_summary | main_model=gemma4:e4b | sub_model=gemma4:e2b | sql_model=codellama:7b | embedding_model=mxbai-embed-large
+[2026-06-11 05:54:49] [CHAT_STREAM] >>> [会話履歴要約ルート] 軽量履歴サマリーを起動します。session_id: history-summary_6a29cf19a57158.13809131-6592
+[2026-06-11 05:54:49] [CHAT_STREAM] [HISTORY-SUMMARY] 履歴取得完了 - rows: 18 | elapsed: 0.00秒
+[2026-06-11 05:54:49] [CHAT_STREAM] [FINAL-GUARD] route=history_summary | source=lightweight_rule_guard | mode=rule | verdict=pass | score=96 | relevance=96 | faithfulness=98
+[2026-06-11 05:54:49] [CHAT_STREAM] [HISTORY-SUMMARY] chat_history 保存開始
+[2026-06-11 05:54:49] [CHAT_STREAM] [FAQ-AUTO] 高評価チャットをFAQへ自動登録しました。faq_id: 5 | chat_history_id: 401 | score: 96
+[2026-06-11 05:54:49] [CHAT_STREAM] [HISTORY-SUMMARY] chat_history 保存成功。ID: 401
+[2026-06-11 05:54:49] [CHAT_STREAM] [PROJECT-MEMORY-AUTO] refreshed=agents,readme,todo | chars=2934 | thread_id=2
+[2026-06-11 05:54:49] [CHAT_STREAM] [FINAL-ANSWER] route=history_summary | questionChars=22 | responseChars=577 | truncated=no
+[2026-06-11 05:54:49] [CHAT_STREAM] [FINAL-ANSWER-QUESTION] これまでの会話内容を詳しくまとめてください。
+[2026-06-11 05:54:49] [CHAT_STREAM] [FINAL-ANSWER-BODY] これまでの会話内容を簡潔にまとめます。 - 対象履歴: 直近 18件 - ユーザー発言: 9件 - AI回答: 9件 - 対象期間: 2026-06-08 04:54:32 〜 2026-06-09 20:19:14 ### 主な話題 - CSVデータの登録・要約・集計: 16件程度 - デバッグログ・処理時間の確認: 10件程度 - チャット回答ロジック・ルーティング: 2件程度 - PDF・RAG・資料管理: 2件程度 - SQL監査・データベース整合性: 2件程度 ### 直近の依頼 - CSVデータを集計して詳細を教えてください。 - CSVデータを集計して詳細を教えてください。 - csv化してください - 全てを集計して、一つのcsvファイルにしてください。 - CSVデータを集計して詳細を教えてください。 - どのように分析したらよいでしょうか。 ### 現在の流れ CSVデータ、チャット回答ロジック、デバッグログ、グラフ・Mermaid表示、仕様書更新などを順番に確認しながら、support.php のAIチャット機能を実運用に近い形へ調整しています。 次に見るべきポイントは、重い処理を専用の軽量ルートへ逃がすこと、ログから遅延箇所を特定できるようにすること、回答と図表がブラウザ上で安定して再表示されることです。
+[2026-06-11 05:54:49] [CHAT_STREAM] [HISTORY-SUMMARY] 軽量履歴サマリー完了 - responseChars: 577 | totalElapsed: 0.04秒
+[2026-06-11 05:54:49] [CHAT_STREAM] [SMART-ROUTER] ルート処理完了: history_summary | elapsed: 0.04秒
