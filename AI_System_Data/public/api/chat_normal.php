@@ -303,15 +303,20 @@ class NormalStreamingRouteProcessor {
             $pdf_hits = [];
             $csv_hits_by_doc = [];
 
+            $preferAdviceContext = $this->isProposalOrWritingAdviceQuestion();
+            if ($preferAdviceContext) {
+                chatLogger("[RAG-CONTEXT-FILTER] 提案・文章改善相談としてノイズ抑制フィルタを有効化しました。");
+            }
+
             foreach ($all_hits as $hit) {
                 $imageDescription = (string)($hit['image_description'] ?? '');
                 $is_csv = mb_strpos($imageDescription, 'CSVデータ行レコード') === 0;
                 if ($is_csv) {
-                    if ($hit['score'] >= 0.50) { 
+                    if ($hit['score'] >= 0.50) {
                         $csv_hits_by_doc[$hit['document_id']][] = $hit;
                     }
                 } else {
-                    if ($hit['score'] >= 0.35) { 
+                    if ($hit['score'] >= 0.35 && !$this->shouldSkipPdfHitForAdvice($hit, $preferAdviceContext)) {
                         $pdf_hits[] = $hit;
                     }
                 }
@@ -335,8 +340,13 @@ class NormalStreamingRouteProcessor {
                 if (empty($c_hits)) continue;
                 $fileName = str_replace('[CSVデータ] ', '', $c_hits[0]['title']);
                 chatLogger("  CSVバルクアグリゲーション実行: {$fileName} (合致数: " . count($c_hits) . "行)");
-                $tableMarkdown = aggregateCsvChunksToMarkdown($c_hits, $fileName);
-                $this->contextText .= "【構造化データテーブル: {$fileName}】\n{$tableMarkdown}\n\n";
+                if ($preferAdviceContext) {
+                    $tableMarkdown = summarizeCsvChunksForAdvice($c_hits, $fileName);
+                    $this->contextText .= "【構造化データの補助情報: {$fileName}】\n{$tableMarkdown}\n\n";
+                } else {
+                    $tableMarkdown = aggregateCsvChunksToMarkdown($c_hits, $fileName);
+                    $this->contextText .= "【構造化データテーブル: {$fileName}】\n{$tableMarkdown}\n\n";
+                }
                 $this->sourceDocs[] = ["title" => "[CSVデータ] " . $fileName, "page" => 1, "doc_id" => $doc_id];
             }
 
@@ -679,6 +689,7 @@ class NormalStreamingRouteProcessor {
             'status'          => 'success',
             'response'        => $this->fullResponse,
             'sources'         => $this->sourceDocs,
+            'route_detail'    => $this->routeDetail,
             'mode_used'       => $this->promptKey,
             'detected_page'   => $this->targetPage,
             'hit_count'       => count($this->sourceDocs),
@@ -807,6 +818,41 @@ class NormalStreamingRouteProcessor {
         return preg_match('/(csv|列|カラム|項目|datetime|timestamp|yearmonth|name|日付|日時|年月|時間帯|時刻帯|hour)/iu', $this->originalMessage) === 1
             && preg_match('/(集計|件数|分布|一覧|表|グラフ|チャート|抽出|多い時間帯|ピーク時間|ピーク帯|何件|何種類|ユニーク|distinct)/iu', $this->originalMessage) === 1;
     }
+
+    private function isProposalOrWritingAdviceQuestion(): bool
+    {
+        $message = trim((string)$this->originalMessage);
+        if ($message === '') {
+            return false;
+        }
+
+        $hasAdviceIntent = preg_match('/(良い案|よい案|案はありますか|追加したい|言い換え|どう表現|どんな項目|どう書|相談|提案|候補)/u', $message) === 1;
+        $hasWritingContext = preg_match('/(目標|文章|文言|表現|項目|評価|人材育成|育成)/u', $message) === 1;
+        $hasStrongAggregationIntent = preg_match('/(集計|件数|分布|ランキング|上位|何件|何種類|ユニーク|distinct|グラフ|チャート|一覧にして|表にして)/iu', $message) === 1;
+
+        return $hasAdviceIntent && $hasWritingContext && !$hasStrongAggregationIntent;
+    }
+
+    private function shouldSkipPdfHitForAdvice(array $hit, bool $preferAdviceContext): bool
+    {
+        $content = trim((string)($hit['content'] ?? ''));
+        $imageDescription = trim((string)($hit['image_description'] ?? ''));
+        $combined = $content . "\n" . $imageDescription;
+
+        if ($combined === '') {
+            return true;
+        }
+
+        if (preg_match('/(分析対象の画像.*(添付|提供).*(ありませ|おりませ)|画像を再度アップロード|現在ご提示いただいた画像には|内容が確認できる画像を再度ご提供|期待される出力形式|ご依頼内容の確認と対応方針)/u', $combined) === 1) {
+            return true;
+        }
+
+        if ($preferAdviceContext && preg_match('/(想定される出力形式|処理結果|このページに含まれる画像\/図表の説明)/u', $combined) === 1) {
+            return true;
+        }
+
+        return false;
+    }
 }
 
 /**
@@ -882,5 +928,39 @@ if (!function_exists('aggregateCsvChunksToMarkdown')) {
         }
         
         return $md;
+    }
+}
+
+if (!function_exists('summarizeCsvChunksForAdvice')) {
+    function summarizeCsvChunksForAdvice(array $csvChunks, string $fileName): string {
+        if (empty($csvChunks)) return "";
+
+        $headers = [];
+        $rowCount = 0;
+
+        foreach ($csvChunks as $chunk) {
+            $text = (string)($chunk['content'] ?? $chunk['chunk_text'] ?? '');
+            if ($text === '') {
+                continue;
+            }
+            $rowCount++;
+            $cleaned = preg_replace('/^CSV「[^」]+」の第(\d+)行のデータ：/u', '', $text);
+            $parts = preg_split('/、/u', (string)$cleaned) ?: [];
+            foreach ($parts as $part) {
+                if (preg_match('/^(.+?)は「(.*?)」$/u', trim($part), $m)) {
+                    $column = trim((string)$m[1]);
+                    if ($column !== '' && !in_array($column, $headers, true)) {
+                        $headers[] = $column;
+                    }
+                }
+            }
+        }
+
+        $headerPreview = empty($headers) ? '（列情報を抽出できませんでした）' : implode(' / ', array_slice($headers, 0, 12));
+        $suffix = count($headers) > 12 ? ' / ...' : '';
+
+        return "- 対象CSV: {$fileName}\n"
+            . "- 参照行数: {$rowCount}件\n"
+            . "- 主な列: {$headerPreview}{$suffix}";
     }
 }

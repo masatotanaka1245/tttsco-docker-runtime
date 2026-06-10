@@ -37,13 +37,13 @@ final class ProjectMemoryAutoUpdater
         }
 
         $snapshot = self::collectSnapshot($pdo, $projectId, $threadId, $userId);
-        $docs = [
+        $autoDocs = [
             'agents' => self::buildAgentsDoc($snapshot),
             'readme' => self::buildReadmeDoc($snapshot),
             'todo' => self::buildTodoDoc($snapshot),
         ];
 
-        ProjectContextMemory::save($pdo, $projectId, $docs);
+        ProjectContextMemory::saveAuto($pdo, $projectId, $autoDocs);
         $loadedDocs = ProjectContextMemory::load($pdo, $projectId);
 
         if ($logger !== null) {
@@ -114,18 +114,31 @@ final class ProjectMemoryAutoUpdater
             [$projectId]
         );
 
-        $historySql = "
-            SELECT role, message, created_at
-              FROM chat_history
-             WHERE project_id = ?
-               AND user_id = ?";
-        $historyParams = [$projectId, $userId];
+        $threadHistory = [];
         if ($threadId !== null) {
-            $historySql .= " AND thread_id = ?";
-            $historyParams[] = $threadId;
+            $threadHistory = self::fetchAll(
+                $pdo,
+                "SELECT id, thread_id, user_id, role, message, created_at
+                   FROM chat_history
+                  WHERE project_id = ?
+                    AND thread_id = ?
+                  ORDER BY created_at DESC
+                  LIMIT 24",
+                [$projectId, $threadId]
+            );
         }
-        $historySql .= " ORDER BY created_at DESC LIMIT 24";
-        $history = array_reverse(self::fetchAll($pdo, $historySql, $historyParams));
+
+        $projectRecentHistory = self::fetchAll(
+            $pdo,
+            "SELECT id, thread_id, user_id, role, message, created_at
+               FROM chat_history
+              WHERE project_id = ?
+              ORDER BY created_at DESC
+              LIMIT 36",
+            [$projectId]
+        );
+
+        $history = self::mergeHistoryRows($threadHistory, $projectRecentHistory, 36);
 
         $commentCount = (int)self::fetchScalar(
             $pdo,
@@ -148,6 +161,8 @@ final class ProjectMemoryAutoUpdater
             'csv_files' => $csvFiles,
             'pdf_docs' => $pdfDocs,
             'history' => $history,
+            'thread_history_count' => count($threadHistory),
+            'project_recent_history_count' => count($projectRecentHistory),
             'comment_count' => $commentCount,
             'faq_count' => $faqCount,
             'generated_at' => date('Y-m-d H:i:s'),
@@ -183,6 +198,7 @@ final class ProjectMemoryAutoUpdater
         $lines[] = '- プロジェクトID: ' . $snapshot['project_id'];
         $lines[] = '- 現在スレッド: ' . ($snapshot['thread_id'] === null ? '未選択' : (string)$snapshot['thread_id']);
         $lines[] = '- FAQ件数: ' . (int)$snapshot['faq_count'] . '件 / コメント件数: ' . (int)$snapshot['comment_count'] . '件';
+        $lines[] = '- 参照履歴: 現在スレッド ' . (int)($snapshot['thread_history_count'] ?? 0) . '件 / 案件全体の最近履歴 ' . (int)($snapshot['project_recent_history_count'] ?? 0) . '件';
 
         return implode("\n", $lines);
     }
@@ -268,7 +284,8 @@ final class ProjectMemoryAutoUpdater
         }
         $lines[] = '';
         $lines[] = '## 補足';
-        $lines[] = '- 現在スレッドの履歴件数: ' . count($snapshot['history']) . '件';
+        $lines[] = '- メモ生成に使った履歴件数: ' . count($snapshot['history']) . '件';
+        $lines[] = '- うち現在スレッド由来: ' . (int)($snapshot['thread_history_count'] ?? 0) . '件';
         $lines[] = '- このTODOは自動生成のため、次回の会話保存時に更新される';
 
         return implode("\n", $lines);
@@ -319,6 +336,35 @@ final class ProjectMemoryAutoUpdater
             return $text;
         }
         return mb_substr($text, 0, $limit) . '...';
+    }
+
+    private static function mergeHistoryRows(array $threadHistory, array $projectRecentHistory, int $limit): array
+    {
+        $merged = [];
+        $seen = [];
+
+        foreach ([$threadHistory, $projectRecentHistory] as $sourceRows) {
+            foreach ($sourceRows as $row) {
+                $id = (int)($row['id'] ?? 0);
+                if ($id > 0) {
+                    if (isset($seen[$id])) {
+                        continue;
+                    }
+                    $seen[$id] = true;
+                }
+                $merged[] = $row;
+            }
+        }
+
+        usort($merged, static function (array $a, array $b): int {
+            return strcmp((string)($a['created_at'] ?? ''), (string)($b['created_at'] ?? ''));
+        });
+
+        if (count($merged) <= $limit) {
+            return $merged;
+        }
+
+        return array_slice($merged, -$limit);
     }
 
     private static function fetchOne(PDO $pdo, string $sql, array $params): array

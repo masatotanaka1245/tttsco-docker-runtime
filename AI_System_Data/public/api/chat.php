@@ -42,6 +42,7 @@ define('CHAT_DEBUG_LOG', __DIR__ . '/../../logs/chat_debug.log');
 require_once __DIR__ . '/../../src/AppLogger.php';
 require_once __DIR__ . '/../../src/OllamaChatHelper.php';
 require_once __DIR__ . '/../../src/ProjectContextMemory.php';
+require_once __DIR__ . '/../../src/ProjectMemoryAutoUpdater.php';
 require_once __DIR__ . '/../../src/UserSettingsSessionSynchronizer.php';
 
 // =========================================================================
@@ -479,6 +480,15 @@ try {
     if ($project_id !== null) {
         try {
             $projectMemoryDocs = ProjectContextMemory::load($pdo, (int)$project_id);
+            if (ProjectContextMemory::totalChars($projectMemoryDocs) === 0) {
+                $projectMemoryDocs = ProjectMemoryAutoUpdater::refresh(
+                    $pdo,
+                    (int)$project_id,
+                    $thread_id !== null ? (int)$thread_id : null,
+                    (int)$user_id,
+                    'chatLogger'
+                );
+            }
             chatLogger("[PROJECT-MEMORY] route=factorizer | loaded=" . (empty(ProjectContextMemory::loadedTypes($projectMemoryDocs)) ? 'none' : implode(',', ProjectContextMemory::loadedTypes($projectMemoryDocs))) . " | chars=" . ProjectContextMemory::totalChars($projectMemoryDocs));
         } catch (Throwable $memoryEx) {
             chatLogger("[WARN] 案件運用メモの因数分解補助ロードに失敗: " . $memoryEx->getMessage());

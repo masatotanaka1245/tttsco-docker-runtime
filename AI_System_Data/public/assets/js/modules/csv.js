@@ -119,6 +119,7 @@ function buildCsvAiJobItemHtml(item) {
     const job = item?.job || {};
     const status = item?.status || {};
     const jobId = String(job.job_id || '');
+    const analysisMode = String(job.analysis_mode || 'categorize');
     const sourceFileName = escapeHTML(String(job.source_file_name || 'CSV'));
     const targetColumn = escapeHTML(String(job.target_column || ''));
     const outputFileName = escapeHTML(String(job.output_file_name || ''));
@@ -133,6 +134,7 @@ function buildCsvAiJobItemHtml(item) {
     const statusClass = getCsvAiJobStatusStyle(state);
     const statusLabel = getCsvAiJobStatusLabel(state);
     const canCancel = state === 'pending' || state === 'processing';
+    const modeLabel = analysisMode === 'summarize' ? '行要約' : 'カテゴリ分け';
 
     return `
         <div id="csv-ai-job-${escapeHTML(jobId)}" class="p-3 bg-white border border-slate-200 rounded-xl shadow-2xs space-y-2">
@@ -143,7 +145,10 @@ function buildCsvAiJobItemHtml(item) {
                 </div>
                 <span class="text-[9px] font-bold border rounded-full px-2 py-0.5 whitespace-nowrap ${statusClass}">${statusLabel}</span>
             </div>
-            <div class="text-[9px] text-slate-500 font-medium">対象列: ${targetColumn || '未指定'}</div>
+            <div class="flex items-center justify-between gap-2 text-[9px] text-slate-500 font-medium">
+                <span>対象列: ${targetColumn || '未指定'}</span>
+                <span class="text-[9px] font-bold text-slate-500 bg-slate-100 border border-slate-200 rounded-full px-2 py-0.5 whitespace-nowrap">${modeLabel}</span>
+            </div>
             <div class="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
                 <div class="bg-gradient-to-r from-cyan-500 to-teal-400 h-full transition-all duration-300" style="width:${progress}%"></div>
             </div>
@@ -170,7 +175,7 @@ function renderCsvAiJobHistory(items) {
     setCsvAiJobCount(normalized.length);
 
     if (normalized.length === 0) {
-        list.innerHTML = '<p class="text-[10px] text-slate-400 text-center py-4 italic font-medium">AI分類ジョブはまだありません。</p>';
+        list.innerHTML = '<p class="text-[10px] text-slate-400 text-center py-4 italic font-medium">AI行解析ジョブはまだありません。</p>';
         return;
     }
 
@@ -226,7 +231,7 @@ function renderCsvAppendFields() {
         submitBtn.disabled = true;
         submitBtn.className = 'bg-slate-300 text-white px-4 py-2 rounded-xl font-bold text-[11px] shadow-sm cursor-not-allowed';
         fields.innerHTML = `
-            <div class="md:col-span-2 text-[10px] text-slate-400 italic bg-slate-50 border border-dashed border-slate-200 rounded-xl px-3 py-4 text-center">
+            <div class="text-[10px] text-slate-400 italic bg-slate-50 border border-dashed border-slate-200 rounded-xl px-3 py-4 text-center">
                 追記先の CSV を選択してください。
             </div>
         `;
@@ -240,9 +245,9 @@ function renderCsvAppendFields() {
     submitBtn.disabled = false;
     submitBtn.className = 'bg-[#00758F] hover:bg-[#005a6e] text-white px-4 py-2 rounded-xl font-bold text-[11px] shadow-md transition-all duration-200 ease-in-out transform active:scale-95';
     fields.innerHTML = selectedCsvContext.headers.map((header) => `
-        <label class="block">
-            <span class="block text-[10px] font-bold text-slate-500 mb-1">${escapeHTML(header)}</span>
-            <input type="text" data-header="${escapeHTML(header)}" class="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs bg-slate-50 focus:bg-white focus:border-[#00758F] outline-none transition-all" placeholder="${escapeHTML(header)}">
+        <label class="block space-y-1.5 rounded-xl border border-slate-200/80 bg-slate-50/40 px-3 py-3">
+            <span class="block text-[10px] font-bold text-slate-500">${escapeHTML(header)}</span>
+            <input type="text" data-header="${escapeHTML(header)}" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-xs bg-white focus:bg-white focus:border-[#00758F] outline-none transition-all" placeholder="${escapeHTML(header)}">
         </label>
     `).join('');
 }
@@ -283,6 +288,7 @@ function closeCsvAiCategorizeModal() {
             ? 'px-7 py-2 bg-[#00758F] text-white rounded-xl font-bold shadow-2xs hover:shadow-md hover:bg-[#005a6e] transition-all duration-200 ease-in-out transform active:scale-98'
             : 'px-7 py-2 bg-slate-300 text-white rounded-xl font-bold shadow-sm cursor-not-allowed';
     }
+    updateCsvAiCategorizeModeUi();
 }
 
 function closeCsvColumnEditModal() {
@@ -364,15 +370,16 @@ function renderCsvColumnEditForm() {
 function renderCsvAiCategorizeForm() {
     const label = document.getElementById('modal-csv-ai-selected-label');
     const badge = document.getElementById('modal-csv-ai-selected-badge');
+    const modeSelect = document.getElementById('modal-csv-ai-analysis-mode');
     const select = document.getElementById('modal-csv-ai-target-column');
     const hiddenInput = document.querySelector('#csv-ai-categorize-form input[name="csv_file_id"]');
     const outputFileName = document.getElementById('modal-csv-ai-output-file-name');
     const submitBtn = document.getElementById('modal-csv-ai-submit');
 
-    if (!label || !badge || !select || !hiddenInput || !outputFileName || !submitBtn) return;
+    if (!label || !badge || !modeSelect || !select || !hiddenInput || !outputFileName || !submitBtn) return;
 
     if (!selectedCsvContext || !Array.isArray(selectedCsvContext.headers) || selectedCsvContext.headers.length === 0) {
-        label.textContent = '左の一覧からカテゴリ分けしたい CSV を選択してください。';
+        label.textContent = '左の一覧から解析したい CSV を選択してください。';
         badge.textContent = '未選択';
         badge.className = 'text-[9px] text-slate-500 bg-slate-100 border border-slate-200 rounded-full px-2 py-0.5 font-bold';
         hiddenInput.value = '';
@@ -383,8 +390,7 @@ function renderCsvAiCategorizeForm() {
         return;
     }
 
-    const sourceName = String(selectedCsvContext.fileName || 'ai_categorize_target.csv');
-    const defaultOutputName = sourceName.replace(/\.csv$/i, '') + '_ai_categorized.csv';
+    const sourceName = String(selectedCsvContext.fileName || 'ai_analyze_target.csv');
 
     label.textContent = `現在の対象: ${sourceName}`;
     badge.textContent = `${selectedCsvContext.headers.length} 列`;
@@ -394,16 +400,55 @@ function renderCsvAiCategorizeForm() {
         <option value="">列を選択してください</option>
         ${selectedCsvContext.headers.map((header) => `<option value="${escapeHTML(header)}">${escapeHTML(header)}</option>`).join('')}
     `;
-    if (!outputFileName.value.trim()) {
-        outputFileName.value = defaultOutputName;
-    }
+    updateCsvAiCategorizeModeUi();
     submitBtn.disabled = false;
     submitBtn.className = 'px-7 py-2 bg-[#00758F] text-white rounded-xl font-bold shadow-2xs hover:shadow-md hover:bg-[#005a6e] transition-all duration-200 ease-in-out transform active:scale-98';
 }
 
+function updateCsvAiCategorizeModeUi() {
+    const modeSelect = document.getElementById('modal-csv-ai-analysis-mode');
+    const outputFileName = document.getElementById('modal-csv-ai-output-file-name');
+    const categorizeColumns = document.getElementById('modal-csv-ai-categorize-columns');
+    const summaryColumn = document.getElementById('modal-csv-ai-summary-column');
+    const instructionsLabel = document.getElementById('modal-csv-ai-instructions-label');
+    const instructionsField = document.getElementById('modal-csv-ai-instructions');
+    const helpText = document.getElementById('modal-csv-ai-help-text');
+    const title = document.getElementById('modal-title-csv-ai-categorize');
+    if (!modeSelect || !outputFileName || !categorizeColumns || !summaryColumn || !instructionsLabel || !instructionsField || !helpText || !title) return;
+
+    const sourceName = String(selectedCsvContext?.fileName || 'ai_analyze_target.csv');
+    const baseName = sourceName.replace(/\.csv$/i, '');
+    const mode = String(modeSelect.value || 'categorize');
+    const currentValue = String(outputFileName.value || '').trim();
+    const canReplaceDefault = !currentValue || /_ai_(categorized|summarized)\.csv$/i.test(currentValue);
+
+    if (mode === 'summarize') {
+        title.textContent = 'AI行要約CSVを作成';
+        categorizeColumns.classList.add('hidden');
+        summaryColumn.classList.remove('hidden');
+        instructionsLabel.textContent = '要約ルール・補足指示';
+        instructionsField.placeholder = '例: 1〜2文で、業務で使える短い要点を書いてください。曖昧な表現は避けてください。';
+        helpText.textContent = '元のCSVは変更せず、各行の要約列を追加した新しい結果CSVを作成します。';
+        if (canReplaceDefault) {
+            outputFileName.value = `${baseName}_ai_summarized.csv`;
+        }
+        return;
+    }
+
+    title.textContent = 'AIカテゴリ分けCSVを作成';
+    categorizeColumns.classList.remove('hidden');
+    summaryColumn.classList.add('hidden');
+    instructionsLabel.textContent = '分類ルール・補足指示';
+    instructionsField.placeholder = '例: 製品名から「保守」「点検」「レポート」「その他」に分類してください。短い理由も添えてください。';
+    helpText.textContent = '元のCSVは変更せず、新しい結果CSVを作成します。';
+    if (canReplaceDefault) {
+        outputFileName.value = `${baseName}_ai_categorized.csv`;
+    }
+}
+
 function openCsvAiCategorizeModal() {
     if (!selectedCsvContext || !Array.isArray(selectedCsvContext.headers) || selectedCsvContext.headers.length === 0) {
-        alert('先に左の一覧から分類対象のCSVを選択してください。');
+        alert('先に左の一覧から解析対象のCSVを選択してください。');
         return;
     }
 
@@ -411,7 +456,7 @@ function openCsvAiCategorizeModal() {
     const modal = document.getElementById('csv-ai-categorize-modal');
     if (!modal) {
         console.warn('csv-ai-categorize-modal not found');
-        alert('AIカテゴリ分けモーダルが見つかりません。画面を再読み込みしてください。');
+        alert('AI行解析モーダルが見つかりません。画面を再読み込みしてください。');
         return;
     }
     modal.classList.replace('hidden', 'flex');
@@ -500,6 +545,13 @@ function bindCsvToolbarActions() {
             handler();
         });
     });
+}
+
+function bindCsvAiModeControls() {
+    const modeSelect = document.getElementById('modal-csv-ai-analysis-mode');
+    if (!modeSelect || modeSelect.dataset.bound === 'true') return;
+    modeSelect.dataset.bound = 'true';
+    modeSelect.addEventListener('change', updateCsvAiCategorizeModeUi);
 }
 
 /**
@@ -716,7 +768,7 @@ async function loadCsvData(csvFileId, fileName) {
                             ${isPreviewLimited ? `<span class="text-[10px] text-slate-500 font-medium">プレビューは先頭 ${previewLimit} レコードまで表示しています。</span>` : ''}
                         </div>
                         <div class="flex items-center gap-3">
-                            <button type="button" onclick="window.openCsvAiCategorizeModal && window.openCsvAiCategorizeModal()" class="text-[#00758F] hover:text-[#005a6e] font-bold hover:underline">🤖 AIカテゴリ分け</button>
+                            <button type="button" onclick="window.openCsvAiCategorizeModal && window.openCsvAiCategorizeModal()" class="text-[#00758F] hover:text-[#005a6e] font-bold hover:underline">🤖 AI行解析</button>
                             <button type="button" onclick="window.openCsvColumnEditModal && window.openCsvColumnEditModal()" class="text-[#00758F] hover:text-[#005a6e] font-bold hover:underline">📝 編集</button>
                             <button type="button" onclick="handleDeleteCsv(${csvFileId})" class="text-red-500 hover:text-red-700 font-bold hover:underline">🗑️ CSVを全削除</button>
                         </div>
@@ -990,7 +1042,7 @@ function renderCsvAiJobOverlay(status, job) {
     const progress = Math.max(0, Math.min(100, Number(status?.progress || 0)));
     const total = Number(status?.total || 0);
     const current = Number(status?.current || 0);
-    const message = escapeHTML(status?.message || 'AI分類ジョブを準備しています...');
+    const message = escapeHTML(status?.message || 'AI行解析ジョブを準備しています...');
     const sourceName = escapeHTML(job?.source_file_name || job?.source_csv_file_name || 'CSV');
     const state = String(status?.status || status?.state || job?.status || 'pending');
     const canCancel = state === 'pending' || state === 'processing';
@@ -998,7 +1050,7 @@ function renderCsvAiJobOverlay(status, job) {
     overlay.innerHTML = `
         <div class="flex justify-between items-start border-b border-white/10 pb-3">
             <div class="flex flex-col gap-1">
-                <span class="text-[9px] text-cyan-400 uppercase tracking-widest font-black">AI CSV Categorizer</span>
+                <span class="text-[9px] text-cyan-400 uppercase tracking-widest font-black">AI Row Analysis</span>
                 <span class="text-xs font-bold text-slate-200 truncate max-w-[220px]" title="${sourceName}">🤖 ${sourceName}</span>
             </div>
             <span class="text-2xl font-black text-cyan-400 font-mono">${progress}%</span>
@@ -1075,12 +1127,12 @@ async function openCsvAiJobResult(csvFileId, fileName = '') {
     if (typeof window.switchTab === 'function') {
         window.switchTab('tab-csv');
     }
-    await loadCsvData(id, fileName || 'AIカテゴリ分類結果.csv');
+    await loadCsvData(id, fileName || 'AI行解析結果.csv');
 }
 
 async function handleCancelCsvAiJob(jobId) {
     if (!jobId) return;
-    if (!confirm('このAI分類ジョブを停止しますか？進行中なら現在の行処理が終わり次第、止まっているジョブならその場で停止します。')) return;
+    if (!confirm('このAI行解析ジョブを停止しますか？進行中なら現在の行処理が終わり次第、止まっているジョブならその場で停止します。')) return;
 
     try {
         const response = await secureFetch('api/cancel_csv_ai_job.php', {
@@ -1100,7 +1152,7 @@ async function handleCancelCsvAiJob(jobId) {
                 overlay.innerHTML = `
                     <div class="flex justify-between items-start border-b border-white/10 pb-3">
                         <div class="flex flex-col gap-1">
-                            <span class="text-[9px] text-amber-200 uppercase tracking-widest font-black">AI CSV Categorizer</span>
+                            <span class="text-[9px] text-amber-200 uppercase tracking-widest font-black">AI Row Analysis</span>
                             <span class="text-xs font-bold text-white">⏹ ジョブを停止しました</span>
                         </div>
                     </div>
@@ -1161,17 +1213,17 @@ async function pollCsvAiJobStatus(jobId) {
                 stopCsvAiJobPolling({ resetJobId: true });
                 await loadCsvAiJobHistory();
                 overlay.classList.replace('bg-slate-900', 'bg-emerald-900');
-                const outputFileName = String(job.output_file_name || 'AIカテゴリ分類結果.csv');
+                const outputFileName = String(job.output_file_name || 'AI行解析結果.csv');
                 const outputCsvFileId = Number(status.output_csv_file_id || 0);
                 overlay.innerHTML = `
                     <div class="flex justify-between items-start border-b border-white/10 pb-3">
                         <div class="flex flex-col gap-1">
-                            <span class="text-[9px] text-emerald-300 uppercase tracking-widest font-black">AI CSV Categorizer</span>
+                            <span class="text-[9px] text-emerald-300 uppercase tracking-widest font-black">AI Row Analysis</span>
                             <span class="text-xs font-bold text-white truncate max-w-[220px]" title="${escapeHTML(outputFileName)}">✅ ${escapeHTML(outputFileName)}</span>
                         </div>
                         <span class="text-2xl font-black text-emerald-300 font-mono">100%</span>
                     </div>
-                    <div class="text-[11px] leading-snug font-bold text-white">カテゴリ分けCSVを作成しました。左の一覧へ追加して表示します。</div>
+                    <div class="text-[11px] leading-snug font-bold text-white">${state === 'completed' ? 'AI行解析CSVを作成しました。左の一覧へ追加して表示します。' : 'AI行解析の完了を確認しました。'}</div>
                     ${outputCsvFileId > 0 ? `<div class="flex justify-end pointer-events-auto"><button type="button" onclick="window.openCsvAiJobResult && window.openCsvAiJobResult(${outputCsvFileId}, '${outputFileName.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')" class="text-[10px] font-bold text-emerald-200 bg-white/10 border border-white/10 rounded-full px-3 py-1 hover:bg-white/15 transition-all">結果を開く</button></div>` : ''}
                 `;
 
@@ -1201,7 +1253,7 @@ async function pollCsvAiJobStatus(jobId) {
                 overlay.innerHTML = `
                     <div class="flex justify-between items-start border-b border-white/10 pb-3">
                         <div class="flex flex-col gap-1">
-                            <span class="text-[9px] text-amber-200 uppercase tracking-widest font-black">AI CSV Categorizer</span>
+                            <span class="text-[9px] text-amber-200 uppercase tracking-widest font-black">AI Row Analysis</span>
                             <span class="text-xs font-bold text-white">⏹ ジョブを停止しました</span>
                         </div>
                     </div>
@@ -1219,7 +1271,7 @@ async function pollCsvAiJobStatus(jobId) {
                 overlay.innerHTML = `
                     <div class="flex justify-between items-start border-b border-white/10 pb-3">
                         <div class="flex flex-col gap-1">
-                            <span class="text-[9px] text-red-300 uppercase tracking-widest font-black">AI CSV Categorizer</span>
+                            <span class="text-[9px] text-red-300 uppercase tracking-widest font-black">AI Row Analysis</span>
                             <span class="text-xs font-bold text-white">❌ ジョブ失敗</span>
                         </div>
                     </div>
@@ -1244,7 +1296,7 @@ async function pollCsvAiJobStatus(jobId) {
                     overlay.innerHTML = `
                         <div class="flex justify-between items-start border-b border-white/10 pb-3">
                             <div class="flex flex-col gap-1">
-                                <span class="text-[9px] text-slate-300 uppercase tracking-widest font-black">AI CSV Categorizer</span>
+                                <span class="text-[9px] text-slate-300 uppercase tracking-widest font-black">AI Row Analysis</span>
                                 <span class="text-xs font-bold text-white">⌛ 状態取得が遅いため再試行します</span>
                             </div>
                         </div>
@@ -1262,7 +1314,7 @@ async function pollCsvAiJobStatus(jobId) {
                 overlay.innerHTML = `
                     <div class="flex justify-between items-start border-b border-white/10 pb-3">
                         <div class="flex flex-col gap-1">
-                            <span class="text-[9px] text-slate-300 uppercase tracking-widest font-black">AI CSV Categorizer</span>
+                            <span class="text-[9px] text-slate-300 uppercase tracking-widest font-black">AI Row Analysis</span>
                             <span class="text-xs font-bold text-white">⌛ 状態確認を再試行します</span>
                         </div>
                     </div>
@@ -1284,6 +1336,7 @@ async function handleStartCsvAiCategorizeJob(e) {
     const form = e.target;
     const { projectId } = getConfig();
     const csvFileId = Number(form.csv_file_id?.value || 0);
+    const analysisMode = String(form.analysis_mode?.value || 'categorize').trim();
     const targetColumn = String(form.target_column?.value || '').trim();
     const outputFileName = String(form.output_file_name?.value || '').trim();
 
@@ -1304,7 +1357,7 @@ async function handleStartCsvAiCategorizeJob(e) {
         progress: 0,
         current: 0,
         total: 0,
-        message: 'AI分類ジョブの起動要求を送信しています...',
+        message: analysisMode === 'summarize' ? 'AI要約ジョブの起動要求を送信しています...' : 'AI分類ジョブの起動要求を送信しています...',
         status: 'pending',
     }, {
         source_file_name: pendingSourceName,
@@ -1318,15 +1371,17 @@ async function handleStartCsvAiCategorizeJob(e) {
                 project_id: Number(projectId),
                 csv_file_id: csvFileId,
                 target_column: targetColumn,
+                analysis_mode: analysisMode,
                 output_file_name: outputFileName,
                 category_column_name: String(form.category_column_name?.value || 'AIカテゴリ').trim(),
                 reason_column_name: String(form.reason_column_name?.value || 'AI分類理由').trim(),
+                summary_column_name: String(form.summary_column_name?.value || 'AI要約').trim(),
                 instructions: String(form.instructions?.value || '').trim(),
             }),
         });
 
         if (!response?.success || !response.job_id) {
-            throw new Error(response?.error || 'AIカテゴリ分けジョブの起動に失敗しました。');
+            throw new Error(response?.error || 'AI行解析ジョブの起動に失敗しました。');
         }
 
         await pollCsvAiJobStatus(response.job_id);
@@ -1335,7 +1390,7 @@ async function handleStartCsvAiCategorizeJob(e) {
         if (overlay) {
             overlay.remove();
         }
-        alert(`AIカテゴリ分けジョブを開始できませんでした: ${err.message}`);
+        alert(`AI行解析ジョブを開始できませんでした: ${err.message}`);
         openCsvAiCategorizeModal();
     } finally {
         if (submitBtn) {
@@ -1385,11 +1440,13 @@ async function handleStartCsvAiCategorizeJob(e) {
         document.addEventListener('DOMContentLoaded', () => {
             bindCsvAiJobLifecycleGuards();
             bindCsvToolbarActions();
+            bindCsvAiModeControls();
             loadCsvAiJobHistory().catch(() => {});
         }, { once: true });
     } else {
         bindCsvAiJobLifecycleGuards();
         bindCsvToolbarActions();
+        bindCsvAiModeControls();
         loadCsvAiJobHistory().catch(() => {});
     }
 })();

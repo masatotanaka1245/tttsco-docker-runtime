@@ -5,3 +5,10 @@
 [2026-06-09 22:41:09] job status switched to processing {"job_id":"4777c090aacf3006e857d266"}
 [2026-06-09 22:41:09] source rows loaded {"job_id":"4777c090aacf3006e857d266","total":14,"output_csv_file_id":10}
 [2026-06-09 22:43:39] job completed {"job_id":"4777c090aacf3006e857d266","total":14,"output_csv_file_id":10}
+[2026-06-10 16:30:41] job queued {"job_id":"92f57c65c9722e14d8545ea5","project_id":4,"source_csv_file_id":6,"source_file_name":"出荷一覧表(#if [本数] ＞= 250000 then 赤;Grayband;TypeT;Sum=合計;Counts=商品名;Numbering;承認印=責任者;承認日印=上長;認印=担当者名).csv","target_column":"商品名","analysis_mode":"summarize","ollama_host":"http://host.docker.internal:11434","model":"gemma4:e2b"}
+[2026-06-10 16:30:41] worker launch prepared {"job_id":"92f57c65c9722e14d8545ea5","os_family":"Linux","php_binary":"/usr/local/bin/php","php_binary_source":"PHP_BINDIR/php","php_binary_exists":true,"script_path":"/var/www/html/bin/run_csv_ai_categorize_job.php","script_exists":true,"disabled_functions":"","command":"'/usr/local/bin/php' '/var/www/html/bin/run_csv_ai_categorize_job.php' '92f57c65c9722e14d8545ea5' > /dev/null 2>&1 &"}
+[2026-06-10 16:30:41] worker launch dispatched {"job_id":"92f57c65c9722e14d8545ea5","exec_code":0,"exec_output":[]}
+[2026-06-10 16:30:41] job worker booted {"job_id":"92f57c65c9722e14d8545ea5","project_id":4,"source_csv_file_id":6,"target_column":"商品名","model":"gemma4:e2b"}
+[2026-06-10 16:30:41] job status switched to processing {"job_id":"92f57c65c9722e14d8545ea5"}
+[2026-06-10 16:30:41] source rows loaded {"job_id":"92f57c65c9722e14d8545ea5","total":24,"output_csv_file_id":11}
+[2026-06-10 16:38:08] job completed {"job_id":"92f57c65c9722e14d8545ea5","total":24,"output_csv_file_id":11}

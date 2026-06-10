@@ -141,8 +141,10 @@ class ChatRouteSelector
         if (
             $projectId !== null &&
             !$advancedReasoning &&
+            !$preferNormalRag &&
             !$isHistorySummaryMode &&
-            $factorizedRoute !== 'advanced_hybrid.doc_extract'
+            $factorizedRoute !== 'advanced_hybrid.doc_extract' &&
+            ($factorizedRoute === '' || (!str_starts_with($factorizedRoute, 'advanced_hybrid.') && !str_starts_with($factorizedRoute, 'normal_rag.')))
         ) {
             try {
                 $mentionedCsv = $this->csvContextResolver !== null

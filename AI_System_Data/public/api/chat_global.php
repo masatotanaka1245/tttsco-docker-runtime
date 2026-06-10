@@ -149,24 +149,48 @@ class GlobalChatRouteProcessor {
         $max_iterations = 4; // 無限ループ防止
         $iteration = 0;
         $is_finished = false;
+        $loopStartedAt = microtime(true);
+        $max_loop_seconds = 75;
+        $per_iteration_timeout = 45;
         $react_sys_prompt = $this->buildReActSystemPrompt();
 
         while ($iteration < $max_iterations && !$is_finished) {
+            $elapsedBeforeIteration = microtime(true) - $loopStartedAt;
+            if ($elapsedBeforeIteration >= $max_loop_seconds) {
+                $this->observationHistory .= "\n[System]: ReActループの総時間予算を超過したため、ここまでの観察結果で調査を打ち切ります。\n";
+                $this->reasoningSteps[] = [
+                    'sub_query' => "調査時間上限に到達",
+                    'sub_answer' => "安全装置により ReAct ループの総時間予算 {$max_loop_seconds} 秒に達したため、ここまでの観察結果で最終回答へ移行します。"
+                ];
+                chatLogger("[WARN] ReAct総時間予算を超過しました。elapsed=" . round($elapsedBeforeIteration, 2) . "秒 | max={$max_loop_seconds}秒");
+                break;
+            }
+
             $iteration++;
-            
+
             $current_user_prompt = "【ユーザーの質問】\n" . $this->originalMessage . "\n\n"
                                  . "【これまでの調査履歴 (Observation)】\n" . ($this->observationHistory ?: "まだ調査を開始していません。");
-            
+
             chatLogger(">>> [ReAct ループ {$iteration}/{$max_iterations}] 思考・行動の生成中...");
             sendSSE('status', ['message' => "🧠 エージェントがデータベースを自律調査中... (ステップ {$iteration}/{$max_iterations})"]);
 
             // OllamaへのReActリクエスト
+            $iterationStartedAt = microtime(true);
             $response_json_str = callOllamaChat(
-                $this->ollama_host, $this->reasoningModel, $react_sys_prompt, 
-                $current_user_prompt, 'json', ["temperature" => 0.2, "num_ctx" => 8192]
+                $this->ollama_host, $this->reasoningModel, $react_sys_prompt,
+                $current_user_prompt,
+                'json',
+                [
+                    "temperature" => 0.2,
+                    "num_ctx" => 8192,
+                    "connect_timeout" => 5,
+                    "request_timeout" => $per_iteration_timeout
+                ]
             );
+            $iterationElapsed = microtime(true) - $iterationStartedAt;
+            chatLogger("[DEBUG] ReAct [{$iteration}] 思考・行動生成が完了しました。elapsed=" . round($iterationElapsed, 2) . "秒 | totalElapsed=" . round(microtime(true) - $loopStartedAt, 2) . "秒");
             chatLogger("[DEBUG] ReAct [{$iteration}] Ollama生応答: " . $response_json_str);
-            
+
             // JSON応答の安全なパース
             $response_data = $this->parseReActResponse($response_json_str, $iteration);
             $thought       = $response_data['thought'];
@@ -190,6 +214,7 @@ class GlobalChatRouteProcessor {
             } elseif ($action === 'execute_sql') {
                 // SQLアクションのサブタスク処理へデリゲート
                 $this->processSqlAction($thought, $action_input, $iteration);
+                chatLogger("[DEBUG] ReAct [{$iteration}] SQLアクション処理を完了しました。observationChars=" . mb_strlen($this->observationHistory));
 
             } else {
                 $this->observationHistory .= "\n[Action]: {$action}\n[Result]: エラー。'execute_sql' または 'finish' のみを指定してください。\n";

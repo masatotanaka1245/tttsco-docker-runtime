@@ -10,8 +10,8 @@
  */
 
 import { openAppModal, closeProjectModal, closeEditModal, bindModalEvents, closeTab, scrollToBottom, initChatInput, injectPdfLoadingMask, switchTab, openPdfTab, initResizer } from './modules/ui.js?v=9';
-import { handleCsvUpload, loadCsvData, handleDeleteCsv, handlePostgresImport, openCsvPreviewByDocId, handleCreateManualCsv, handleAppendCsvRow, openCsvCreateModal, closeCsvCreateModal, openCsvAppendModal, closeCsvAppendModal, openCsvColumnEditModal, closeCsvColumnEditModal, handleUpdateCsvColumns, handleAddCsvColumnDraft, handleRemoveCsvColumnDraft, handleStartCsvAiCategorizeJob, openCsvAiCategorizeModal, closeCsvAiCategorizeModal } from './modules/csv.js?v=7';
-import { handleChat, appendMsg, initExistingCharts, initMaterialMemoActions, initDebugLogViewer } from './modules/chat.js?v=19';
+import { handleCsvUpload, loadCsvData, handleDeleteCsv, handlePostgresImport, openCsvPreviewByDocId, handleCreateManualCsv, handleAppendCsvRow, openCsvCreateModal, closeCsvCreateModal, openCsvAppendModal, closeCsvAppendModal, openCsvColumnEditModal, closeCsvColumnEditModal, handleUpdateCsvColumns, handleAddCsvColumnDraft, handleRemoveCsvColumnDraft, handleStartCsvAiCategorizeJob, openCsvAiCategorizeModal, closeCsvAiCategorizeModal } from './modules/csv.js?v=8';
+import { handleChat, appendMsg, initExistingCharts, initMaterialMemoActions, initDebugLogViewer } from './modules/chat.js?v=20';
 import { checkUploadOnLoad as checkUploadOnLoadModule, handleUpload as handleUploadModule } from './modules/upload.js?v=6';
 import * as Project from './modules/project.js?v=6';
 // ★最終繋ぎ込み要件1: 100点満点でクレンジングが完了した map.js から回線を引き受ける
@@ -818,8 +818,10 @@ function initSupportSidebarToggle() {
 
     const storageKey = 'supportSidebarCollapsed';
     const body = document.body;
+    const root = document.documentElement;
 
     const applyState = (collapsed) => {
+        root.classList.toggle('sidebar-collapsed', collapsed);
         body.classList.toggle('sidebar-collapsed', collapsed);
         toggleButton.setAttribute('aria-pressed', collapsed ? 'true' : 'false');
         toggleButton.setAttribute('aria-label', collapsed ? '業務一覧を展開' : '業務一覧を折りたたむ');
@@ -827,6 +829,7 @@ function initSupportSidebarToggle() {
     };
 
     applyState(window.localStorage.getItem(storageKey) === '1');
+    root.classList.add('support-sidebar-ready');
 
     toggleButton.dataset.bound = 'true';
     toggleButton.addEventListener('click', () => {

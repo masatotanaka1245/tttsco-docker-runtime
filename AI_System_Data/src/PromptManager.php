@@ -140,16 +140,28 @@ class PromptManager {
     {
         $sections = [];
         foreach (['agents', 'readme', 'todo'] as $type) {
-            $content = trim((string)($memoryDocs[$type]['content'] ?? ''));
-            if ($content === '') {
+            $manualContent = trim((string)($memoryDocs[$type]['content'] ?? ''));
+            $autoContent = trim((string)($memoryDocs[$type]['auto_content'] ?? ''));
+            if ($manualContent === '' && $autoContent === '') {
                 continue;
             }
 
             $label = (string)($memoryDocs[$type]['label'] ?? strtoupper($type));
-            if (mb_strlen($content) > 3000) {
-                $content = mb_substr($content, 0, 3000) . "\n...[後半省略]";
+            $parts = [];
+            if ($manualContent !== '') {
+                if (mb_strlen($manualContent) > 3000) {
+                    $manualContent = mb_substr($manualContent, 0, 3000) . "\n...[後半省略]";
+                }
+                $parts[] = "#### 手動メモ\n{$manualContent}";
             }
-            $sections[] = "### {$label}\n{$content}";
+            if ($autoContent !== '') {
+                if (mb_strlen($autoContent) > 3000) {
+                    $autoContent = mb_substr($autoContent, 0, 3000) . "\n...[後半省略]";
+                }
+                $parts[] = "#### 自動生成メモ\n{$autoContent}";
+            }
+
+            $sections[] = "### {$label}\n" . implode("\n\n", $parts);
         }
 
         if (empty($sections)) {
@@ -157,11 +169,12 @@ class PromptManager {
         }
 
         return "\n【案件運用メモ】\n"
-             . "以下は、この案件に対して人手で管理されている補助メモです。\n"
+             . "以下は、この案件に対する補助メモです。手動メモと自動生成メモが分かれている場合は、手動メモをより優先してください。\n"
              . "1. AGENTS は回答方針・禁止事項・優先ルールとして扱ってください。\n"
              . "2. README は案件やシステムの前提知識として扱ってください。\n"
              . "3. TODO は現在の課題や優先論点として扱ってください。ただし、TODO の内容を根拠資料の代わりに断定してはいけません。\n"
-             . "4. 資料本文・DB実データ・FAQ・コメントと矛盾する場合は、実データと資料本文を優先してください。\n\n"
+             . "4. 自動生成メモは、現在スレッドと案件全体の最近会話から作られた補助要約です。実データや手動メモより優先して断定しないでください。\n"
+             . "5. 資料本文・DB実データ・FAQ・コメントと矛盾する場合は、実データと資料本文を優先してください。\n\n"
              . implode("\n\n", $sections) . "\n";
     }
 }

@@ -107,9 +107,11 @@ $payload = json_decode(file_get_contents('php://input'), true);
 $projectId = (int)($payload['project_id'] ?? 0);
 $csvFileId = (int)($payload['csv_file_id'] ?? 0);
 $targetColumn = trim((string)($payload['target_column'] ?? ''));
+$analysisMode = trim((string)($payload['analysis_mode'] ?? 'categorize'));
 $outputFileName = trim((string)($payload['output_file_name'] ?? ''));
 $categoryColumnName = trim((string)($payload['category_column_name'] ?? 'AIカテゴリ'));
 $reasonColumnName = trim((string)($payload['reason_column_name'] ?? 'AI分類理由'));
+$summaryColumnName = trim((string)($payload['summary_column_name'] ?? 'AI要約'));
 $instructions = trim((string)($payload['instructions'] ?? ''));
 $userId = (int)($_SESSION['user_id'] ?? 0);
 $role = (string)($_SESSION['role'] ?? 'user');
@@ -120,9 +122,15 @@ if (!$projectId || !$csvFileId || $targetColumn === '') {
     exit;
 }
 
+if (!in_array($analysisMode, ['categorize', 'summarize'], true)) {
+    http_response_code(400);
+    echo json_encode(['success' => false, 'error' => '解析モードが不正です。'], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 if (!canManageProject($pdo, $projectId, $userId, $role)) {
     http_response_code(403);
-    echo json_encode(['success' => false, 'error' => 'この案件でカテゴリ分けジョブを開始する権限がありません。'], JSON_UNESCAPED_UNICODE);
+    echo json_encode(['success' => false, 'error' => 'この案件でAI行解析ジョブを開始する権限がありません。'], JSON_UNESCAPED_UNICODE);
     exit;
 }
 
@@ -171,9 +179,11 @@ $job = $jobService->createJob([
     'source_csv_file_id' => $csvFileId,
     'source_file_name' => (string)$csvFile['file_name'],
     'target_column' => $targetColumn,
+    'analysis_mode' => $analysisMode,
     'output_file_name' => $outputFileName,
     'category_column_name' => $categoryColumnName,
     'reason_column_name' => $reasonColumnName,
+    'summary_column_name' => $summaryColumnName,
     'instructions' => $instructions,
     'ollama_host' => $resolvedModels['ollama_host'],
     'model' => $resolvedModels['worker_model'] ?? $resolvedModels['sub_model'] ?? $resolvedModels['main_model'],
@@ -185,6 +195,7 @@ appLog('csv_ai_job.log', 'job queued', [
     'source_csv_file_id' => $csvFileId,
     'source_file_name' => (string)$csvFile['file_name'],
     'target_column' => $targetColumn,
+    'analysis_mode' => $analysisMode,
     'ollama_host' => (string)($resolvedModels['ollama_host'] ?? ''),
     'model' => (string)($resolvedModels['worker_model'] ?? $resolvedModels['sub_model'] ?? $resolvedModels['main_model'] ?? ''),
 ]);
@@ -220,5 +231,5 @@ appLog('csv_ai_job.log', 'worker launch dispatched', [
 echo json_encode([
     'success' => true,
     'job_id' => $jobId,
-    'message' => 'カテゴリ分けジョブを開始しました。',
+    'message' => $analysisMode === 'summarize' ? 'AI要約ジョブを開始しました。' : 'カテゴリ分けジョブを開始しました。',
 ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);

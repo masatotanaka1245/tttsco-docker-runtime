@@ -224,6 +224,10 @@ if (!function_exists('renderProjectMemoryFlash')) {
             echo '<div class="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">案件運用メモを更新しました。</div>';
             return;
         }
+        if ($memoryFlash === 'refreshed') {
+            echo '<div class="text-[11px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3">自動生成メモを再生成しました。</div>';
+            return;
+        }
         if ($memoryFlash === 'error') {
             echo '<div class="text-[11px] font-bold text-red-700 bg-red-50 border border-red-200 rounded-xl px-4 py-3">案件運用メモの保存に失敗しました。</div>';
             return;
@@ -244,10 +248,17 @@ if (!function_exists('renderProjectMemoryEditors')) {
 
         foreach ($fields as $field) {
             $content = (string)($projectMemoryDocs[$field['type']]['content'] ?? '');
+            $autoContent = (string)($projectMemoryDocs[$field['type']]['auto_content'] ?? '');
             ?>
             <div class="space-y-1.5">
                 <label for="<?= h($field['id']) ?>" class="block text-[10px] font-black text-slate-400 tracking-wider"><?= h($field['label']) ?></label>
                 <textarea id="<?= h($field['id']) ?>" name="<?= h($field['name']) ?>" rows="8" class="w-full min-h-[11rem] border border-slate-200 rounded-xl p-3 text-xs leading-5 bg-slate-50/50 focus:bg-white focus:border-indigo-400/80 transition-all duration-200 resize-y font-mono text-slate-700 outline-none" placeholder="<?= h($field['placeholder']) ?>"><?= h($content) ?></textarea>
+                <?php if (trim($autoContent) !== ''): ?>
+                    <div class="border border-dashed border-slate-200 rounded-xl bg-slate-50/70 overflow-hidden">
+                        <div class="px-3 py-2 bg-slate-100/70 text-[10px] font-black text-slate-400 tracking-wider">自動生成メモ（参考表示）</div>
+                        <div class="px-3 py-2.5 text-[11px] leading-5 text-slate-500 whitespace-pre-wrap max-h-48 overflow-y-auto custom-scrollbar"><?= h($autoContent) ?></div>
+                    </div>
+                <?php endif; ?>
             </div>
             <?php
         }
@@ -259,14 +270,26 @@ if (!function_exists('renderProjectMemoryReadonly')) {
         $hasContent = false;
         foreach (['readme', 'agents', 'todo'] as $memoryType) {
             $memoryContent = trim((string)($projectMemoryDocs[$memoryType]['content'] ?? ''));
-            if ($memoryContent === '') {
+            $autoMemoryContent = trim((string)($projectMemoryDocs[$memoryType]['auto_content'] ?? ''));
+            if ($memoryContent === '' && $autoMemoryContent === '') {
                 continue;
             }
             $hasContent = true;
             ?>
             <div class="border border-slate-200 rounded-xl overflow-hidden">
                 <div class="px-4 py-2 bg-slate-50 text-[10px] font-black text-slate-400 tracking-wider"><?= h((string)($projectMemoryDocs[$memoryType]['label'] ?? strtoupper($memoryType))) ?></div>
-                <div class="px-4 py-3 text-xs text-slate-600 leading-relaxed whitespace-pre-wrap"><?= h($memoryContent) ?></div>
+                <?php if ($memoryContent !== ''): ?>
+                    <div class="px-4 py-2 border-b border-slate-100 bg-white">
+                        <div class="text-[10px] font-black text-slate-400 tracking-wider mb-1">手動メモ</div>
+                        <div class="text-xs text-slate-600 leading-relaxed whitespace-pre-wrap"><?= h($memoryContent) ?></div>
+                    </div>
+                <?php endif; ?>
+                <?php if ($autoMemoryContent !== ''): ?>
+                    <div class="px-4 py-3 bg-slate-50/60">
+                        <div class="text-[10px] font-black text-slate-400 tracking-wider mb-1">自動生成メモ</div>
+                        <div class="text-xs text-slate-500 leading-relaxed whitespace-pre-wrap"><?= h($autoMemoryContent) ?></div>
+                    </div>
+                <?php endif; ?>
             </div>
             <?php
         }
@@ -737,6 +760,10 @@ $projectCenterTabs = [
             width: var(--support-sidebar-width);
             transition: width 0.24s ease, padding 0.24s ease;
         }
+        html:not(.support-sidebar-ready) #support-sidebar,
+        html:not(.support-sidebar-ready) #support-sidebar-toggle-icon {
+            transition: none !important;
+        }
         #support-sidebar .support-sidebar-heading {
             display: flex;
             align-items: center;
@@ -783,37 +810,47 @@ $projectCenterTabs = [
             transition: transform 0.24s ease;
         }
 
+        html.sidebar-collapsed #support-sidebar,
         body.sidebar-collapsed #support-sidebar {
             width: var(--support-sidebar-collapsed-width);
             padding-left: 0.75rem;
             padding-right: 0.75rem;
         }
+        html.sidebar-collapsed #support-sidebar .support-sidebar-title,
+        html.sidebar-collapsed #support-sidebar .support-project-copy,
+        html.sidebar-collapsed #support-sidebar .support-sidebar-footer-label,
         body.sidebar-collapsed #support-sidebar .support-sidebar-title,
         body.sidebar-collapsed #support-sidebar .support-project-copy,
         body.sidebar-collapsed #support-sidebar .support-sidebar-footer-label {
             display: none;
         }
+        html.sidebar-collapsed #support-sidebar .support-sidebar-heading,
         body.sidebar-collapsed #support-sidebar .support-sidebar-heading {
             justify-content: center;
         }
+        html.sidebar-collapsed #support-sidebar .support-project-link,
         body.sidebar-collapsed #support-sidebar .support-project-link {
             justify-content: center;
             padding-left: 0.45rem;
             padding-right: 0.45rem;
         }
+        html.sidebar-collapsed #support-sidebar .support-project-badge,
         body.sidebar-collapsed #support-sidebar .support-project-badge {
             width: 2.25rem;
             height: 2.25rem;
             font-size: 12px;
         }
+        html.sidebar-collapsed #support-sidebar .support-project-create-btn,
         body.sidebar-collapsed #support-sidebar .support-project-create-btn {
             justify-content: center;
             padding-left: 0.5rem;
             padding-right: 0.5rem;
         }
+        html.sidebar-collapsed #support-sidebar .support-sidebar-footer-icon,
         body.sidebar-collapsed #support-sidebar .support-sidebar-footer-icon {
             display: inline-flex;
         }
+        html.sidebar-collapsed #support-sidebar-toggle-icon,
         body.sidebar-collapsed #support-sidebar-toggle-icon {
             transform: rotate(180deg);
         }
@@ -1046,6 +1083,14 @@ $projectCenterTabs = [
     </style>
 
     <script>
+        (function() {
+            try {
+                if (window.localStorage.getItem('supportSidebarCollapsed') === '1') {
+                    document.documentElement.classList.add('sidebar-collapsed');
+                }
+            } catch (e) {}
+        })();
+
         window.switchTab = function(tabId) {
             document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
             document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
@@ -1067,6 +1112,7 @@ $projectCenterTabs = [
      data-selected-material-document-id="<?= h((string)($selected_material_document['id'] ?? '')) ?>"
      data-thread-id="<?= h((string)$selected_thread_id) ?>"
      data-can-manage-material="<?= $can_manage_material_documents ? '1' : '0' ?>"
+     data-can-manage-memory="<?= $can_manage_project_memory ? '1' : '0' ?>"
      data-can-debug-log="<?= $role === 'admin' ? '1' : '0' ?>"></div>
 
 <main class="flex-1 flex overflow-hidden h-[calc(100vh-72px)] gap-px bg-slate-200/50 w-full" role="region" aria-label="Support System Console">
@@ -1347,11 +1393,11 @@ $projectCenterTabs = [
 
                             <div class="pt-2 border-t border-slate-200/60 flex flex-col min-h-0 flex-1">
                                 <div class="flex items-center justify-between gap-2">
-                                    <h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest">AI分類ジョブ</h4>
+                                <h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest">AI行解析ジョブ</h4>
                                     <span id="csv-ai-job-count" class="text-[9px] font-black text-slate-400 bg-white border border-slate-200 px-2 py-0.5 rounded-full shadow-2xs">0 件</span>
                                 </div>
                                 <div id="csv-ai-job-list" class="space-y-2 flex-1 min-h-0 overflow-y-auto overscroll-contain pr-1 pt-3 custom-scrollbar">
-                                    <p class="text-[10px] text-slate-400 text-center py-4 italic font-medium">AI分類ジョブはまだありません。</p>
+                                    <p class="text-[10px] text-slate-400 text-center py-4 italic font-medium">AI行解析ジョブはまだありません。</p>
                                 </div>
                             </div>
                         </div>
@@ -1404,7 +1450,6 @@ $projectCenterTabs = [
                 <div class="bg-white border border-slate-200/80 rounded-2xl overflow-hidden shadow-sm transition-all duration-300 hover:shadow-md">
                     <?php if ($can_manage_project_memory): ?>
                         <form method="post">
-                            <input type="hidden" name="action" value="save_project_memory">
                             <input type="hidden" name="csrf_token" value="<?= h($csrfToken) ?>">
                             <input type="hidden" name="project_id" value="<?= h((string)$selected_project_id) ?>">
                     <?php endif; ?>
@@ -1412,7 +1457,10 @@ $projectCenterTabs = [
                         <div class="flex items-center gap-3">
                             <span class="font-extrabold tracking-wide text-slate-600">案件運用メモ</span>
                             <?php if ($can_manage_project_memory): ?>
-                                <button type="submit" class="text-[11px] bg-[#4F5D95] text-white border border-[#4F5D95] px-4 py-2 rounded-xl font-bold shadow-sm hover:bg-[#3f4a7a] transition-all duration-200 ease-in-out transform active:scale-95">メモを保存</button>
+                                <div class="flex items-center gap-2">
+                                    <button type="submit" name="action" value="save_project_memory" class="text-[11px] bg-[#4F5D95] text-white border border-[#4F5D95] px-4 py-2 rounded-xl font-bold shadow-sm hover:bg-[#3f4a7a] transition-all duration-200 ease-in-out transform active:scale-95">メモを保存</button>
+                                    <button type="submit" name="action" value="refresh_project_memory" class="text-[11px] bg-white text-slate-700 border border-slate-200 px-4 py-2 rounded-xl font-bold shadow-sm hover:bg-slate-50 transition-all duration-200 ease-in-out transform active:scale-95">自動生成メモを再生成</button>
+                                </div>
                             <?php endif; ?>
                         </div>
                         <span class="text-[10px] text-slate-400 font-bold tracking-wider">案件内容 / AIエージェント / タスク一覧</span>
@@ -1421,7 +1469,7 @@ $projectCenterTabs = [
                         <?php renderProjectMemoryFlash((string)$memory_flash); ?>
 
                         <p class="text-[11px] text-slate-500 leading-relaxed">
-                            この案件に特有の回答方針、背景、既知の論点をメモとして保持し、AIが回答を組み立てる前に参照します。現在は案件状態と直近会話に応じて自動更新され、次回の会話保存時にも再生成されます。
+                            この案件に特有の回答方針、背景、既知の論点をメモとして保持し、AIが回答を組み立てる前に参照します。上の入力欄は手動メモ、下の参考欄は案件状態と最近の会話から作られた自動生成メモです。手動メモは次回の会話保存で上書きされません。
                         </p>
 
                         <?php if ($can_manage_project_memory): ?>
@@ -1597,7 +1645,7 @@ $projectCenterTabs = [
 
     // ★ 究極の安全設計: import * as 構文を使用し、1096エラー(SyntaxError)を原理的に100%防止
     // ✨ ここを ?v=4 から ?v=5 へ書き換えてキャッシュを強制粉砕！
-    import * as Support from './assets/js/support.js?v=32';
+    import * as Support from './assets/js/support.js?v=35';
 
     // ★要件4: 隔離コンテナ内のJSONデータを仲介して安全にマウント・パースするイベントハンドラの実装
     window.openProjectEditModal = (lat, lng) => {

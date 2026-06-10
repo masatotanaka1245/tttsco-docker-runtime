@@ -265,7 +265,51 @@ function normalizeAiText(value) {
     return String(value);
 }
 
-async function saveAnswerToMaterial(question, answer, button, statusEl) {
+function summarizeMaterialTitle(base, fallback) {
+    const normalized = normalizeAiText(base)
+        .replace(/\s+/g, ' ')
+        .replace(/[\\/:*?"<>|]/g, ' ')
+        .trim();
+    if (!normalized) return fallback;
+    return normalized.length > 40 ? normalized.slice(0, 40).trim() : normalized;
+}
+
+function inferMaterialSaveMeta(question, answer, options = {}) {
+    const resolvedQuestion = normalizeAiText(question).trim();
+    const resolvedAnswer = normalizeAiText(answer).trim();
+    const routeDetail = String(options.routeDetail || '').trim();
+    const hasCsvExport = Boolean(options.csvExport && Number(options.csvExport.csv_file_id || 0));
+    const hasMarkdownTable = /\|.+\|/.test(resolvedAnswer) && /\n\|(?:\s*:?-+:?\s*\|)+/.test(resolvedAnswer);
+    const csvQuestion = /(csv|CSV|件数|集計|ランキング|列|カラム|データ)/.test(resolvedQuestion);
+    const isCsvAnalysis = hasCsvExport
+        || routeDetail.startsWith('data_analysis.csv_')
+        || routeDetail === 'data_analysis.csv_summary'
+        || routeDetail === 'data_analysis.csv_export_request'
+        || (csvQuestion && hasMarkdownTable);
+
+    if (isCsvAnalysis) {
+        return {
+            sourceKind: 'csv_analysis',
+            title: summarizeMaterialTitle(
+                resolvedQuestion ? `CSV読解_${resolvedQuestion}` : '',
+                'CSV読解メモ_' + new Date().toISOString().slice(0, 10).replace(/-/g, '')
+            )
+        };
+    }
+
+    return {
+        sourceKind: 'general_ai_answer',
+        title: ''
+    };
+}
+
+function buildProjectMemoryNoteMessage(csvExport) {
+    const fileName = normalizeAiText(csvExport?.file_name || '').trim();
+    if (!fileName) return '案件運用メモへ要点反映します。';
+    return `案件運用メモへ要点反映します。生成CSV「${fileName}」も記録します。`;
+}
+
+async function saveAnswerToMaterial(question, answer, button, statusEl, options = {}) {
     const { projectId, selectedMaterialDocumentId, canManageMaterial } = getConfig();
     if (String(canManageMaterial || '0') !== '1') return;
 
@@ -279,13 +323,16 @@ async function saveAnswerToMaterial(question, answer, button, statusEl) {
     statusEl.textContent = '資料メモへ保存中...';
 
     try {
+        const materialMeta = inferMaterialSaveMeta(resolvedQuestion, resolvedAnswer, options);
         const data = await secureFetch('api/save_material_note.php', {
             method: 'POST',
             body: JSON.stringify({
                 project_id: Number(projectId),
                 material_document_id: selectedMaterialDocumentId ? Number(selectedMaterialDocumentId) : null,
                 question: resolvedQuestion,
-                answer: resolvedAnswer
+                answer: resolvedAnswer,
+                title: materialMeta.title,
+                source_kind: materialMeta.sourceKind
             })
         });
 
@@ -309,31 +356,93 @@ async function saveAnswerToMaterial(question, answer, button, statusEl) {
     button.classList.remove('opacity-60', 'cursor-wait');
 }
 
-function mountMaterialSaveAction(bubbleContainer, question, answer) {
+async function saveAnswerToProjectMemory(question, answer, button, statusEl, options = {}) {
+    const { projectId, canManageMemory } = getConfig();
+    if (String(canManageMemory || '0') !== '1') return;
+
+    const resolvedAnswer = normalizeAiText(answer).trim();
+    const resolvedQuestion = normalizeAiText(question).trim();
+    if (!projectId || !resolvedAnswer) return;
+
+    const originalLabel = button.textContent;
+    button.disabled = true;
+    button.classList.add('opacity-60', 'cursor-wait');
+    statusEl.textContent = '案件運用メモへ要点を反映中...';
+
+    try {
+        const data = await secureFetch('api/save_project_memory_note.php', {
+            method: 'POST',
+            body: JSON.stringify({
+                project_id: Number(projectId),
+                question: resolvedQuestion,
+                answer: resolvedAnswer,
+                csv_export_name: String(options.csvExport?.file_name || '')
+            })
+        });
+
+        if (!data?.success) {
+            throw new Error(data?.error || '案件運用メモへの反映に失敗しました。');
+        }
+
+        statusEl.textContent = '案件運用メモへCSV読解要点を反映しました。';
+        button.textContent = '運用メモへ反映済み';
+    } catch (error) {
+        statusEl.textContent = error?.message || '案件運用メモへの反映に失敗しました。';
+        button.disabled = false;
+        button.classList.remove('opacity-60', 'cursor-wait');
+        button.textContent = originalLabel;
+        return;
+    }
+
+    button.classList.remove('opacity-60', 'cursor-wait');
+}
+
+function mountMaterialSaveAction(bubbleContainer, question, answer, options = {}) {
     if (!bubbleContainer || bubbleContainer.querySelector('.material-save-action')) return;
-    const { canManageMaterial } = getConfig();
-    if (String(canManageMaterial || '0') !== '1') return;
+    const { canManageMaterial, canManageMemory } = getConfig();
+    if (String(canManageMaterial || '0') !== '1' && String(canManageMemory || '0') !== '1') return;
 
     const resolvedAnswer = normalizeAiText(answer).trim();
     if (!resolvedAnswer) return;
+    const materialMeta = inferMaterialSaveMeta(question, resolvedAnswer, options);
+    const isCsvAnalysis = materialMeta.sourceKind === 'csv_analysis';
 
     const wrapper = document.createElement('div');
     wrapper.className = 'material-save-action mt-3 border border-slate-200 bg-slate-50/80 rounded-xl p-3 text-[10px] text-slate-600 shadow-xs';
 
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'text-[10px] bg-white border border-slate-200 hover:bg-slate-100 rounded-lg px-2.5 py-1 font-bold transition-colors';
-    button.textContent = '📝 資料メモへ追記';
+    const actions = document.createElement('div');
+    actions.className = 'flex flex-wrap gap-2';
 
     const statusEl = document.createElement('div');
     statusEl.className = 'mt-2 text-[10px] text-slate-400 font-medium';
-    statusEl.textContent = '選択中の資料があればそこへ追記し、なければ新しい資料メモを作成します。';
+    statusEl.textContent = isCsvAnalysis
+        ? 'CSV読解の結果は、資料メモか案件運用メモのどちらかへ保存できます。'
+        : '選択中の資料があればそこへ追記し、なければ新しい資料メモを作成します。';
 
-    button.addEventListener('click', () => {
-        saveAnswerToMaterial(question, resolvedAnswer, button, statusEl);
-    });
+    if (String(canManageMaterial || '0') === '1') {
+        const materialButton = document.createElement('button');
+        materialButton.type = 'button';
+        materialButton.className = 'text-[10px] bg-white border border-slate-200 hover:bg-slate-100 rounded-lg px-2.5 py-1 font-bold transition-colors';
+        materialButton.textContent = '📝 資料メモへ追記';
+        materialButton.addEventListener('click', () => {
+            saveAnswerToMaterial(question, resolvedAnswer, materialButton, statusEl, options);
+        });
+        actions.appendChild(materialButton);
+    }
 
-    wrapper.appendChild(button);
+    if (isCsvAnalysis && String(canManageMemory || '0') === '1') {
+        const memoryButton = document.createElement('button');
+        memoryButton.type = 'button';
+        memoryButton.className = 'text-[10px] bg-white border border-emerald-200 text-emerald-700 hover:bg-emerald-50 rounded-lg px-2.5 py-1 font-bold transition-colors';
+        memoryButton.textContent = '🗂️ 運用メモへ要点反映';
+        memoryButton.title = buildProjectMemoryNoteMessage(options.csvExport || null);
+        memoryButton.addEventListener('click', () => {
+            saveAnswerToProjectMemory(question, resolvedAnswer, memoryButton, statusEl, options);
+        });
+        actions.appendChild(memoryButton);
+    }
+
+    wrapper.appendChild(actions);
     wrapper.appendChild(statusEl);
     bubbleContainer.appendChild(wrapper);
 }
@@ -1278,7 +1387,10 @@ function handleChat(e) {
                                         bubbleContainer.insertAdjacentHTML('beforeend', csvHtml);
                                     }
 
-                                    mountMaterialSaveAction(bubbleContainer, msg, finalReportText);
+                                    mountMaterialSaveAction(bubbleContainer, msg, finalReportText, {
+                                        routeDetail: sseData.route_detail || '',
+                                        csvExport: sseData.csv_export || null
+                                    });
 
                                     renderChartsInContainer(bubbleContainer.parentElement);
                                     bindChartModalEvents(bubbleContainer.parentElement);

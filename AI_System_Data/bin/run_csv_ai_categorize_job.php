@@ -40,7 +40,7 @@ $writeStatus = static function (array $status) use ($jobService, $jobId): void {
     $jobService->writeStatus($jobId, $status);
 };
 
-$callCategorizer = static function (string $host, string $model, string $system, string $user): array {
+$callAiRowAnalyzer = static function (string $host, string $model, string $system, string $user): array {
     $payload = OllamaChatHelper::buildChatPayload($model, $system, $user, 'json', [
         'temperature' => 0.0,
         'top_p' => 0.1,
@@ -68,12 +68,13 @@ $callCategorizer = static function (string $host, string $model, string $system,
     $content = $json['message']['content'] ?? '';
     $decoded = json_decode($content, true);
     if (!is_array($decoded)) {
-        throw new RuntimeException('AIの分類結果JSONを解析できませんでした。');
+        throw new RuntimeException('AIの行解析結果JSONを解析できませんでした。');
     }
 
     return [
         'category' => trim((string)($decoded['category'] ?? '')),
         'reason' => trim((string)($decoded['reason'] ?? '')),
+        'summary' => trim((string)($decoded['summary'] ?? '')),
     ];
 };
 
@@ -197,7 +198,7 @@ $markCanceled = static function (int $current, int $total, int $outputCsvFileId 
         'progress' => $progress,
         'current' => $current,
         'total' => $total,
-        'message' => 'カテゴリ分けジョブをキャンセルしました。',
+        'message' => 'AI行解析ジョブをキャンセルしました。',
         'error' => null,
         'project_id' => (int)($job['project_id'] ?? 0),
         'output_csv_file_id' => $outputCsvFileId,
@@ -241,19 +242,32 @@ try {
         throw new RuntimeException('対象列が元CSVに存在しません。');
     }
 
+    $analysisMode = trim((string)($job['analysis_mode'] ?? 'categorize'));
+    if (!in_array($analysisMode, ['categorize', 'summarize'], true)) {
+        $analysisMode = 'categorize';
+    }
+
     $outputHeaders = $headers;
     $categoryColumn = trim((string)$job['category_column_name']) !== '' ? trim((string)$job['category_column_name']) : 'AIカテゴリ';
     $reasonColumn = trim((string)$job['reason_column_name']) !== '' ? trim((string)$job['reason_column_name']) : 'AI分類理由';
-    if (!in_array($categoryColumn, $outputHeaders, true)) {
-        $outputHeaders[] = $categoryColumn;
-    }
-    if (!in_array($reasonColumn, $outputHeaders, true)) {
-        $outputHeaders[] = $reasonColumn;
+    $summaryColumn = trim((string)$job['summary_column_name']) !== '' ? trim((string)$job['summary_column_name']) : 'AI要約';
+    if ($analysisMode === 'categorize') {
+        if (!in_array($categoryColumn, $outputHeaders, true)) {
+            $outputHeaders[] = $categoryColumn;
+        }
+        if (!in_array($reasonColumn, $outputHeaders, true)) {
+            $outputHeaders[] = $reasonColumn;
+        }
+    } else {
+        if (!in_array($summaryColumn, $outputHeaders, true)) {
+            $outputHeaders[] = $summaryColumn;
+        }
     }
 
     $outputFileName = trim((string)$job['output_file_name']);
     if ($outputFileName === '') {
-        $outputFileName = preg_replace('/\.csv$/iu', '', (string)$sourceCsv['file_name']) . '_categorized.csv';
+        $suffix = $analysisMode === 'summarize' ? '_ai_summarized.csv' : '_categorized.csv';
+        $outputFileName = preg_replace('/\.csv$/iu', '', (string)$sourceCsv['file_name']) . $suffix;
     }
 
     $outputCsv = $csvService->createManualCsv((int)$job['project_id'], $outputFileName, $outputHeaders);
@@ -283,18 +297,22 @@ try {
         'progress' => 0,
         'current' => 0,
         'total' => $total,
-        'message' => 'カテゴリ分けジョブの準備を完了しました。',
+        'message' => $analysisMode === 'summarize' ? 'AI要約ジョブの準備を完了しました。' : 'カテゴリ分けジョブの準備を完了しました。',
         'error' => null,
         'project_id' => (int)$job['project_id'],
         'output_csv_file_id' => (int)$outputCsv['id'],
     ]);
 
-    $system = "あなたはCSVデータのカテゴリ分類アシスタントです。\n"
-        . "対象列の値を1つの短いカテゴリ名へ分類し、理由も1文で返してください。\n"
-        . "出力はJSONのみで、必ず {\"category\":\"...\",\"reason\":\"...\"} の形式にしてください。";
+    $system = $analysisMode === 'summarize'
+        ? "あなたはCSVデータの行要約アシスタントです。\n"
+            . "対象列の値と行全体の文脈を読んで、業務で役立つ短い要約を1〜2文で返してください。\n"
+            . "出力はJSONのみで、必ず {\"summary\":\"...\"} の形式にしてください。"
+        : "あなたはCSVデータのカテゴリ分類アシスタントです。\n"
+            . "対象列の値を1つの短いカテゴリ名へ分類し、理由も1文で返してください。\n"
+            . "出力はJSONのみで、必ず {\"category\":\"...\",\"reason\":\"...\"} の形式にしてください。";
     $candidateCategories = [];
 
-    if (trim((string)$job['instructions']) === '') {
+    if ($analysisMode === 'categorize' && trim((string)$job['instructions']) === '') {
         $valueCounts = [];
         $totalNonEmptyValues = 0;
         foreach ($rows as $row) {
@@ -396,14 +414,16 @@ try {
         if ($targetValue === '') {
             $category = '';
             $reason = '対象列の値が空です。';
+            $summary = '対象列の値が空です。';
         } else {
             $user = "【対象列】\n{$job['target_column']}\n\n"
                 . "【対象値】\n{$targetValue}\n\n"
                 . "【行データ(JSON)】\n" . json_encode($rowData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-            $result = $callCategorizer((string)$job['ollama_host'], (string)$job['model'], $system, $user);
+            $result = $callAiRowAnalyzer((string)$job['ollama_host'], (string)$job['model'], $system, $user);
             $category = $result['category'] !== '' ? $result['category'] : '未分類';
             $reason = $result['reason'] !== '' ? $result['reason'] : '理由は返却されませんでした。';
-            if ($candidateCategories !== []) {
+            $summary = $result['summary'] !== '' ? $result['summary'] : '要約は返却されませんでした。';
+            if ($analysisMode === 'categorize' && $candidateCategories !== []) {
                 $resolvedCategory = $resolveCategoryToCandidate($category, $candidateCategories);
                 if ($resolvedCategory !== $category) {
                     $logJob('category normalized to candidate', [
@@ -418,8 +438,12 @@ try {
         }
 
         $outputRow = $rowData;
-        $outputRow[$categoryColumn] = $category;
-        $outputRow[$reasonColumn] = $reason;
+        if ($analysisMode === 'summarize') {
+            $outputRow[$summaryColumn] = $summary;
+        } else {
+            $outputRow[$categoryColumn] = $category;
+            $outputRow[$reasonColumn] = $reason;
+        }
         $csvService->appendRow((int)$job['project_id'], (int)$outputCsv['id'], $outputRow);
 
         $current = $index + 1;
@@ -427,11 +451,13 @@ try {
         $writeStatus([
             'job_id' => $jobId,
             'status' => 'processing',
-            'stage' => 'categorizing',
+            'stage' => $analysisMode === 'summarize' ? 'summarizing' : 'categorizing',
             'progress' => $progress,
             'current' => $current,
             'total' => $total,
-            'message' => "カテゴリ分け中 ({$current} / {$total})",
+            'message' => $analysisMode === 'summarize'
+                ? "行要約を生成中 ({$current} / {$total})"
+                : "カテゴリ分け中 ({$current} / {$total})",
             'error' => null,
             'project_id' => (int)$job['project_id'],
             'output_csv_file_id' => (int)$outputCsv['id'],
@@ -449,7 +475,7 @@ try {
         'progress' => 100,
         'current' => $total,
         'total' => $total,
-        'message' => 'カテゴリ分けCSVを作成しました。',
+        'message' => $analysisMode === 'summarize' ? 'AI要約CSVを作成しました。' : 'カテゴリ分けCSVを作成しました。',
         'error' => null,
         'project_id' => (int)$job['project_id'],
         'output_csv_file_id' => (int)$outputCsv['id'],
@@ -470,7 +496,7 @@ try {
         'progress' => 0,
         'current' => 0,
         'total' => 0,
-        'message' => 'カテゴリ分けジョブでエラーが発生しました。',
+        'message' => 'AI行解析ジョブでエラーが発生しました。',
         'error' => $e->getMessage(),
         'project_id' => (int)($job['project_id'] ?? 0),
         'output_csv_file_id' => (int)($job['output_csv_file_id'] ?? 0),

@@ -37,6 +37,7 @@ $documentId = filter_var($input['material_document_id'] ?? null, FILTER_VALIDATE
 $question = trim((string)($input['question'] ?? ''));
 $answer = trim((string)($input['answer'] ?? ''));
 $title = trim((string)($input['title'] ?? ''));
+$sourceKind = trim((string)($input['source_kind'] ?? 'general_ai_answer'));
 
 if (!$projectId || !canAccessProject($pdo, (int)$projectId, $userId, $role)) {
     http_response_code(403);
@@ -55,7 +56,8 @@ $service = new ProjectMaterialDocumentService($pdo, dirname(__DIR__, 2));
 try {
     $existingDocument = $documentId ? $service->findById((int)$projectId, (int)$documentId) : null;
     $nowLabel = date('Y-m-d H:i');
-    $appendBlock = "## AI回答 {$nowLabel}\n\n";
+    $sectionTitle = $sourceKind === 'csv_analysis' ? 'CSV読解メモ' : 'AI回答';
+    $appendBlock = "## {$sectionTitle} {$nowLabel}\n\n";
     if ($question !== '') {
         $appendBlock .= "### 質問\n\n{$question}\n\n";
     }
@@ -69,7 +71,13 @@ try {
         $saved = $service->save((int)$projectId, (string)$existingDocument['title'], $nextContent, (int)$existingDocument['id']);
         $created = false;
     } else {
-        $resolvedTitle = $title !== '' ? $title : 'AI資料メモ_' . date('Ymd');
+        if ($title !== '') {
+            $resolvedTitle = $title;
+        } elseif ($sourceKind === 'csv_analysis') {
+            $resolvedTitle = 'CSV読解メモ_' . date('Ymd');
+        } else {
+            $resolvedTitle = 'AI資料メモ_' . date('Ymd');
+        }
         $nextContent = '# ' . $resolvedTitle . "\n\n" . $appendBlock;
         $saved = $service->save((int)$projectId, $resolvedTitle, $nextContent, null);
         $created = true;

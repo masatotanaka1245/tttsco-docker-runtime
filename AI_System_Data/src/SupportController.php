@@ -136,6 +136,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (string)($_POST['action'] ?? '') ==
     }
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && (string)($_POST['action'] ?? '') === 'refresh_project_memory') {
+    $token = (string)($_POST['csrf_token'] ?? '');
+    $proj_id = filter_input(INPUT_POST, 'project_id', FILTER_VALIDATE_INT);
+
+    if (empty($token) || !isset($_SESSION['csrf_token']) || $token !== $_SESSION['csrf_token']) {
+        header('Location: support.php?project_id=' . urlencode((string)$proj_id) . '&tab=memory&memory_saved=csrf_error');
+        exit;
+    }
+
+    if (!$proj_id || !canAccessProject($pdo, (int)$proj_id, $user_id, $role)) {
+        header('Location: support.php?project_id=' . urlencode((string)$proj_id) . '&tab=memory&memory_saved=forbidden');
+        exit;
+    }
+
+    if ($role !== 'admin') {
+        header('Location: support.php?project_id=' . urlencode((string)$proj_id) . '&tab=memory&memory_saved=forbidden');
+        exit;
+    }
+
+    try {
+        ProjectMemoryAutoUpdater::refresh(
+            $pdo,
+            (int)$proj_id,
+            $selected_thread_id ? (int)$selected_thread_id : null,
+            $user_id
+        );
+        header('Location: support.php?project_id=' . urlencode((string)$proj_id) . '&tab=memory&memory_saved=refreshed');
+        exit;
+    } catch (Throwable $e) {
+        error_log('SupportController Memory Refresh Error: ' . $e->getMessage());
+        header('Location: support.php?project_id=' . urlencode((string)$proj_id) . '&tab=memory&memory_saved=error');
+        exit;
+    }
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && (string)($_POST['action'] ?? '') === 'save_project_material') {
     $token = (string)($_POST['csrf_token'] ?? '');
     $proj_id = filter_input(INPUT_POST, 'project_id', FILTER_VALIDATE_INT);

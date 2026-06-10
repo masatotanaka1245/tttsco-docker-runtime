@@ -53,7 +53,7 @@ Tailwind CSS	3.x
   - `ai_project_readme_md`
   - `ai_project_todo_md`
 - 編集画面
-  - `support.php?project_id=...&tab=overview`
+  - `support.php?project_id=...&tab=memory`
 - 現在の適用先
   - `chat.php` の粗い質問因数分解
   - `chat_normal.php`
@@ -65,6 +65,7 @@ Tailwind CSS	3.x
 
 - 案件付きチャットの保存直後
 - `support.php` の概要画面で、まだ案件運用メモが空だった場合の初回表示時
+- `chat.php` の入口で、まだ案件運用メモが空だった場合の初回案件チャット受付時
 
 扱い方は次の通り。
 
@@ -78,6 +79,7 @@ Tailwind CSS	3.x
 因数分解での使い方は次の通り。
 
 - `README / AGENTS / TODO` をまとめて読み込む
+- 現在スレッドを優先しつつ、案件全体の最近の会話も薄く補助参照する
 - 明示的な `CSV` / `PDF` / 履歴要約要求を上書きしない
 - 曖昧な相談、言い換え、案件名検討、動作確認の強調のような質問で normal ルートへ寄せる補助ヒントとして使う
 - 特に案件名変更やアプリ動作確認の打ち出し相談では、`normal_rag.project_memory_consultation` として扱い、通常RAGでも資料ベクトル検索を主役にしない

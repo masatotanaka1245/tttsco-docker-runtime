@@ -281,8 +281,8 @@ if (!isset($URL_SVG_XMLNS)) {
                 <p id="modal-csv-selected-label" class="text-[11px] text-slate-500 font-bold">左の一覧から CSV を選ぶと、ここに追記先が表示されます。</p>
                 <span id="modal-csv-selected-badge" class="text-[9px] text-slate-500 bg-slate-100 border border-slate-200 rounded-full px-2 py-0.5 font-bold">未選択</span>
             </div>
-            <div id="modal-csv-row-append-fields" class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div class="md:col-span-2 text-[10px] text-slate-400 italic bg-slate-50 border border-dashed border-slate-200 rounded-xl px-3 py-4 text-center">
+            <div id="modal-csv-row-append-fields" class="space-y-2.5 max-h-[55vh] overflow-y-auto pr-1 custom-scrollbar">
+                <div class="text-[10px] text-slate-400 italic bg-slate-50 border border-dashed border-slate-200 rounded-xl px-3 py-4 text-center">
                     追記先の CSV を選択してください。
                 </div>
             </div>
@@ -296,15 +296,22 @@ if (!isset($URL_SVG_XMLNS)) {
 
 <div id="csv-ai-categorize-modal" class="fixed inset-0 bg-slate-950/40 backdrop-blur-xs hidden items-center justify-center z-50 p-4 animate-fadeIn duration-200" role="dialog" aria-modal="true" aria-labelledby="modal-title-csv-ai-categorize">
     <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-2xl mx-auto border border-slate-100/80 transition-all duration-200">
-        <h3 id="modal-title-csv-ai-categorize" class="text-sm md:text-base font-black tracking-wider text-slate-700 mb-5 border-b border-slate-100 pb-3 uppercase">AIカテゴリ分けCSVを作成</h3>
+        <h3 id="modal-title-csv-ai-categorize" class="text-sm md:text-base font-black tracking-wider text-slate-700 mb-5 border-b border-slate-100 pb-3 uppercase">AI行解析CSVを作成</h3>
         <form id="csv-ai-categorize-form" onsubmit="window.handleStartCsvAiCategorizeJob(event)" class="space-y-4 text-xs">
             <input type="hidden" name="csv_file_id" value="">
             <div class="flex items-center justify-between gap-3">
-                <p id="modal-csv-ai-selected-label" class="text-[11px] text-slate-500 font-bold">左の一覧からカテゴリ分けしたい CSV を選択してください。</p>
+                <p id="modal-csv-ai-selected-label" class="text-[11px] text-slate-500 font-bold">左の一覧から解析したい CSV を選択してください。</p>
                 <span id="modal-csv-ai-selected-badge" class="text-[9px] text-slate-500 bg-slate-100 border border-slate-200 rounded-full px-2 py-0.5 font-bold">未選択</span>
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block font-bold text-slate-600 mb-1.5">解析モード <span class="text-red-500 font-bold">*</span></label>
+                    <select id="modal-csv-ai-analysis-mode" name="analysis_mode" class="w-full border border-slate-200/80 rounded-xl bg-slate-50/30 px-3 py-2.5 font-medium text-slate-700 outline-none focus:bg-white focus:border-teal-400 focus:ring-4 focus:ring-teal-500/5 transition-all duration-200 ease-in-out" required>
+                        <option value="categorize">カテゴリ分け</option>
+                        <option value="summarize">行要約</option>
+                    </select>
+                </div>
                 <div>
                     <label class="block font-bold text-slate-600 mb-1.5">分類対象列 <span class="text-red-500 font-bold">*</span></label>
                     <select id="modal-csv-ai-target-column" name="target_column" class="w-full border border-slate-200/80 rounded-xl bg-slate-50/30 px-3 py-2.5 font-medium text-slate-700 outline-none focus:bg-white focus:border-teal-400 focus:ring-4 focus:ring-teal-500/5 transition-all duration-200 ease-in-out" required>
@@ -317,7 +324,7 @@ if (!isset($URL_SVG_XMLNS)) {
                 </div>
             </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div id="modal-csv-ai-categorize-columns" class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                     <label class="block font-bold text-slate-600 mb-1.5">カテゴリ列名</label>
                     <input type="text" name="category_column_name" value="AIカテゴリ" class="w-full border border-slate-200/80 rounded-xl bg-slate-50/30 px-3 py-2.5 font-medium text-slate-700 outline-none focus:bg-white focus:border-teal-400 focus:ring-4 focus:ring-teal-500/5 transition-all duration-200 ease-in-out">
@@ -328,10 +335,15 @@ if (!isset($URL_SVG_XMLNS)) {
                 </div>
             </div>
 
+            <div id="modal-csv-ai-summary-column" class="hidden">
+                <label class="block font-bold text-slate-600 mb-1.5">要約列名</label>
+                <input type="text" name="summary_column_name" value="AI要約" class="w-full border border-slate-200/80 rounded-xl bg-slate-50/30 px-3 py-2.5 font-medium text-slate-700 outline-none focus:bg-white focus:border-teal-400 focus:ring-4 focus:ring-teal-500/5 transition-all duration-200 ease-in-out">
+            </div>
+
             <div>
-                <label class="block font-bold text-slate-600 mb-1.5">分類ルール・補足指示</label>
-                <textarea name="instructions" rows="4" class="w-full border border-slate-200/80 rounded-xl bg-slate-50/30 px-3 py-2.5 font-medium text-slate-700 outline-none focus:bg-white focus:border-teal-400 focus:ring-4 focus:ring-teal-500/5 transition-all duration-200 ease-in-out resize-none leading-relaxed" placeholder="例: 製品名から『保守』『点検』『レポート』『その他』に分類してください。短い理由も添えてください。"></textarea>
-                <p class="text-[10px] text-slate-400 mt-1.5">元のCSVは変更せず、新しい結果CSVを作成します。</p>
+                <label id="modal-csv-ai-instructions-label" class="block font-bold text-slate-600 mb-1.5">分類ルール・補足指示</label>
+                <textarea id="modal-csv-ai-instructions" name="instructions" rows="4" class="w-full border border-slate-200/80 rounded-xl bg-slate-50/30 px-3 py-2.5 font-medium text-slate-700 outline-none focus:bg-white focus:border-teal-400 focus:ring-4 focus:ring-teal-500/5 transition-all duration-200 ease-in-out resize-none leading-relaxed" placeholder="例: 製品名から『保守』『点検』『レポート』『その他』に分類してください。短い理由も添えてください。"></textarea>
+                <p id="modal-csv-ai-help-text" class="text-[10px] text-slate-400 mt-1.5">元のCSVは変更せず、新しい結果CSVを作成します。</p>
             </div>
 
             <div class="flex justify-end gap-2.5 pt-4 border-t border-slate-100">
