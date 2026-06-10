@@ -10,6 +10,45 @@ require_once __DIR__ . '/../../config/session.php';
 require_once __DIR__ . '/../../src/Auth.php';
 require_once __DIR__ . '/../../src/ProjectAccess.php';
 
+if (!function_exists('resolveDocumentAbsolutePath')) {
+    function resolveDocumentAbsolutePath(string $filePath, string $publicBaseDir): ?string
+    {
+        $trimmed = trim($filePath);
+        if ($trimmed === '') {
+            return null;
+        }
+
+        $normalized = str_replace('\\', '/', $trimmed);
+        $projectRoot = dirname($publicBaseDir);
+        $candidates = [];
+
+        if (preg_match('/^[A-Za-z]:[\\\\\\/]/', $trimmed) === 1 || str_starts_with($trimmed, '/')) {
+            $candidates[] = $trimmed;
+        } else {
+            $relative = ltrim($normalized, '/');
+            $candidates[] = $publicBaseDir . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relative);
+            $candidates[] = $projectRoot . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relative);
+
+            if (str_starts_with($relative, 'public/')) {
+                $withoutPublic = substr($relative, strlen('public/'));
+                $candidates[] = $projectRoot . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relative);
+                $candidates[] = $publicBaseDir . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $withoutPublic);
+            } elseif (!str_starts_with($relative, '01_RAG_Documents/')) {
+                $candidates[] = $publicBaseDir . DIRECTORY_SEPARATOR . '01_RAG_Documents' . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relative);
+            }
+        }
+
+        foreach (array_unique($candidates) as $candidate) {
+            $resolved = realpath($candidate);
+            if ($resolved !== false && is_file($resolved)) {
+                return $resolved;
+            }
+        }
+
+        return null;
+    }
+}
+
 $auth = new Auth($pdo);
 if (!$auth->isLoggedIn()) {
     http_response_code(401);          // 未認証
@@ -37,13 +76,15 @@ if (!canAccessProject($pdo, (int)$doc['project_id'], (int)$_SESSION['user_id'], 
     exit('Forbidden');
 }
 
-/* ① ファイルパスを絶対パスで解決（public/ からの相対） */
-// apiフォルダの中なので、__DIR__ . '/../' で publicフォルダ を指す
-$fullPath = realpath(__DIR__ . '/../' . $doc['file_path']);
-$allowedBaseDir = realpath(__DIR__ . '/../01_RAG_Documents');
+/* ① ファイルパスを絶対パスで解決（複数の保存流儀を吸収） */
+$publicBaseDir = realpath(__DIR__ . '/..');
+$allowedBaseDir = $publicBaseDir !== false ? realpath($publicBaseDir . DIRECTORY_SEPARATOR . '01_RAG_Documents') : false;
+$fullPath = $publicBaseDir !== false
+    ? resolveDocumentAbsolutePath((string)$doc['file_path'], $publicBaseDir)
+    : null;
 
 // セキュリティ: パストラバーサル対策 ＆ ファイル存在チェック
-if ($fullPath === false || strpos($fullPath, $allowedBaseDir) !== 0 || !file_exists($fullPath)) {
+if ($fullPath === null || $allowedBaseDir === false || strpos($fullPath, $allowedBaseDir) !== 0 || !file_exists($fullPath)) {
     http_response_code(404);          // ファイルが見つからない、または不正アクセス
     exit('File not found on server or access denied');
 }

@@ -12,6 +12,45 @@ require_once __DIR__ . '/../../src/Auth.php';
 require_once __DIR__ . '/../../src/ProjectAccess.php';
 require_once __DIR__ . '/../../src/AppLogger.php';
 
+if (!function_exists('resolveDocumentAbsolutePath')) {
+    function resolveDocumentAbsolutePath(string $filePath, string $publicBaseDir): ?string
+    {
+        $trimmed = trim($filePath);
+        if ($trimmed === '') {
+            return null;
+        }
+
+        $normalized = str_replace('\\', '/', $trimmed);
+        $projectRoot = dirname($publicBaseDir);
+        $candidates = [];
+
+        if (preg_match('/^[A-Za-z]:[\\\\\\/]/', $trimmed) === 1 || str_starts_with($trimmed, '/')) {
+            $candidates[] = $trimmed;
+        } else {
+            $relative = ltrim($normalized, '/');
+            $candidates[] = $publicBaseDir . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relative);
+            $candidates[] = $projectRoot . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relative);
+
+            if (str_starts_with($relative, 'public/')) {
+                $withoutPublic = substr($relative, strlen('public/'));
+                $candidates[] = $projectRoot . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relative);
+                $candidates[] = $publicBaseDir . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $withoutPublic);
+            } elseif (!str_starts_with($relative, '01_RAG_Documents/')) {
+                $candidates[] = $publicBaseDir . DIRECTORY_SEPARATOR . '01_RAG_Documents' . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relative);
+            }
+        }
+
+        foreach (array_unique($candidates) as $candidate) {
+            $resolved = realpath($candidate);
+            if ($resolved !== false && is_file($resolved)) {
+                return $resolved;
+            }
+        }
+
+        return null;
+    }
+}
+
 ob_end_clean();
 header('Content-Type: application/json; charset=utf-8');
 
@@ -60,13 +99,14 @@ try {
     }
 
     // 4. 実体ファイルの物理削除 (セキュリティ対策含む)
-    $baseDir = realpath(__DIR__ . '/../'); 
-    $fullPath = $baseDir . '/' . $doc['file_path'];
-    $realPath = realpath($fullPath);
-    $allowedDir = realpath(__DIR__ . '/../01_RAG_Documents');
+    $baseDir = realpath(__DIR__ . '/../');
+    $realPath = $baseDir !== false
+        ? resolveDocumentAbsolutePath((string)$doc['file_path'], $baseDir)
+        : null;
+    $allowedDir = $baseDir !== false ? realpath($baseDir . '/01_RAG_Documents') : false;
 
     // 指定ディレクトリ（01_RAG_Documents）内のファイルであることの厳密な確認
-    if ($realPath !== false && strpos($realPath, $allowedDir) === 0 && file_exists($realPath)) {
+    if ($realPath !== null && $allowedDir !== false && strpos($realPath, $allowedDir) === 0 && file_exists($realPath)) {
         @unlink($realPath); // サーバーから物理ファイルを削除
     }
 
