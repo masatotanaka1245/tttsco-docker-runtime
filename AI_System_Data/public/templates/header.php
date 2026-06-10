@@ -38,7 +38,7 @@ $modelSettingFields = [
         'name' => 'sql_model',
         'label' => 'SQLモデル',
         'value' => $userSettings['sql_model'] ?? $userSettings['sub_model'],
-        'placeholder' => 'gpt-oss:20b',
+        'placeholder' => 'codellama:7b',
         'description' => '※ Text-to-SQL と SQL 自己修復に優先して使います。',
     ],
     [

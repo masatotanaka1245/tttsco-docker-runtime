@@ -350,7 +350,7 @@ async function openPdfTab(docId, title, pageNumber = 1) {
     }
 
     const tabId = 'tab-doc-' + docId;
-    const pdfUrl = `viewer.php?id=${docId}&page=${pageNumber}&_=${Date.now()}`;
+    const pdfUrl = `api/view_pdf.php?id=${docId}&_=${Date.now()}#page=${Math.max(1, Number(pageNumber) || 1)}`;
     
     if (document.getElementById(tabId)) {
         const iframe = document.querySelector(`#${tabId} iframe`);
@@ -369,7 +369,7 @@ async function openPdfTab(docId, title, pageNumber = 1) {
     const content = document.createElement('div');
     content.id = tabId;
     content.className = 'tab-content h-full w-full min-h-0 bg-slate-50 relative';
-    content.innerHTML = `<iframe src="${pdfUrl}" class="w-full h-full min-h-0 border-none flex-1"></iframe>`;
+    content.innerHTML = `<iframe src="${pdfUrl}" class="w-full h-full min-h-0 border-none flex-1 bg-white"></iframe>`;
     document.getElementById('tab-container').appendChild(content);
     
     switchTab(tabId);
