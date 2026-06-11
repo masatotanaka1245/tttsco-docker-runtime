@@ -10,9 +10,9 @@
  */
 
 import { openAppModal, closeProjectModal, closeEditModal, bindModalEvents, closeTab, scrollToBottom, initChatInput, injectPdfLoadingMask, switchTab, openPdfTab, initResizer } from './modules/ui.js?v=9';
-import { handleCsvUpload, loadCsvData, handleDeleteCsv, handlePostgresImport, openCsvPreviewByDocId, handleCreateManualCsv, handleAppendCsvRow, openCsvCreateModal, closeCsvCreateModal, openCsvAppendModal, closeCsvAppendModal, openCsvColumnEditModal, closeCsvColumnEditModal, handleUpdateCsvColumns, handleAddCsvColumnDraft, handleRemoveCsvColumnDraft, handleStartCsvAiCategorizeJob, openCsvAiCategorizeModal, closeCsvAiCategorizeModal } from './modules/csv.js?v=8';
+import { handleCsvUpload, loadCsvData, handleDeleteCsv, handlePostgresImport, openCsvPreviewByDocId, handleCreateManualCsv, handleAppendCsvRow, openCsvCreateModal, closeCsvCreateModal, openCsvAppendModal, closeCsvAppendModal, openCsvColumnEditModal, closeCsvColumnEditModal, handleUpdateCsvColumns, handleAddCsvColumnDraft, handleRemoveCsvColumnDraft, handleStartCsvAiCategorizeJob, openCsvAiCategorizeModal, closeCsvAiCategorizeModal } from './modules/csv.js?v=9';
 import { handleChat, appendMsg, initExistingCharts, initMaterialMemoActions, initDebugLogViewer } from './modules/chat.js?v=20';
-import { checkUploadOnLoad as checkUploadOnLoadModule, handleUpload as handleUploadModule } from './modules/upload.js?v=6';
+import { checkUploadOnLoad as checkUploadOnLoadModule, handleUpload as handleUploadModule } from './modules/upload.js?v=7';
 import * as Project from './modules/project.js?v=6';
 // ★最終繋ぎ込み要件1: 100点満点でクレンジングが完了した map.js から回線を引き受ける
 import { searchAddress, copyCoords, initModalMap } from './modules/map.js?v=4';
@@ -217,7 +217,10 @@ async function handleRemoveMember(userId) {
 async function handleDeleteFaq(id) {
     if (!confirm('このFAQナレッジを削除しますか？')) return;
     const res = await secureFetch('api/delete_faq.php', { method: 'POST', body: JSON.stringify({ id }) });
-    if (res.success) location.reload();
+    if (res.success) {
+        queueSupportToast('FAQナレッジを削除しました。');
+        location.reload();
+    }
     else alert(res.error || '削除に失敗しました。');
 }
 
@@ -335,6 +338,7 @@ function escapeMaterialHtml(value = '') {
 function getMaterialElements() {
     return {
         configEl: document.getElementById('support-config'),
+        memoryFlashEl: document.getElementById('memory-flash-container'),
         countEl: document.getElementById('material-document-count'),
         listEl: document.getElementById('material-document-list'),
         flashEl: document.getElementById('material-flash-container'),
@@ -373,6 +377,93 @@ function buildMaterialPreviewFallbackHtml(content = '') {
 function buildMaterialFlashHtml(message = '') {
     if (!message) return '';
     return `<div class="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">${escapeMaterialHtml(message)}</div>`;
+}
+
+function detectToastVariantFromElement(element) {
+    const className = String(element?.className || '');
+    if (className.includes('text-red-')) return 'error';
+    if (className.includes('text-amber-')) return 'warning';
+    if (className.includes('text-indigo-')) return 'info';
+    return 'success';
+}
+
+function showSupportToast(message = '', variant = 'success', duration = 3200) {
+    const container = document.getElementById('support-toast-container');
+    if (!container || !message) return;
+
+    const toneMap = {
+        success: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+        warning: 'border-amber-200 bg-amber-50 text-amber-700',
+        error: 'border-red-200 bg-red-50 text-red-700',
+        info: 'border-indigo-200 bg-indigo-50 text-indigo-700',
+    };
+    const toneClass = toneMap[variant] || toneMap.success;
+
+    const toast = document.createElement('div');
+    toast.className = `pointer-events-auto rounded-2xl border px-4 py-3 shadow-lg text-[11px] font-bold transition-all duration-300 ease-out opacity-0 translate-y-[-6px] ${toneClass}`;
+    toast.textContent = String(message);
+    container.appendChild(toast);
+
+    requestAnimationFrame(() => {
+        toast.classList.remove('opacity-0', 'translate-y-[-6px]');
+    });
+
+    const dismiss = () => {
+        toast.classList.add('opacity-0', 'translate-y-[-6px]');
+        window.setTimeout(() => toast.remove(), 260);
+    };
+
+    window.setTimeout(dismiss, duration);
+}
+
+function queueSupportToast(message = '', variant = 'success', duration = 3200) {
+    if (!message) return;
+    try {
+        sessionStorage.setItem('support.pendingToast', JSON.stringify({
+            message: String(message),
+            variant: String(variant || 'success'),
+            duration: Number(duration || 3200),
+        }));
+    } catch (error) {
+        console.warn('failed to queue support toast', error);
+    }
+}
+
+function consumeDeferredSupportToast() {
+    try {
+        const raw = sessionStorage.getItem('support.pendingToast');
+        if (!raw) return;
+        sessionStorage.removeItem('support.pendingToast');
+        const payload = JSON.parse(raw);
+        if (!payload?.message) return;
+        showSupportToast(String(payload.message), String(payload.variant || 'success'), Number(payload.duration || 3200));
+    } catch (error) {
+        console.warn('failed to consume deferred support toast', error);
+    }
+}
+
+function consumeMaterialFlashAsToast() {
+    const { flashEl } = getMaterialElements();
+    if (!flashEl) return;
+
+    const flashNode = flashEl.firstElementChild;
+    const message = flashNode?.textContent?.trim() || '';
+    if (!message) return;
+
+    showSupportToast(message, detectToastVariantFromElement(flashNode));
+    flashEl.innerHTML = '';
+}
+
+function consumeMemoryFlashAsToast() {
+    const { memoryFlashEl } = getMaterialElements();
+    if (!memoryFlashEl) return;
+
+    const flashNode = memoryFlashEl.firstElementChild;
+    const message = flashNode?.textContent?.trim() || '';
+    if (!message) return;
+
+    showSupportToast(message, detectToastVariantFromElement(flashNode));
+    memoryFlashEl.innerHTML = '';
 }
 
 function setMaterialSelectionState(selectedId = 0) {
@@ -464,7 +555,10 @@ function updateMaterialTabView(payload) {
     }
 
     if (flashEl) {
-        flashEl.innerHTML = buildMaterialFlashHtml(payload?.flash_message || '');
+        flashEl.innerHTML = '';
+    }
+    if (payload?.flash_message) {
+        showSupportToast(String(payload.flash_message), 'success');
     }
 
     if (previewTitleEl) {
@@ -892,6 +986,7 @@ async function handleSaveFaq(e) {
                 modal.classList.replace('flex', 'hidden');
             }
             form.reset();
+            queueSupportToast('FAQナレッジを保存しました。');
             location.reload();
             return;
         }
@@ -962,6 +1057,8 @@ function bindGlobalFunctions() {
     window.handleDeleteMaterialNote = handleDeleteMaterialNote;
     window.handleSaveMaterialNote = handleSaveMaterialNote;
     window.handleSaveFaq = handleSaveFaq;
+    window.showSupportToast = showSupportToast;
+    window.queueSupportToast = queueSupportToast;
     
     // CSV同期・ファイルアップロード系 (csv.jsからインポートした関数を直接マウント)
     window.handleCsvUpload = handleCsvUpload;
@@ -1006,6 +1103,9 @@ runSupportInitializer('initSupportSidebarToggle', initSupportSidebarToggle);
 runSupportInitializer('initThreadTabsUi', initThreadTabsUi);
 runSupportInitializer('bindMaterialDocumentListNavigation', bindMaterialDocumentListNavigation);
 runSupportInitializer('bindMaterialDeleteForm', bindMaterialDeleteForm);
+runSupportInitializer('consumeMaterialFlashAsToast', consumeMaterialFlashAsToast);
+runSupportInitializer('consumeMemoryFlashAsToast', consumeMemoryFlashAsToast);
+runSupportInitializer('consumeDeferredSupportToast', consumeDeferredSupportToast);
 
 const clearProjectChatHistory = Project.clearProjectChatHistory;
 const createProjectChatThread = Project.createProjectChatThread;

@@ -1103,6 +1103,8 @@ $projectCenterTabs = [
 </head>
 <body class="bg-[#f8fafc] min-h-screen flex flex-col overflow-hidden text-slate-800">
 
+<div id="support-toast-container" class="fixed top-4 right-4 z-[120] flex w-full max-w-sm flex-col gap-2 px-4 sm:px-0 pointer-events-none"></div>
+
 <?php include_once __DIR__ . '/templates/header.php'; ?>
 
 <div id="support-config"
@@ -1466,7 +1468,7 @@ $projectCenterTabs = [
                         <span class="text-[10px] text-slate-400 font-bold tracking-wider">案件内容 / AIエージェント / タスク一覧</span>
                     </div>
                     <div class="p-5 space-y-4">
-                        <?php renderProjectMemoryFlash((string)$memory_flash); ?>
+                        <div id="memory-flash-container"><?php renderProjectMemoryFlash((string)$memory_flash); ?></div>
 
                         <p class="text-[11px] text-slate-500 leading-relaxed">
                             この案件に特有の回答方針、背景、既知の論点をメモとして保持し、AIが回答を組み立てる前に参照します。上の入力欄は手動メモ、下の参考欄は案件状態と最近の会話から作られた自動生成メモです。手動メモは次回の会話保存で上書きされません。
@@ -1645,7 +1647,7 @@ $projectCenterTabs = [
 
     // ★ 究極の安全設計: import * as 構文を使用し、1096エラー(SyntaxError)を原理的に100%防止
     // ✨ ここを ?v=4 から ?v=5 へ書き換えてキャッシュを強制粉砕！
-    import * as Support from './assets/js/support.js?v=35';
+    import * as Support from './assets/js/support.js?v=38';
 
     // ★要件4: 隔離コンテナ内のJSONデータを仲介して安全にマウント・パースするイベントハンドラの実装
     window.openProjectEditModal = (lat, lng) => {

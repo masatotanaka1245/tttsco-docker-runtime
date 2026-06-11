@@ -599,10 +599,36 @@
   - `chat_advanced.php` での CSV Map-Reduce 対象判定共通化
   - `chat_advanced.php` での target table 正規化共通化
   - `chat_advanced.php` でのサブクエリ判定文脈生成の共通化
+  - `chat_advanced.php` での SQL サブクエリ実行責務を `AdvancedSqlSubQueryRunner` へ移動
+  - `chat_advanced.php` での fast path 群を `AdvancedFastPathResolver` へ移動
+  - `chat_advanced.php` での最終 guard・保存・送信を `AdvancedRouteCompletionCoordinator` へ移動
+  - `chat_advanced.php` での reasoning step 保存を `AdvancedReasoningStepRecorder` へ移動
+  - `chat_advanced.php` での CSV 全件 Map-Reduce を `AdvancedBulkCsvMapReducer` へ移動
+  - `chat_advanced.php` での最終ドラフト生成を `AdvancedFinalDraftGenerator` へ移動
 - 判断メモ:
   - `chat_analysis.php` は無害整理フェーズの到達点にかなり近い
-  - 以降は `chat_advanced.php` の整理と、両者の共通化候補棚卸しを優先する
+  - `chat_advanced.php` はオーケストレーション中心へかなり整理できた
+  - 以降は `chat_advanced.php` に残る薄い helper と、`chat_analysis.php` との共通化候補棚卸しを優先する
 - この段階では動作を変えず、ログの補強だけを必要最小限で行う
+
+### `chat_analysis.php` と `chat_advanced.php` の共通化候補メモ
+
+- 先に共通化を検討してよいもの
+  - prompt budget の記録形式
+  - logger / status emitter / normalizeUtf8 の callback 束
+  - SQL 失敗時の短い fallback 文面
+  - malformed SQL の事前判定
+  - scoped schema の組み立て
+  - lightweight final guard の適用入口
+- 無理に共通化しない方がよいもの
+  - `chat_analysis.php` の aggregation_mode ごとの deterministic runner
+  - `chat_advanced.php` の資料PDF向け lightweight final
+  - `chat_advanced.php` の CSV 全件 Map-Reduce
+- 次に着手するなら、薄い共通 helper として切り出しやすい順
+  1. prompt budget / logger callback 束
+  2. malformed SQL + scoped schema
+  3. lightweight final guard の適用ラッパー
+  4. SQL 失敗 fallback 文面の整形
 
 ### やらない方がいい進め方
 

@@ -11,6 +11,19 @@ const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => 
     "'": '&#039;'
 })[char]);
 
+const queueSupportToast = (message, variant = 'success', duration = 3200) => {
+    try {
+        if (!message) return;
+        sessionStorage.setItem('support.pendingToast', JSON.stringify({
+            message: String(message),
+            variant: String(variant || 'success'),
+            duration: Number(duration || 3200),
+        }));
+    } catch (e) {
+        console.warn('failed to queue support toast', e);
+    }
+};
+
 export async function checkUploadOnLoad() {
     const { projectId } = getConfig();
     if (!projectId) return;
@@ -140,6 +153,7 @@ function startUploadTracking(isNewUpload = false, formData = null) {
                 
                 if (!isNewUpload) {
                     msg.innerHTML = '<span class="text-emerald-400 font-black">✨ 解析が完了しました。画面を更新します。</span>';
+                    queueSupportToast('PDFのアップロードと解析が完了しました。');
                     setTimeout(() => location.reload(), 2000);
                 }
             }
@@ -180,6 +194,7 @@ function startUploadTracking(isNewUpload = false, formData = null) {
                         const msg = document.getElementById('status-message');
                         if (msg) msg.innerHTML = '<span class="text-emerald-400 font-black">✨ 解析完了！まもなくリロードします</span>';
                         if (document.getElementById('status-bar')) document.getElementById('status-bar').style.width = '100%';
+                        queueSupportToast('PDFのアップロードと解析が完了しました。');
                         setTimeout(() => location.reload(), 2000);
                     } else {
                         const errReason = data.error || '不明なエラー';

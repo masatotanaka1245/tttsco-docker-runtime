@@ -63,6 +63,8 @@ class ChatRouteFactorizer
         }
 
         if ($this->csvContextResolver !== null
+            && !$hasHistorySummaryRequest
+            && !$hasHistoryReportRequest
             && ($mentionedCsv === null || $targetColumn === null)
             && $this->shouldInheritRecentCsvContext(
                 $message,
@@ -129,6 +131,8 @@ class ChatRouteFactorizer
         } elseif ($hasHistorySummaryRequest) {
             $intent = 'summarize';
             $target = 'chat_history';
+            $mentionedCsv = null;
+            $targetColumn = null;
             $scope = 'conversation_thread';
             $operation = 'summarize';
             $route = 'history_summary';

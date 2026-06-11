@@ -45,6 +45,10 @@ try {
         exit;
     }
 
+    $service->ensureRagIndexed((int)$projectId, (int)($selectedDocument['id'] ?? 0));
+    $materialDocuments = $service->listByProject((int)$projectId);
+    $selectedDocument = $service->resolveSelectedDocument($materialDocuments, (int)($selectedDocument['id'] ?? 0));
+
     $content = $service->readContent((string)$selectedDocument['file_path'], (int)($selectedDocument['id'] ?? 0));
     $previewHtml = $content !== '' ? $markdownPreviewParser->text($content) : '';
 

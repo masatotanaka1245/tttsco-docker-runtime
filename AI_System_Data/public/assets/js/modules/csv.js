@@ -13,6 +13,12 @@ let csvAiLifecycleBound = false;
 let csvAiJobPausedByVisibility = false;
 let csvAiJobHistoryRequestSeq = 0;
 
+function notifySupportToast(message, variant = 'success', duration = 3200) {
+    if (typeof window.showSupportToast === 'function') {
+        window.showSupportToast(message, variant, duration);
+    }
+}
+
 /**
  * HTMLエスケープヘルパー (テキストの安全なレンダリング用)
  */
@@ -847,6 +853,7 @@ async function handleDeleteCsv(csvFileId) {
             updateCsvBadge(-1);
             setCsvHistoryCount(document.querySelectorAll('[id^="csv-item-"]').length - 1);
             await loadCsvAiJobHistory();
+            notifySupportToast('CSVファイルを削除しました。');
 
         } else {
             alert('削除失敗: ' + (response.error || '不明なエラーが発生しました。'));
@@ -928,6 +935,7 @@ async function handleCreateManualCsv(e) {
         form.reset();
         closeCsvCreateModal();
         await loadCsvData(response.csv_file.id, response.csv_file.file_name);
+        notifySupportToast(`CSV台帳「${response.csv_file.file_name}」を作成しました。`);
     } catch (err) {
         alert(`CSV台帳の作成に失敗しました: ${err.message}`);
     }
@@ -967,6 +975,7 @@ async function handleAppendCsvRow(e) {
         form.reset();
         closeCsvAppendModal();
         await loadCsvData(csvFileId, selectedCsvContext.fileName);
+        notifySupportToast('CSVへ1行追加しました。');
     } catch (err) {
         alert(`CSVへの追記に失敗しました: ${err.message}`);
     }
@@ -1015,6 +1024,7 @@ async function handleUpdateCsvColumns(e) {
 
         closeCsvColumnEditModal();
         await loadCsvData(response.csv_file.id, response.csv_file.file_name);
+        notifySupportToast('CSV列を更新しました。');
     } catch (err) {
         alert(`CSV列の更新に失敗しました: ${err.message}`);
         renderCsvColumnEditForm();

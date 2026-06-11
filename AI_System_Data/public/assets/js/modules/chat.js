@@ -274,6 +274,20 @@ function summarizeMaterialTitle(base, fallback) {
     return normalized.length > 40 ? normalized.slice(0, 40).trim() : normalized;
 }
 
+function buildCsvMaterialTitle(question, options = {}) {
+    const dateLabel = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const fileName = normalizeAiText(options.csvExport?.file_name || '').trim();
+    const fileBase = fileName
+        ? fileName.replace(/\.csv$/i, '').replace(/[\\/:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim()
+        : '';
+    const questionPart = summarizeMaterialTitle(question, '');
+    const subject = summarizeMaterialTitle(fileBase || questionPart, '');
+    if (!subject) {
+        return `CSV読解メモ_${dateLabel}`;
+    }
+    return `CSV読解メモ_${dateLabel}_${subject}`;
+}
+
 function inferMaterialSaveMeta(question, answer, options = {}) {
     const resolvedQuestion = normalizeAiText(question).trim();
     const resolvedAnswer = normalizeAiText(answer).trim();
@@ -290,10 +304,7 @@ function inferMaterialSaveMeta(question, answer, options = {}) {
     if (isCsvAnalysis) {
         return {
             sourceKind: 'csv_analysis',
-            title: summarizeMaterialTitle(
-                resolvedQuestion ? `CSV読解_${resolvedQuestion}` : '',
-                'CSV読解メモ_' + new Date().toISOString().slice(0, 10).replace(/-/g, '')
-            )
+            title: buildCsvMaterialTitle(resolvedQuestion, options)
         };
     }
 
@@ -332,7 +343,8 @@ async function saveAnswerToMaterial(question, answer, button, statusEl, options 
                 question: resolvedQuestion,
                 answer: resolvedAnswer,
                 title: materialMeta.title,
-                source_kind: materialMeta.sourceKind
+                source_kind: materialMeta.sourceKind,
+                csv_export_name: String(options.csvExport?.file_name || '')
             })
         });
 

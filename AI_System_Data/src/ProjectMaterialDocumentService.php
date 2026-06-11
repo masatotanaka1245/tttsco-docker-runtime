@@ -1,5 +1,9 @@
 <?php
 
+require_once __DIR__ . '/AppLogger.php';
+require_once __DIR__ . '/EmbeddingEngine.php';
+require_once __DIR__ . '/ModelRoleResolver.php';
+
 class ProjectMaterialDocumentService
 {
     private PDO $pdo;
@@ -133,6 +137,161 @@ class ProjectMaterialDocumentService
         ];
     }
 
+    public function hasSearchableEmbeddings(int $documentId): bool
+    {
+        if ($documentId <= 0) {
+            return false;
+        }
+
+        $stmt = $this->pdo->prepare('SELECT embedding FROM doc_chunks WHERE doc_id = ?');
+        $stmt->execute([$documentId]);
+        $rows = $stmt->fetchAll(PDO::FETCH_COLUMN);
+        if (!$rows) {
+            return false;
+        }
+
+        foreach ($rows as $embeddingJson) {
+            $embedding = json_decode((string)$embeddingJson, true);
+            if (is_array($embedding) && !empty($embedding)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public function ensureRagIndexed(int $projectId, int $documentId): bool
+    {
+        $document = $this->findById($projectId, $documentId);
+        if (!$document) {
+            return false;
+        }
+
+        if ($this->hasSearchableEmbeddings($documentId)) {
+            return false;
+        }
+
+        $content = $this->readContent((string)($document['file_path'] ?? ''), $documentId);
+        if (trim($content) === '') {
+            $this->logRag('rag reindex skipped because content is empty', [
+                'project_id' => $projectId,
+                'document_id' => $documentId,
+                'title' => (string)($document['title'] ?? ''),
+            ]);
+            return false;
+        }
+
+        $this->save($projectId, (string)($document['title'] ?? ''), $content, $documentId);
+        $this->logRag('legacy material note reindexed', [
+            'project_id' => $projectId,
+            'document_id' => $documentId,
+            'title' => (string)($document['title'] ?? ''),
+        ]);
+
+        return true;
+    }
+
+    public function backfillProjectEmbeddings(int $projectId): array
+    {
+        return $this->backfillProjectEmbeddingsByScope($projectId, 'all');
+    }
+
+    public function backfillProjectEmbeddingsByScope(int $projectId, string $scope = 'all'): array
+    {
+        $documents = $this->listByProject($projectId);
+        $summary = [
+            'project_id' => $projectId,
+            'scope' => $scope,
+            'checked' => count($documents),
+            'eligible' => 0,
+            'reindexed' => 0,
+            'already_indexed' => 0,
+            'skipped_empty' => 0,
+            'skipped_scope' => 0,
+        ];
+
+        foreach ($documents as $document) {
+            $documentId = (int)($document['id'] ?? 0);
+            if ($documentId <= 0) {
+                continue;
+            }
+
+            if (!$this->matchesBackfillScope($document, $scope)) {
+                $summary['skipped_scope']++;
+                continue;
+            }
+
+            $summary['eligible']++;
+
+            if ($this->hasSearchableEmbeddings($documentId)) {
+                $summary['already_indexed']++;
+                continue;
+            }
+
+            $content = $this->readContent((string)($document['file_path'] ?? ''), $documentId);
+            if (trim($content) === '') {
+                $summary['skipped_empty']++;
+                $this->logRag('project backfill skipped empty material note', [
+                    'project_id' => $projectId,
+                    'document_id' => $documentId,
+                    'title' => (string)($document['title'] ?? ''),
+                ]);
+                continue;
+            }
+
+            $this->save($projectId, (string)($document['title'] ?? ''), $content, $documentId);
+            $summary['reindexed']++;
+        }
+
+        $this->logRag('project backfill completed', $summary);
+        return $summary;
+    }
+
+    public function backfillAllProjectsEmbeddings(string $scope = 'all'): array
+    {
+        $stmt = $this->pdo->query("SELECT DISTINCT project_id FROM documents WHERE file_path LIKE '%.md' ORDER BY project_id ASC");
+        $projectIds = array_map(static fn($value): int => (int)$value, $stmt->fetchAll(PDO::FETCH_COLUMN));
+
+        $summary = [
+            'scope' => $scope,
+            'projects' => count($projectIds),
+            'checked' => 0,
+            'eligible' => 0,
+            'reindexed' => 0,
+            'already_indexed' => 0,
+            'skipped_empty' => 0,
+            'skipped_scope' => 0,
+            'project_summaries' => [],
+        ];
+
+        foreach ($projectIds as $projectId) {
+            if ($projectId <= 0) {
+                continue;
+            }
+
+            $projectSummary = $this->backfillProjectEmbeddingsByScope($projectId, $scope);
+            $summary['project_summaries'][] = $projectSummary;
+            $summary['checked'] += (int)($projectSummary['checked'] ?? 0);
+            $summary['eligible'] += (int)($projectSummary['eligible'] ?? 0);
+            $summary['reindexed'] += (int)($projectSummary['reindexed'] ?? 0);
+            $summary['already_indexed'] += (int)($projectSummary['already_indexed'] ?? 0);
+            $summary['skipped_empty'] += (int)($projectSummary['skipped_empty'] ?? 0);
+            $summary['skipped_scope'] += (int)($projectSummary['skipped_scope'] ?? 0);
+        }
+
+        $this->logRag('global backfill completed', [
+            'scope' => $summary['scope'],
+            'projects' => $summary['projects'],
+            'eligible' => $summary['eligible'],
+            'reindexed' => $summary['reindexed'],
+            'already_indexed' => $summary['already_indexed'],
+            'skipped_empty' => $summary['skipped_empty'],
+            'skipped_scope' => $summary['skipped_scope'],
+        ]);
+
+        return $summary;
+    }
+
     public function save(int $projectId, string $title, string $content, ?int $documentId = null): array
     {
         $title = $this->normalizeTitle($title, $content);
@@ -157,6 +316,7 @@ class ProjectMaterialDocumentService
         if (empty($chunks)) {
             $chunks[] = '# ' . $title;
         }
+        $chunkEmbeddings = $this->buildChunkEmbeddings($projectId, $title, $chunks, $existingDocument ? (int)$existingDocument['id'] : null);
 
         $this->pdo->beginTransaction();
         try {
@@ -177,12 +337,13 @@ class ProjectMaterialDocumentService
                 'INSERT INTO doc_chunks (doc_id, page_number, chunk_text, embedding, image_description, created_at) VALUES (?, ?, ?, ?, ?, NOW())'
             );
             foreach ($chunks as $index => $chunk) {
+                $embedding = $chunkEmbeddings[$index] ?? [];
                 $stmtInsertChunk->execute([
                     $savedDocumentId,
                     1,
                     $chunk,
-                    json_encode([], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-                    '案件資料メモ（Markdown）',
+                    json_encode($embedding, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                    '案件資料メモ（Markdown/RAG）: ' . $title,
                 ]);
             }
 
@@ -193,6 +354,16 @@ class ProjectMaterialDocumentService
             }
             throw $e;
         }
+
+        $embeddedCount = count(array_filter($chunkEmbeddings, static fn(array $embedding): bool => !empty($embedding)));
+        $this->logRag('material note indexed', [
+            'project_id' => $projectId,
+            'document_id' => $savedDocumentId,
+            'title' => $title,
+            'chunks' => count($chunks),
+            'embedded_chunks' => $embeddedCount,
+            'file_path' => $relativePath,
+        ]);
 
         return [
             'document_id' => $savedDocumentId,
@@ -328,6 +499,91 @@ class ProjectMaterialDocumentService
         return $chunks;
     }
 
+    private function buildChunkEmbeddings(int $projectId, string $title, array $chunks, ?int $documentId = null): array
+    {
+        $engine = $this->createEmbeddingEngine();
+        if ($engine === null) {
+            $this->logRag('embedding engine unavailable for material note', [
+                'project_id' => $projectId,
+                'document_id' => $documentId,
+                'title' => $title,
+                'chunks' => count($chunks),
+            ]);
+            return array_fill(0, count($chunks), []);
+        }
+
+        $embeddings = [];
+        foreach ($chunks as $index => $chunk) {
+            try {
+                $payload = $this->buildEmbeddingPayload($title, (string)$chunk);
+                $embedding = $engine->embed($payload);
+                $embeddings[$index] = is_array($embedding) ? $embedding : [];
+                $this->logRag('embedding generated for material chunk', [
+                    'project_id' => $projectId,
+                    'document_id' => $documentId,
+                    'title' => $title,
+                    'chunk_index' => $index + 1,
+                    'chunk_chars' => mb_strlen((string)$chunk),
+                    'vector_size' => is_array($embedding) ? count($embedding) : 0,
+                ]);
+            } catch (Throwable $e) {
+                $embeddings[$index] = [];
+                $this->logRag('embedding generation failed for material chunk', [
+                    'project_id' => $projectId,
+                    'document_id' => $documentId,
+                    'title' => $title,
+                    'chunk_index' => $index + 1,
+                    'chunk_chars' => mb_strlen((string)$chunk),
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return $embeddings;
+    }
+
+    private function createEmbeddingEngine(): ?EmbeddingEngine
+    {
+        try {
+            if (session_status() === PHP_SESSION_NONE) {
+                @session_start();
+            }
+            $settings = ModelRoleResolver::resolveUserSettings($_SESSION ?? []);
+            if (session_status() === PHP_SESSION_ACTIVE) {
+                session_write_close();
+            }
+
+            return new EmbeddingEngine(
+                $settings['ollama_host'] ?? null,
+                $settings['embedding_model'] ?? ModelRoleResolver::DEFAULT_EMBEDDING_MODEL,
+                45,
+                5
+            );
+        } catch (Throwable $e) {
+            $this->logRag('embedding engine bootstrap failed', [
+                'error' => $e->getMessage(),
+            ]);
+            return null;
+        }
+    }
+
+    private function buildEmbeddingPayload(string $title, string $chunk): string
+    {
+        $chunk = trim($chunk);
+        $headings = $this->extractMarkdownHeadings($chunk);
+        if ($chunk === '') {
+            return '案件資料メモ: ' . $title;
+        }
+
+        $payload = "【案件資料メモ】\nタイトル: {$title}\n";
+        if ($headings !== []) {
+            $payload .= "見出し: " . implode(' / ', $headings) . "\n";
+        }
+        $payload .= "\n{$chunk}";
+
+        return $payload;
+    }
+
     private function buildDocumentSummary(array $document): array
     {
         $modifiedAt = (string)($document['material_modified_at'] ?? $document['created_at'] ?? '');
@@ -358,5 +614,46 @@ class ProjectMaterialDocumentService
 
         $content = trim(implode("\n\n", array_map(static fn($chunk): string => trim((string)$chunk), $chunks)));
         return $content !== '' ? $content . "\n" : '';
+    }
+
+    private function matchesBackfillScope(array $document, string $scope): bool
+    {
+        if ($scope === 'all') {
+            return true;
+        }
+
+        $title = (string)($document['title'] ?? '');
+        if ($scope === 'csv_analysis') {
+            return str_starts_with($title, 'CSV読解メモ_') || str_contains($title, 'CSV読解メモ');
+        }
+
+        return true;
+    }
+
+    private function extractMarkdownHeadings(string $content, int $limit = 4): array
+    {
+        if ($content === '') {
+            return [];
+        }
+
+        preg_match_all('/^\s{0,3}#{1,6}\s+(.+)$/mu', $content, $matches);
+        $headings = [];
+        foreach (($matches[1] ?? []) as $heading) {
+            $heading = trim(strip_tags((string)$heading));
+            if ($heading === '') {
+                continue;
+            }
+            $headings[] = $heading;
+            if (count($headings) >= $limit) {
+                break;
+            }
+        }
+
+        return $headings;
+    }
+
+    private function logRag(string $message, array $context = []): void
+    {
+        appLog('material_rag.log', '[MATERIAL-RAG] ' . $message, $context);
     }
 }

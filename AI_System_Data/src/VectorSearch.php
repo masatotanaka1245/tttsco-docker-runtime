@@ -93,7 +93,7 @@ class VectorSearch {
 
     private function buildSearchSql(int $projectId, ?int $targetPage, array $terms, bool $includeImageDescription = true, int $candidateLimit = 800): array {
         $imageColumn = $includeImageDescription ? ', c.image_description' : '';
-        $sql = "SELECT c.id, c.doc_id, d.title, c.chunk_text, c.page_number, c.embedding{$imageColumn}
+        $sql = "SELECT c.id, c.doc_id, d.title, d.file_path, c.chunk_text, c.page_number, c.embedding{$imageColumn}
                 FROM doc_chunks c
                 JOIN documents d ON c.doc_id = d.id
                 WHERE d.project_id = ?";
@@ -159,15 +159,48 @@ class VectorSearch {
         
         $results = [];
         $fetchedCount = 0;
-        
+        $materialFallbackCount = 0;
+
         while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
             $fetchedCount++;
             $docEmbedding = json_decode($row['embedding'], true);
+            $filePath = strtolower((string)($row['file_path'] ?? ''));
+            $isMaterialMarkdown = str_ends_with($filePath, '.md');
+            $sourceType = $this->resolveSourceType((string)($row['title'] ?? ''), $filePath);
+
             if (!$docEmbedding) {
+                if ($isMaterialMarkdown && !empty($terms)) {
+                    $fallbackScore = $this->scoreMaterialKeywordFallback(
+                        $terms,
+                        (string)($row['title'] ?? ''),
+                        (string)($row['chunk_text'] ?? ''),
+                        (string)($row['image_description'] ?? '')
+                    );
+                    if ($fallbackScore > 0) {
+                        $materialFallbackCount++;
+                        $results[] = [
+                            'id' => $row['id'],
+                            'document_id' => $row['doc_id'],
+                            'title' => $row['title'],
+                            'content' => $row['chunk_text'],
+                            'page_number' => $row['page_number'] ?? '-',
+                            'image_description' => $row['image_description'] ?? null,
+                            'score' => $fallbackScore,
+                            'match_type' => 'material_keyword_fallback',
+                            'source_type' => $sourceType,
+                        ];
+                    }
+                }
                 continue;
             }
 
             $score = $this->cosineSimilarity($queryEmbedding, $docEmbedding);
+            $score += $this->scoreMaterialSemanticBoost(
+                $terms,
+                $sourceType,
+                (string)($row['title'] ?? ''),
+                (string)($row['chunk_text'] ?? '')
+            );
             $results[] = [
                 'id' => $row['id'],
                 'document_id' => $row['doc_id'],
@@ -175,11 +208,16 @@ class VectorSearch {
                 'content' => $row['chunk_text'],
                 'page_number' => $row['page_number'] ?? '-',
                 'image_description' => $row['image_description'] ?? null,
-                'score' => $score
+                'score' => $score,
+                'match_type' => 'semantic_vector',
+                'source_type' => $sourceType,
             ];
         }
 
         self::writeDebugLog("ベクトルマッチング結果: DBレコード抽出数 = $fetchedCount 件, 有効ベクトル数 = " . count($results) . " 件");
+        if ($materialFallbackCount > 0) {
+            self::writeDebugLog("資料メモのキーワードfallback一致: {$materialFallbackCount} 件");
+        }
 
         if ($usedKeywordPrefilter && count($results) === 0) {
             self::writeDebugLog("Keyword prefilter returned no valid vectors. Falling back to full project vector scan.");
@@ -193,6 +231,14 @@ class VectorSearch {
 
         // ページ指定されている場合はリミットを無視してそのページの全チャンクを返すことで漏れを防ぐ
         $finalResults = ($targetPage !== null) ? $results : array_slice($results, 0, $limit);
+        $sourceMix = $this->summarizeSourceTypes($finalResults);
+        if ($sourceMix !== []) {
+            self::writeDebugLog("上位ヒットのソース内訳", $sourceMix);
+        }
+        $materialTitles = $this->collectMaterialTitles($finalResults);
+        if ($materialTitles !== []) {
+            self::writeDebugLog("上位ヒットに含まれた資料メモ", $materialTitles);
+        }
 
         // 【デバッグ強化】ヒットした上位ドキュメントとコサイン類似度スコアをログにわかりやすく明記
         self::writeDebugLog("--- セマンティック検索 類似度ランキング（TOP " . count($finalResults) . "） ---");
@@ -201,12 +247,141 @@ class VectorSearch {
             $title = $item['title'];
             $page = $item['page_number'];
             $score = number_format($item['score'], 4);
+            $matchType = (string)($item['match_type'] ?? 'semantic_vector');
+            $sourceType = (string)($item['source_type'] ?? 'document');
             $excerpt = mb_strimwidth(preg_replace('/\s+/', ' ', $item['content']), 0, 80, '...');
-            
-            self::writeDebugLog("[Rank #$rankNum] Score: $score | Doc: $title (P.$page) | Text: \"$excerpt\"");
+
+            self::writeDebugLog("[Rank #$rankNum] Score: $score | Match: $matchType | Source: $sourceType | Doc: $title (P.$page) | Text: \"$excerpt\"");
         }
         self::writeDebugLog("=== セマンティック検索 終了 ===");
 
         return $finalResults;
+    }
+
+    private function scoreMaterialKeywordFallback(array $terms, string $title, string $chunkText, string $imageDescription = ''): float
+    {
+        $title = mb_strtolower($title);
+        $chunkText = mb_strtolower($chunkText);
+        $imageDescription = mb_strtolower($imageDescription);
+        $headingText = mb_strtolower(implode(' ', $this->extractMarkdownHeadings($chunkText)));
+
+        $score = 0.0;
+        foreach ($terms as $term) {
+            $term = mb_strtolower((string)$term);
+            if ($term === '') {
+                continue;
+            }
+
+            if (mb_stripos($title, $term) !== false) {
+                $score += 0.12;
+            }
+            if (mb_stripos($chunkText, $term) !== false) {
+                $score += 0.06;
+            }
+            if ($headingText !== '' && mb_stripos($headingText, $term) !== false) {
+                $score += 0.08;
+            }
+            if ($imageDescription !== '' && mb_stripos($imageDescription, $term) !== false) {
+                $score += 0.04;
+            }
+        }
+
+        return min(0.42, $score);
+    }
+
+    private function scoreMaterialSemanticBoost(array $terms, string $sourceType, string $title, string $chunkText): float
+    {
+        if ($sourceType !== 'material_note' || empty($terms)) {
+            return 0.0;
+        }
+
+        $title = mb_strtolower($title);
+        $chunkText = mb_strtolower($chunkText);
+        $headingText = mb_strtolower(implode(' ', $this->extractMarkdownHeadings($chunkText)));
+        $score = 0.0;
+        foreach ($terms as $term) {
+            $term = mb_strtolower((string)$term);
+            if ($term === '') {
+                continue;
+            }
+
+            if (mb_stripos($title, $term) !== false) {
+                $score += 0.03;
+            }
+            if ($headingText !== '' && mb_stripos($headingText, $term) !== false) {
+                $score += 0.03;
+            }
+            if (mb_stripos($chunkText, $term) !== false) {
+                $score += 0.01;
+            }
+        }
+
+        return min(0.08, $score);
+    }
+
+    private function resolveSourceType(string $title, string $filePath): string
+    {
+        if (str_ends_with($filePath, '.md')) {
+            return 'material_note';
+        }
+        if (str_ends_with($filePath, '.pdf')) {
+            return 'pdf';
+        }
+        if (str_ends_with($filePath, '.csv') || str_starts_with($title, '[CSVデータ]')) {
+            return 'csv';
+        }
+
+        return 'document';
+    }
+
+    private function summarizeSourceTypes(array $results): array
+    {
+        $summary = [];
+        foreach ($results as $item) {
+            $type = (string)($item['source_type'] ?? 'document');
+            $summary[$type] = ($summary[$type] ?? 0) + 1;
+        }
+        return $summary;
+    }
+
+    private function collectMaterialTitles(array $results, int $limit = 5): array
+    {
+        $titles = [];
+        foreach ($results as $item) {
+            if (($item['source_type'] ?? '') !== 'material_note') {
+                continue;
+            }
+            $title = trim((string)($item['title'] ?? ''));
+            if ($title === '' || in_array($title, $titles, true)) {
+                continue;
+            }
+            $titles[] = $title;
+            if (count($titles) >= $limit) {
+                break;
+            }
+        }
+        return $titles;
+    }
+
+    private function extractMarkdownHeadings(string $content, int $limit = 4): array
+    {
+        if ($content === '') {
+            return [];
+        }
+
+        preg_match_all('/^\s{0,3}#{1,6}\s+(.+)$/mu', $content, $matches);
+        $headings = [];
+        foreach (($matches[1] ?? []) as $heading) {
+            $heading = trim(strip_tags((string)$heading));
+            if ($heading === '') {
+                continue;
+            }
+            $headings[] = $heading;
+            if (count($headings) >= $limit) {
+                break;
+            }
+        }
+
+        return $headings;
     }
 }

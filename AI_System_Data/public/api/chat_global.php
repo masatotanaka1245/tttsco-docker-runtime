@@ -48,6 +48,7 @@ class GlobalChatRouteProcessor {
     private $sqlModel;
     private $embeddingModel;
     private $reasoningModel;
+    private $activeReasoningModel;
     private $synthesisModel;
     private $promptKey;
     private $user_id;
@@ -60,6 +61,7 @@ class GlobalChatRouteProcessor {
     private $finalResponse = "";
     private $evalResult = null;
     private $retryCount = 0;
+    private $lastExecutedSqlFingerprint = null;
 
     // cURLストリーム用の一時バッファ・カウンター
     public $buffer = "";
@@ -92,6 +94,7 @@ class GlobalChatRouteProcessor {
         $this->sqlModel        = $sqlModel;
         $this->embeddingModel  = $embeddingModel;
         $this->reasoningModel  = $sqlModel;
+        $this->activeReasoningModel = $sqlModel ?: ($subModel ?: $mainModel);
         $this->synthesisModel  = $mainModel;
         $this->promptKey       = $promptKey;
         $this->user_id         = $user_id;
@@ -146,13 +149,14 @@ class GlobalChatRouteProcessor {
      * 自律調査ループ (ReAct Loop) のメイン制御
      */
     private function runReActLoop(): void {
-        $max_iterations = 4; // 無限ループ防止
+        $isBriefingStyleRequest = $this->isBriefingStyleRequest();
+        $max_iterations = $isBriefingStyleRequest ? 3 : 4; // 無限ループ防止
         $iteration = 0;
         $is_finished = false;
         $loopStartedAt = microtime(true);
         $max_loop_seconds = 75;
         $per_iteration_timeout = 45;
-        $react_sys_prompt = $this->buildReActSystemPrompt();
+        $react_sys_prompt = $this->buildReActSystemPrompt($isBriefingStyleRequest);
 
         while ($iteration < $max_iterations && !$is_finished) {
             $elapsedBeforeIteration = microtime(true) - $loopStartedAt;
@@ -176,16 +180,10 @@ class GlobalChatRouteProcessor {
 
             // OllamaへのReActリクエスト
             $iterationStartedAt = microtime(true);
-            $response_json_str = callOllamaChat(
-                $this->ollama_host, $this->reasoningModel, $react_sys_prompt,
+            $response_json_str = $this->callReActReasoningModel(
+                $react_sys_prompt,
                 $current_user_prompt,
-                'json',
-                [
-                    "temperature" => 0.2,
-                    "num_ctx" => 8192,
-                    "connect_timeout" => 5,
-                    "request_timeout" => $per_iteration_timeout
-                ]
+                $per_iteration_timeout
             );
             $iterationElapsed = microtime(true) - $iterationStartedAt;
             chatLogger("[DEBUG] ReAct [{$iteration}] 思考・行動生成が完了しました。elapsed=" . round($iterationElapsed, 2) . "秒 | totalElapsed=" . round(microtime(true) - $loopStartedAt, 2) . "秒");
@@ -212,6 +210,13 @@ class GlobalChatRouteProcessor {
                 break;
 
             } elseif ($action === 'execute_sql') {
+                $duplicateStop = $this->maybeStopRepeatedSqlAction($thought, $action_input, $iteration);
+                if ($duplicateStop) {
+                    $is_finished = true;
+                    chatLogger("[WARN] ReAct [{$iteration}] 同一SQLの再実行を検知したため、ここまでの観察結果で調査を打ち切ります。");
+                    break;
+                }
+
                 // SQLアクションのサブタスク処理へデリゲート
                 $this->processSqlAction($thought, $action_input, $iteration);
                 chatLogger("[DEBUG] ReAct [{$iteration}] SQLアクション処理を完了しました。observationChars=" . mb_strlen($this->observationHistory));
@@ -261,6 +266,103 @@ class GlobalChatRouteProcessor {
             'action'       => $data['action'] ?? '',
             'action_input' => $data['action_input'] ?? ''
         ];
+    }
+
+    private function callReActReasoningModel(string $systemPrompt, string $userPrompt, int $requestTimeout): string
+    {
+        $candidates = array_values(array_unique(array_filter([
+            $this->activeReasoningModel,
+            $this->subModel,
+            $this->mainModel,
+        ], static function ($model) {
+            return is_string($model) && trim($model) !== '';
+        })));
+
+        $lastException = null;
+        foreach ($candidates as $candidate) {
+            try {
+                $response = callOllamaChat(
+                    $this->ollama_host,
+                    $candidate,
+                    $systemPrompt,
+                    $userPrompt,
+                    'json',
+                    [
+                        "temperature" => 0.2,
+                        "num_ctx" => 8192,
+                        "connect_timeout" => 5,
+                        "request_timeout" => $requestTimeout
+                    ]
+                );
+
+                if ($this->activeReasoningModel !== $candidate) {
+                    chatLogger("[MODEL-FALLBACK] global ReAct reasoning model を {$this->activeReasoningModel} から {$candidate} へ切り替えました。");
+                    $this->activeReasoningModel = $candidate;
+                }
+
+                return $response;
+            } catch (Exception $e) {
+                $lastException = $e;
+                $message = $e->getMessage();
+                $isModelNotFound = preg_match('/Code:\s*404\b/u', $message) === 1;
+                $hasNextCandidate = $candidate !== end($candidates);
+
+                if ($isModelNotFound && $hasNextCandidate) {
+                    chatLogger("[MODEL-FALLBACK] global ReAct reasoning model {$candidate} が利用できないため、次の候補へ切り替えます。detail={$message}");
+                    continue;
+                }
+
+                throw $e;
+            }
+        }
+
+        if ($lastException !== null) {
+            throw $lastException;
+        }
+
+        throw new Exception('ReAct reasoning model の呼び出し候補が見つかりませんでした。');
+    }
+
+    private function maybeStopRepeatedSqlAction(string $thought, string $action_input, int $iteration): bool
+    {
+        $candidate = $this->normalizeSqlForRepeatCheck($action_input);
+        if ($candidate === '') {
+            return false;
+        }
+
+        $fingerprint = hash('sha256', $candidate);
+        if ($this->lastExecutedSqlFingerprint === null) {
+            $this->lastExecutedSqlFingerprint = $fingerprint;
+            return false;
+        }
+
+        if (!hash_equals($this->lastExecutedSqlFingerprint, $fingerprint)) {
+            $this->lastExecutedSqlFingerprint = $fingerprint;
+            return false;
+        }
+
+        $observation = "同じSQLを連続で再実行しようとしたため、これ以上の追加調査は効果が薄いと判断して打ち切ります。ここまでの観察結果を使って回答をまとめてください。";
+        $this->observationHistory .= "\n[Action]: execute_sql\n[Query]: {$candidate}\n[Result]:\n{$observation}\n";
+        $this->reasoningSteps[] = [
+            'sub_query' => "重複SQLの打ち切り判断 (ステップ {$iteration})",
+            'sub_answer' => "【AIの推論】\n{$thought}\n\n【打ち切り理由】\n{$observation}"
+        ];
+
+        return true;
+    }
+
+    private function normalizeSqlForRepeatCheck(string $sql): string
+    {
+        $normalized = trim($sql);
+        $normalized = preg_replace("/((?:[a-zA-Z0-9_]+\.)?row_data)\s*->>\s*['\"]?\\$?\.?([^'\"]+)['\"]?/i", 'JSON_UNQUOTE(JSON_EXTRACT($1, \'$."$2"\'))', $normalized) ?? $normalized;
+
+        $fence = str_repeat("\x60", 3);
+        $normalized = preg_replace('/' . preg_quote($fence, '/') . 'sql|' . preg_quote($fence, '/') . '/i', '', $normalized) ?? $normalized;
+        $normalized = preg_replace('/\\s+COLLATE\\s+[\'"]?[a-zA-Z0-9_-]+[\'"]?/i', '', $normalized) ?? $normalized;
+        $normalized = preg_replace('/\s+/u', ' ', trim($normalized)) ?? trim($normalized);
+
+        $sanitized = $this->sanitizeReActSql($normalized);
+        return ($sanitized['success'] ?? false) ? (string)($sanitized['sql'] ?? '') : $normalized;
     }
 
     /**
@@ -672,8 +774,14 @@ class GlobalChatRouteProcessor {
     /**
      * ReActエージェント用システムプロンプトの構成
      */
-    private function buildReActSystemPrompt(): string {
+    private function buildReActSystemPrompt(bool $isBriefingStyleRequest = false): string {
         $fence = str_repeat("\x60", 3);
+        $briefingInstruction = $isBriefingStyleRequest
+            ? "\n【短文ブリーフィング依頼の追加ルール】\n"
+                . "- ユーザーは短い全体要約と次の推奨アクションを求めています。必要以上に掘り下げず、1回の有効なSQL観測で全体像がつかめたら finish を優先してください。\n"
+                . "- 同じテーブルに対する近い内容の再検索は避け、既に active projects の一覧や件数が分かった時点で要約へ進んでください。\n"
+                . "- 最終回答は、簡潔な状況要約と次の推奨アクションに収束させてください。\n"
+            : '';
         return "あなたは全社データベースを調査し、ユーザーの質問に答える自律型AIエージェントです。\n"
              . "以下のデータベーススキーマを利用して, 情報収集を行ってください。\n\n"
              . $this->getSchemaInfo() . "\n\n"
@@ -698,6 +806,12 @@ class GlobalChatRouteProcessor {
              . "   - `project_csv_rows` に `row_count` カラムは存在しない。CSV行数は `COUNT(T1.id)`、CSVファイルの登録行数は `project_csv_files.row_count` を使用せよ。\n"
              . "6. 資料テキスト検索は `doc_chunks` の実在する物理カラム `chunk_text` に対して LIKE検索（例: `chunk_text LIKE '%キーワード%'`）を利用せよ。\n"
              . "7. レコード件数のカウントは `COUNT(id)` 等の実在する物理カラムを使用せよ。\n"
-             . "8. キャスト時に `COLLATE` 句は絶対に使用しないでください。";
+             . "8. キャスト時に `COLLATE` 句は絶対に使用しないでください。"
+             . $briefingInstruction;
+    }
+
+    private function isBriefingStyleRequest(): bool
+    {
+        return preg_match('/(ブリーフィング|briefing|150文字|200文字|短く|簡潔に|要約と次の推奨アクション|本日の要約)/iu', $this->originalMessage) === 1;
     }
 }

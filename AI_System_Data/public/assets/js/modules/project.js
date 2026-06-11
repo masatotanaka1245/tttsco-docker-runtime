@@ -4,6 +4,32 @@
  */
 import { secureFetch, getConfig } from './api.js?v=4';
 
+function showSupportToast(message = '', variant = 'success', duration = 3200) {
+    if (!message) return;
+    if (typeof window.showSupportToast === 'function') {
+        window.showSupportToast(message, variant, duration);
+        return;
+    }
+    console.info(`[support-toast:${variant}] ${message}`);
+}
+
+function queueSupportToast(message = '', variant = 'success', duration = 3200) {
+    if (!message) return;
+    if (typeof window.queueSupportToast === 'function') {
+        window.queueSupportToast(message, variant, duration);
+        return;
+    }
+    try {
+        sessionStorage.setItem('support.pendingToast', JSON.stringify({
+            message: String(message),
+            variant: String(variant || 'success'),
+            duration: Number(duration || 3200),
+        }));
+    } catch (error) {
+        console.warn('failed to queue support toast', error);
+    }
+}
+
 /**
  * コメントテキスト内のURLを検出し、安全にハイパーリンク（aタグ）に自動変換するヘルパー
  */
@@ -55,11 +81,12 @@ export async function handleCreateProject(e) {
     const payload = Object.fromEntries(fd);
     
     try {
-        const data = await secureFetch('api/add_project.php', { 
-            method: 'POST', 
-            body: JSON.stringify(payload) 
+        const data = await secureFetch('api/add_project.php', {
+            method: 'POST',
+            body: JSON.stringify(payload)
         });
         if (data.success) {
+            queueSupportToast('案件を作成しました。');
             window.location.href = `?project_id=${data.project_id}`;
         } else {
             alert(`登録エラー: ${data.error || '不明なエラー'}`);
@@ -78,11 +105,12 @@ export async function handleUpdateProject(e) {
     const payload = Object.fromEntries(fd);
 
     try {
-        const data = await secureFetch('api/update_project.php', { 
-            method: 'POST', 
-            body: JSON.stringify(payload) 
+        const data = await secureFetch('api/update_project.php', {
+            method: 'POST',
+            body: JSON.stringify(payload)
         });
         if (data.success) {
+            queueSupportToast('案件情報を更新しました。');
             location.reload();
         } else {
             alert(`更新エラー: ${data.error || '不明なエラー'}`);
@@ -105,6 +133,7 @@ export async function deleteProject() {
             body: JSON.stringify({ id: projectId })
         });
         if (data.success) {
+            queueSupportToast('案件を削除しました。');
             window.location.href = 'support.php';
         } else {
             alert(`削除エラー: ${data.error}`);
@@ -154,6 +183,7 @@ export async function clearProjectChatHistory() {
                 await window.afterProjectHistoryCleared(projectId, data);
                 return;
             }
+            queueSupportToast('チャット履歴を削除しました。');
             location.reload();
         } else {
             alert(`削除エラー: ${data.error || '不明なエラー'}`);
@@ -178,6 +208,7 @@ export async function createProjectChatThread() {
         }
 
         const activeTab = getActiveTabId();
+        queueSupportToast('新しい会話スレッドを作成しました。');
         window.location.href = buildSupportUrl(projectId, activeTab, data.thread.id);
     } catch (err) {
         alert(`通信エラー: ${err.message}`);
@@ -206,6 +237,7 @@ export async function deleteProjectChatThread(threadId) {
 
         const activeTab = getActiveTabId();
         const nextThreadId = data.fallback_thread_id || currentThreadId || null;
+        queueSupportToast('会話スレッドを削除しました。');
         window.location.href = buildSupportUrl(projectId, activeTab, nextThreadId);
     } catch (err) {
         alert(`通信エラー: ${err.message}`);
@@ -300,9 +332,10 @@ export async function handleAddComment(e) {
                 form.reset();
                 input.style.height = 'auto';
             }
-            
+
             submitBtn.disabled = false;
             submitBtn.textContent = '送信する';
+            showSupportToast('コメントを追加しました。');
 
         } else {
             alert(`エラー: ${data?.error || '不明なエラー'}`);
@@ -356,7 +389,8 @@ export async function handleRemoveComment(commentId) {
 
             // バッジ数の即時デクリメント同期
             updateCommentBadge(-1);
-            
+            showSupportToast('コメントを削除しました。');
+
         } else {
             alert(`エラー: ${data?.error || '不明なエラー'}`);
         }
@@ -394,8 +428,9 @@ export async function handleAddMember(e) {
             method: 'POST',
             body: JSON.stringify({ project_id: projectId, user_id: userId, role: role })
         });
-        
+
         if (data && data.success) {
+            queueSupportToast('メンバーを追加しました。');
             location.reload();
         } else {
             alert(`エラー: ${data?.error || '不明なエラー'}`);
@@ -425,8 +460,9 @@ export async function handleRemoveMember(userId) {
             method: 'POST',
             body: JSON.stringify({ project_id: projectId, user_id: userId })
         });
-        
+
         if (data && data.success) {
+            queueSupportToast('メンバーを案件から外しました。');
             location.reload();
         } else {
             alert(`エラー: ${data?.error || '不明なエラー'}`);

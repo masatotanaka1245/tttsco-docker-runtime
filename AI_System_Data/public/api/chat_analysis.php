@@ -36,6 +36,10 @@ require_once __DIR__ . '/../../src/ChatModelRolePayload.php';
 require_once __DIR__ . '/../../src/ChatThreadManager.php';
 require_once __DIR__ . '/../../src/ReportAnswerPolisher.php';
 require_once __DIR__ . '/../../src/CsvExportGenerator.php';
+require_once __DIR__ . '/../../src/RouteRuntimeCallbackFactory.php';
+require_once __DIR__ . '/../../src/SqlFailureAnswerFormatter.php';
+require_once __DIR__ . '/../../src/SqlRouteSchemaScopeHelper.php';
+require_once __DIR__ . '/../../src/LightweightFinalGuardRunner.php';
 
 if (!function_exists('chatLogger')) {
     function chatLogger($msg) {
@@ -100,6 +104,7 @@ class AdvancedReasoningRouteProcessor {
     private $csvSemanticAggregationRunner = null;
     private $csvAggregationTargetResolver = null;
     private $lightweightFinalAnswerGuard = null;
+    private $schemaScopeHelper = null;
 
     // 内部ステート管理
     private $reasoningId;
@@ -762,15 +767,15 @@ class AdvancedReasoningRouteProcessor {
     }
 
     private function createChatLoggerCallback(): callable {
-        return function (string $message): void {
-            chatLogger($message);
-        };
+        return RouteRuntimeCallbackFactory::logger('chatLogger');
     }
 
     private function createSseSenderCallback(): callable {
-        return function (string $event, array $payload): void {
-            sendSSE($event, $payload);
-        };
+        return RouteRuntimeCallbackFactory::sse('sendSSE');
+    }
+
+    private function createPromptBudgetLogger(): callable {
+        return RouteRuntimeCallbackFactory::promptBudgetLogger('data_analysis', $this->createChatLoggerCallback());
     }
 
     private function applyReportModeFinalPolishIfNeeded(): void
@@ -1051,13 +1056,15 @@ class AdvancedReasoningRouteProcessor {
         return $this->csvAggregationTargetResolver;
     }
 
-    private function getLightweightFinalAnswerGuard(): LightweightFinalAnswerGuard {
-        if ($this->lightweightFinalAnswerGuard instanceof LightweightFinalAnswerGuard) {
+    private function getLightweightFinalAnswerGuard(): LightweightFinalGuardRunner {
+        if ($this->lightweightFinalAnswerGuard instanceof LightweightFinalGuardRunner) {
             return $this->lightweightFinalAnswerGuard;
         }
 
-        require_once __DIR__ . '/../../src/LightweightFinalAnswerGuard.php';
-        $this->lightweightFinalAnswerGuard = new LightweightFinalAnswerGuard((string)$this->ollama_host);
+        $this->lightweightFinalAnswerGuard = new LightweightFinalGuardRunner(
+            (string)$this->ollama_host,
+            $this->createChatLoggerCallback()
+        );
         return $this->lightweightFinalAnswerGuard;
     }
 
@@ -1080,7 +1087,8 @@ class AdvancedReasoningRouteProcessor {
             $context,
             $this->finalResponse,
             (string)$this->model,
-            $routeLabel
+            $routeLabel,
+            $this->evalResult
         );
 
         $this->finalResponse = (string)($guardResult['response'] ?? $this->finalResponse);
@@ -1145,30 +1153,28 @@ class AdvancedReasoningRouteProcessor {
 
     private function logPromptBudget(string $phase, array $parts, int $numCtx): void
     {
-        $segments = [];
-        $totalChars = 0;
-        foreach ($parts as $label => $text) {
-            $chars = mb_strlen((string)$text);
-            $segments[] = "{$label}Chars={$chars}";
-            $totalChars += $chars;
+        call_user_func($this->createPromptBudgetLogger(), $phase, $parts, $numCtx);
+    }
+
+    private function getSchemaScopeHelper(): SqlRouteSchemaScopeHelper
+    {
+        if ($this->schemaScopeHelper instanceof SqlRouteSchemaScopeHelper) {
+            return $this->schemaScopeHelper;
         }
 
-        chatLogger("[PROMPT-BUDGET] route=data_analysis | phase={$phase} | num_ctx={$numCtx} | totalChars={$totalChars} | " . implode(' | ', $segments));
+        $this->schemaScopeHelper = new SqlRouteSchemaScopeHelper(
+            $this->schemaInfo,
+            $this->schemaInfoByTable,
+            $this->schemaSummaryMatrix,
+            $this->dynamicTableWhitelist
+        );
+
+        return $this->schemaScopeHelper;
     }
 
     private function normalizeSchemaTableList(array $tables): array
     {
-        $normalized = [];
-        foreach ($tables as $table) {
-            $tableName = trim((string)$table, " \t\n\r\0\x0B`");
-            if ($tableName === '') {
-                continue;
-            }
-            if (in_array($tableName, $this->dynamicTableWhitelist, true) && !in_array($tableName, $normalized, true)) {
-                $normalized[] = $tableName;
-            }
-        }
-        return $normalized;
+        return $this->getSchemaScopeHelper()->normalizeSchemaTableList($tables);
     }
 
     private function inferRelevantSchemaTables(string $text): array
@@ -1212,28 +1218,7 @@ class AdvancedReasoningRouteProcessor {
 
     private function buildScopedSchemaInfo(array $preferredTables = []): string
     {
-        $tables = $this->normalizeSchemaTableList($preferredTables);
-        if (empty($tables)) {
-            return $this->schemaInfo;
-        }
-
-        $segments = ["【INFORMATION_SCHEMAコンテキスト (実在データベース構造 / scoped)】"];
-        foreach ($tables as $tableName) {
-            if (!isset($this->schemaInfoByTable[$tableName])) {
-                continue;
-            }
-            $segments[] = rtrim($this->schemaInfoByTable[$tableName]);
-        }
-
-        if (count($segments) === 1) {
-            return $this->schemaInfo;
-        }
-
-        if ($this->schemaSummaryMatrix !== '') {
-            $segments[] = rtrim($this->schemaSummaryMatrix);
-        }
-
-        return implode("\n\n", $segments) . "\n";
+        return $this->getSchemaScopeHelper()->buildScopedSchemaInfo($preferredTables);
     }
 
     /**
@@ -1575,25 +1560,7 @@ class AdvancedReasoningRouteProcessor {
 
     private function detectMalformedSql(string $sql): ?string
     {
-        $trimmed = trim($sql);
-
-        if ($trimmed === '') {
-            return 'SQLが空文字です。';
-        }
-
-        if (!preg_match('/^\s*SELECT\b/i', $trimmed)) {
-            return 'SELECT文で開始していません。';
-        }
-
-        if (preg_match('/^\s*SELECT\b\s*$/i', $trimmed)) {
-            return 'SELECT句だけで停止しています。';
-        }
-
-        if (!preg_match('/\bFROM\b/i', $trimmed)) {
-            return 'FROM句が存在しません。';
-        }
-
-        return null;
+        return $this->getSchemaScopeHelper()->detectMalformedSql($sql);
     }
 
     private function truncateForPrompt(string $text, int $maxChars): string
@@ -1617,12 +1584,6 @@ class AdvancedReasoningRouteProcessor {
             . "【失敗したSQL】\n" . $compactSql . "\n\n"
             . "【エラー要約】\n" . $compactError . "\n\n"
             . "【修復ヒント】\n" . $compactGuidance;
-    }
-
-    private function buildSqlFailureAnswer(string $error): string
-    {
-        $compactError = $this->truncateForPrompt(preg_replace("/\s+/u", ' ', trim($error)), 240);
-        return "⚠️ 集計を完了できませんでした。\n\nエラー: {$compactError}";
     }
 
     /**
@@ -1792,7 +1753,7 @@ class AdvancedReasoningRouteProcessor {
         }
 
         if (!$execResult['success']) {
-            return $this->buildSqlFailureAnswer((string)($execResult['error'] ?? '不明なエラー。'));
+            return SqlFailureAnswerFormatter::buildFailureAnswer((string)($execResult['error'] ?? '不明なエラー。'));
         }
 
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1850,7 +1811,7 @@ class AdvancedReasoningRouteProcessor {
             }
         }
         
-        $prefix = $usedFallbackSql ? "【補足】自動修復では開通しなかったため、定番SQLで集計しました。\n\n" : "";
+        $prefix = SqlFailureAnswerFormatter::buildFallbackPrefix($usedFallbackSql);
         return $prefix . "【実行SQL】\n" . $fence . "sql\n{$generated_sql}\n" . $fence . "\n\n【段階的分割巡回（全 {$total_batches} バッチ）による最終統合考察】\n{$accumulated_insight}";
     }
 

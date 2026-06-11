@@ -64,6 +64,70 @@ function csvMemorySummarizeAnswer(string $answer): string
     return mb_strlen($summary) > 320 ? mb_substr($summary, 0, 320) . '...' : $summary;
 }
 
+function csvMemoryExtractFileNames(string $question, string $answer, string $csvExportName = ''): array
+{
+    $sources = [$question, $answer];
+    if ($csvExportName !== '') {
+        $sources[] = $csvExportName;
+    }
+
+    $fileNames = [];
+    foreach ($sources as $source) {
+        if (preg_match_all('/([A-Za-z0-9._-]+\.csv|[^"\s、。]+\.csv)/u', $source, $matches)) {
+            foreach (($matches[1] ?? []) as $match) {
+                $normalized = trim((string)$match, " \t\n\r\0\x0B\"'“”‘’");
+                if ($normalized === '' || in_array($normalized, $fileNames, true)) {
+                    continue;
+                }
+                $fileNames[] = $normalized;
+                if (count($fileNames) >= 3) {
+                    break 2;
+                }
+            }
+        }
+    }
+
+    return $fileNames;
+}
+
+function csvMemoryBuildTags(string $question, string $answer, array $fileNames = []): array
+{
+    $text = mb_strtolower($question . "\n" . $answer);
+    $tags = ['csv読解'];
+
+    $keywordMap = [
+        '集計' => ['集計', 'count', '件数'],
+        '要約' => ['要約', '概要', 'サマリー'],
+        '月別' => ['月別', 'yearmonth', 'month'],
+        '日別' => ['日別', 'date', '日次'],
+        'ランキング' => ['ランキング', '上位', '順位'],
+        'カテゴリ' => ['カテゴリ', '分類', 'category'],
+        '時系列' => ['推移', '時系列', 'trend'],
+    ];
+
+    foreach ($keywordMap as $tag => $keywords) {
+        foreach ($keywords as $keyword) {
+            if (mb_stripos($text, mb_strtolower($keyword)) !== false) {
+                $tags[] = $tag;
+                break;
+            }
+        }
+    }
+
+    foreach ($fileNames as $fileName) {
+        $base = pathinfo($fileName, PATHINFO_FILENAME);
+        $base = preg_replace('/[^A-Za-z0-9一-龠ぁ-んァ-ヶー]+/u', '_', (string)$base) ?? '';
+        $base = trim((string)$base, '_');
+        if ($base === '') {
+            continue;
+        }
+        $tags[] = 'csv:' . mb_substr($base, 0, 24);
+    }
+
+    $tags = array_values(array_unique(array_filter(array_map(static fn($tag): string => trim((string)$tag), $tags))));
+    return array_slice($tags, 0, 8);
+}
+
 $auth = new Auth($pdo);
 if (!$auth->isLoggedIn()) {
     http_response_code(401);
@@ -111,6 +175,8 @@ try {
     $nowLabel = date('Y-m-d H:i');
     $questionLine = csvMemoryNormalizeLine($question);
     $summaryLine = csvMemorySummarizeAnswer($answer);
+    $fileNames = csvMemoryExtractFileNames($question, $answer, $csvExportName);
+    $tags = csvMemoryBuildTags($question, $answer, $fileNames);
 
     $appendLines = ["## CSV読解要点 {$nowLabel}"];
     if ($questionLine !== '') {
@@ -121,6 +187,12 @@ try {
     }
     if ($csvExportName !== '') {
         $appendLines[] = "- 生成CSV: " . csvMemoryNormalizeLine($csvExportName);
+    }
+    if ($fileNames !== []) {
+        $appendLines[] = "- 対象CSV: " . implode(' / ', array_map('csvMemoryNormalizeLine', $fileNames));
+    }
+    if ($tags !== []) {
+        $appendLines[] = "- タグ: " . implode(' ', array_map(static fn(string $tag): string => '#' . $tag, $tags));
     }
 
     $appendBlock = implode("\n", $appendLines);

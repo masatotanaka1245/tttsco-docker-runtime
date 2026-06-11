@@ -641,3 +641,16 @@ FAQ 自動登録は、現在以下のみ候補にします。
 8. `AdvancedRouteMerger`
    - 対象: 統合・推敲・追加探索
    - 理由: 他の束を外した後の方が依存の向きが見えやすい
+
+### `chat_analysis.php` / `chat_advanced.php` の次の共通化候補
+
+- 共通 helper 化しやすいもの
+  - prompt budget の記録
+  - logger / status emitter / UTF-8 正規化 callback の束
+  - malformed SQL の事前判定
+  - scoped schema の組み立て
+  - lightweight final guard の適用入口
+- route 固有として残すもの
+  - `chat_analysis.php` の deterministic aggregation runner 群
+  - `chat_advanced.php` の資料PDF向け lightweight final
+  - `chat_advanced.php` の CSV 全件 Map-Reduce
