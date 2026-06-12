@@ -12,7 +12,7 @@ let activeCsvAiJobRequestController = null;
 let csvAiLifecycleBound = false;
 let csvAiJobPausedByVisibility = false;
 let csvAiJobHistoryRequestSeq = 0;
-let csvMergeState = { mainId: 0, subIds: [], mappings: {}, suggestions: [], suggestionSource: 'heuristic' };
+let csvMergeState = { mainId: 0, subIds: [], mappings: {}, suggestions: [], suggestionSource: 'heuristic', suggestionsLoaded: false };
 
 function notifySupportToast(message, variant = 'success', duration = 3200) {
     if (typeof window.showSupportToast === 'function') {
@@ -142,6 +142,7 @@ function setCsvMergeSuggestions(payload = null) {
     csvMergeState.suggestions = suggestions;
     csvMergeState.suggestionSource = source;
     csvMergeState.mappings = nextMappings;
+    csvMergeState.suggestionsLoaded = true;
 }
 
 function appendCsvMergeRow(csvFile) {
@@ -394,6 +395,7 @@ function resetCsvMergeState() {
         mappings: {},
         suggestions: [],
         suggestionSource: 'heuristic',
+        suggestionsLoaded: false,
     };
 }
 
@@ -497,44 +499,56 @@ function renderCsvMergeSuggestions(payload = null) {
     const suggestions = Array.isArray(csvMergeState.suggestions) ? csvMergeState.suggestions : [];
     const sourceLabel = csvMergeState.suggestionSource === 'ai' ? 'AI提案' : '規則ベース候補';
     const mainHeaders = parseCsvMergeHeaders(getCsvMergeRowById(csvMergeState.mainId));
+    const subRows = csvMergeState.subIds.map((id) => getCsvMergeRowById(id)).filter(Boolean);
+    const suggestionBySubFileId = {};
+    suggestions.forEach((fileSuggestion) => {
+        suggestionBySubFileId[Number(fileSuggestion?.sub_file_id || 0)] = fileSuggestion;
+    });
 
-    if (suggestions.length === 0) {
+    if (!csvMergeState.suggestionsLoaded) {
         container.className = 'min-h-[4.5rem] max-h-[30vh] overflow-y-auto custom-scrollbar rounded-xl border border-dashed border-slate-200 bg-white/80 px-4 py-4 pr-3 text-[10px] text-slate-400';
         container.textContent = '候補はまだありません。メインCSVとサブCSVを選んで提案を実行してください。';
         return;
     }
 
     container.className = 'min-h-[4.5rem] max-h-[30vh] overflow-y-auto custom-scrollbar rounded-xl border border-slate-200 bg-white px-4 py-4 pr-3 text-[10px] text-slate-600 space-y-3';
-    container.innerHTML = suggestions.map((fileSuggestion) => {
-        const subFileId = Number(fileSuggestion.sub_file_id || 0);
-        const fileName = escapeHTML(String(fileSuggestion.sub_file_name || 'サブCSV'));
-        const rows = Array.isArray(fileSuggestion.mappings) ? fileSuggestion.mappings : [];
+    container.innerHTML = subRows.map((row) => {
+        const subFileId = Number(row?.dataset.csvFileId || 0);
+        const fileSuggestion = suggestionBySubFileId[subFileId] || null;
+        const fileName = escapeHTML(String(row?.dataset.csvFileName || fileSuggestion?.sub_file_name || 'サブCSV'));
+        const subHeaders = parseCsvMergeHeaders(row);
         const currentMappings = getCsvMergeMappingsForSub(subFileId);
+        const reasonByHeader = {};
+        (Array.isArray(fileSuggestion?.mappings) ? fileSuggestion.mappings : []).forEach((mapping) => {
+            const subHeader = String(mapping?.sub_header || '').trim();
+            if (!subHeader) return;
+            reasonByHeader[subHeader] = String(mapping?.reason || '').trim();
+        });
         return `
             <div class="space-y-2">
                 <div class="flex items-center justify-between gap-3">
                     <div class="font-bold text-slate-700">${fileName}</div>
                     <span class="text-[9px] text-slate-500 bg-slate-100 border border-slate-200 rounded-full px-2 py-0.5 font-bold">${sourceLabel}</span>
                 </div>
-                ${rows.length > 0 ? `
+                ${subHeaders.length > 0 ? `
                     <div class="space-y-2">
-                        ${rows.map((mapping) => `
+                        ${subHeaders.map((subHeader) => `
                             <div class="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_1.4rem_minmax(0,1fr)] gap-2 items-center text-[10px] rounded-xl border border-slate-100 bg-slate-50/60 px-3 py-2">
-                                <span class="font-mono bg-white border border-slate-200 rounded px-2 py-1 text-slate-600 truncate" title="${escapeHTML(String(mapping.sub_header || ''))}">${escapeHTML(String(mapping.sub_header || ''))}</span>
+                                <span class="font-mono bg-white border border-slate-200 rounded px-2 py-1 text-slate-600 truncate" title="${escapeHTML(String(subHeader || ''))}">${escapeHTML(String(subHeader || ''))}</span>
                                 <span class="text-center text-slate-400">→</span>
-                                <select onchange="window.handleCsvMergeMappingChange && window.handleCsvMergeMappingChange(${subFileId}, '${String(mapping.sub_header || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'")}', this.value)" class="w-full border border-slate-200 rounded-lg bg-white px-2 py-1.5 text-[10px] font-medium text-slate-700 outline-none focus:border-teal-400">
+                                <select onchange="window.handleCsvMergeMappingChange && window.handleCsvMergeMappingChange(${subFileId}, '${String(subHeader || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'")}', this.value)" class="w-full border border-slate-200 rounded-lg bg-white px-2 py-1.5 text-[10px] font-medium text-slate-700 outline-none focus:border-teal-400">
                                     <option value="">対応なし</option>
                                     ${mainHeaders.map((header) => {
-                                        const selectedValue = String(currentMappings[String(mapping.sub_header || '')] || mapping.main_header || '').trim();
+                                        const selectedValue = String(currentMappings[String(subHeader || '')] || '').trim();
                                         const selected = selectedValue === String(header) ? 'selected' : '';
                                         return `<option value="${escapeHTML(String(header))}" ${selected}>${escapeHTML(String(header))}</option>`;
                                     }).join('')}
                                 </select>
-                                ${mapping.reason ? `<div class="md:col-span-3 text-slate-400">${escapeHTML(String(mapping.reason))}</div>` : ''}
+                                <div class="md:col-span-3 text-slate-400">${escapeHTML(reasonByHeader[String(subHeader || '')] || '候補なし')}</div>
                             </div>
                         `).join('')}
                     </div>
-                ` : `<div class="text-slate-400">対応候補は見つかりませんでした。</div>`}
+                ` : `<div class="text-slate-400">列情報を取得できませんでした。</div>`}
             </div>
         `;
     }).join('');
@@ -546,6 +560,7 @@ function handleCsvMergeMainChange(csvFileId) {
     csvMergeState.subIds = csvMergeState.subIds.filter((id) => id !== nextMainId);
     csvMergeState.mappings = {};
     csvMergeState.suggestions = [];
+    csvMergeState.suggestionsLoaded = false;
     renderCsvMergeState();
     renderCsvMergeSuggestions(null);
 }
@@ -566,6 +581,7 @@ function handleCsvMergeSubToggle(csvFileId, checked) {
     }
     csvMergeState.mappings = {};
     csvMergeState.suggestions = [];
+    csvMergeState.suggestionsLoaded = false;
     renderCsvMergeState();
     renderCsvMergeSuggestions(null);
 }
