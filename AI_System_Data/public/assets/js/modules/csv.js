@@ -19,6 +19,42 @@ function notifySupportToast(message, variant = 'success', duration = 3200) {
     }
 }
 
+async function copyCsvFileName(fileName) {
+    const text = String(fileName || '').trim();
+    if (!text) {
+        return;
+    }
+
+    try {
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+            await navigator.clipboard.writeText(text);
+        } else {
+            const temp = document.createElement('textarea');
+            temp.value = text;
+            temp.setAttribute('readonly', 'readonly');
+            temp.style.position = 'absolute';
+            temp.style.left = '-9999px';
+            document.body.appendChild(temp);
+            temp.select();
+            document.execCommand('copy');
+            document.body.removeChild(temp);
+        }
+        notifySupportToast('CSVファイル名をクリップボードにコピーしました。');
+    } catch (error) {
+        alert('CSVファイル名のコピーに失敗しました。');
+    }
+}
+
+function downloadCsvFile(csvFileId) {
+    const id = Number(csvFileId || 0);
+    if (!id) {
+        alert('ダウンロード対象のCSVが見つかりません。');
+        return;
+    }
+
+    window.location.href = `api/download_csv.php?csv_file_id=${encodeURIComponent(String(id))}`;
+}
+
 /**
  * HTMLエスケープヘルパー (テキストの安全なレンダリング用)
  */
@@ -769,11 +805,13 @@ async function loadCsvData(csvFileId, fileName) {
             let tableHtml = `
                 <div class="bg-white border rounded-xl shadow-sm overflow-hidden animate-fadeIn flex flex-col h-full min-h-0">
                     <div class="bg-teal-50/50 px-4 py-2 border-b flex justify-between items-center text-xs flex-shrink-0">
-                        <div class="flex flex-col gap-0.5">
-                            <span class="font-bold text-[#00758F]">📄 ${escapeHTML(fileName)} (${displayedRowCount} / ${totalRowCount} 行を表示)</span>
+                        <div class="flex flex-col gap-0.5 min-w-0 flex-1 pr-4">
+                            <button type="button" onclick="window.copyCsvFileName && window.copyCsvFileName('${fileName.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')" class="font-bold text-[#00758F] text-left truncate hover:underline min-w-0" title="クリックでファイル名をコピー: ${escapeHTML(fileName)}">📄 ${escapeHTML(fileName)}</button>
                             ${isPreviewLimited ? `<span class="text-[10px] text-slate-500 font-medium">プレビューは先頭 ${previewLimit} レコードまで表示しています。</span>` : ''}
+                            <span class="text-[10px] text-slate-500 font-medium">${displayedRowCount} / ${totalRowCount} 行を表示</span>
                         </div>
-                        <div class="flex items-center gap-3">
+                        <div class="flex items-center gap-3 flex-shrink-0 whitespace-nowrap">
+                            <button type="button" onclick="window.downloadCsvFile && window.downloadCsvFile(${csvFileId})" class="text-[#00758F] hover:text-[#005a6e] font-bold hover:underline">⬇️ ダウンロード</button>
                             <button type="button" onclick="window.openCsvAiCategorizeModal && window.openCsvAiCategorizeModal()" class="text-[#00758F] hover:text-[#005a6e] font-bold hover:underline">🤖 AI行解析</button>
                             <button type="button" onclick="window.openCsvColumnEditModal && window.openCsvColumnEditModal()" class="text-[#00758F] hover:text-[#005a6e] font-bold hover:underline">📝 編集</button>
                             <button type="button" onclick="handleDeleteCsv(${csvFileId})" class="text-red-500 hover:text-red-700 font-bold hover:underline">🗑️ CSVを全削除</button>
@@ -1417,6 +1455,8 @@ async function handleStartCsvAiCategorizeJob(e) {
     window.handleCsvUpload = handleCsvUpload;
     window.loadCsvData = loadCsvData;
     window.handleDeleteCsv = handleDeleteCsv;
+    window.copyCsvFileName = copyCsvFileName;
+    window.downloadCsvFile = downloadCsvFile;
     window.handlePostgresImport = handlePostgresImport;
     window.openCsvPreviewByDocId = openCsvPreviewByDocId;
     window.handleCreateManualCsv = handleCreateManualCsv;
@@ -1467,6 +1507,8 @@ export {
     startStructuredImportTracking,
     loadCsvData,
     handleDeleteCsv,
+    copyCsvFileName,
+    downloadCsvFile,
     openCsvPreviewByDocId,
     handleCreateManualCsv,
     handleAppendCsvRow,
