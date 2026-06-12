@@ -288,6 +288,15 @@ function buildCsvMaterialTitle(question, options = {}) {
     return `CSV読解メモ_${dateLabel}_${subject}`;
 }
 
+function buildGeneralMaterialTitle(question) {
+    const dateLabel = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const subject = summarizeMaterialTitle(question, '');
+    if (!subject) {
+        return `AI資料メモ_${dateLabel}`;
+    }
+    return `AI資料メモ_${dateLabel}_${subject}`;
+}
+
 function inferMaterialSaveMeta(question, answer, options = {}) {
     const resolvedQuestion = normalizeAiText(question).trim();
     const resolvedAnswer = normalizeAiText(answer).trim();
@@ -310,7 +319,7 @@ function inferMaterialSaveMeta(question, answer, options = {}) {
 
     return {
         sourceKind: 'general_ai_answer',
-        title: ''
+        title: buildGeneralMaterialTitle(resolvedQuestion)
     };
 }
 
@@ -321,7 +330,7 @@ function buildProjectMemoryNoteMessage(csvExport) {
 }
 
 async function saveAnswerToMaterial(question, answer, button, statusEl, options = {}) {
-    const { projectId, selectedMaterialDocumentId, canManageMaterial } = getConfig();
+    const { projectId, canManageMaterial } = getConfig();
     if (String(canManageMaterial || '0') !== '1') return;
 
     const resolvedAnswer = normalizeAiText(answer).trim();
@@ -339,7 +348,7 @@ async function saveAnswerToMaterial(question, answer, button, statusEl, options 
             method: 'POST',
             body: JSON.stringify({
                 project_id: Number(projectId),
-                material_document_id: selectedMaterialDocumentId ? Number(selectedMaterialDocumentId) : null,
+                material_document_id: null,
                 question: resolvedQuestion,
                 answer: resolvedAnswer,
                 title: materialMeta.title,
@@ -353,9 +362,7 @@ async function saveAnswerToMaterial(question, answer, button, statusEl, options 
         }
 
         appendMaterialDocumentToList(data.material_document, { activate: true });
-        statusEl.textContent = data.created
-            ? `新しい資料「${data.material_document.title}」を作成しました。`
-            : `資料「${data.material_document.title}」へ追記しました。`;
+        statusEl.textContent = `新しい資料「${data.material_document.title}」を作成しました。`;
         button.textContent = '資料へ保存済み';
     } catch (error) {
         statusEl.textContent = error?.message || '資料メモの保存に失敗しました。';
@@ -429,13 +436,13 @@ function mountMaterialSaveAction(bubbleContainer, question, answer, options = {}
     statusEl.className = 'mt-2 text-[10px] text-slate-400 font-medium';
     statusEl.textContent = isCsvAnalysis
         ? 'CSV読解の結果は、資料メモか案件運用メモのどちらかへ保存できます。'
-        : '選択中の資料があればそこへ追記し、なければ新しい資料メモを作成します。';
+        : 'チャットから保存すると、毎回新しい資料メモを作成します。';
 
     if (String(canManageMaterial || '0') === '1') {
         const materialButton = document.createElement('button');
         materialButton.type = 'button';
         materialButton.className = 'text-[10px] bg-white border border-slate-200 hover:bg-slate-100 rounded-lg px-2.5 py-1 font-bold transition-colors';
-        materialButton.textContent = '📝 資料メモへ追記';
+        materialButton.textContent = '📝 資料メモとして保存';
         materialButton.addEventListener('click', () => {
             saveAnswerToMaterial(question, resolvedAnswer, materialButton, statusEl, options);
         });

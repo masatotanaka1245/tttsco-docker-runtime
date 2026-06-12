@@ -106,6 +106,21 @@ function materialNoteBuildCsvTitle(string $question, array $fileNames = []): str
     return "CSV読解メモ_{$dateLabel}";
 }
 
+function materialNoteBuildGeneralTitle(string $question): string
+{
+    $dateLabel = date('Ymd');
+    $subject = materialNoteNormalizeLine($question);
+    $subject = preg_replace('/[\\\/:*?"<>|#]+/u', ' ', (string)$subject) ?? (string)$subject;
+    $subject = preg_replace('/\s+/u', ' ', (string)$subject) ?? (string)$subject;
+    $subject = trim((string)$subject);
+    if ($subject !== '') {
+        $subject = mb_substr($subject, 0, 32);
+        return "AI資料メモ_{$dateLabel}_{$subject}";
+    }
+
+    return "AI資料メモ_{$dateLabel}";
+}
+
 $auth = new Auth($pdo);
 if (!$auth->isLoggedIn()) {
     http_response_code(401);
@@ -187,7 +202,7 @@ try {
         } elseif ($sourceKind === 'csv_analysis') {
             $resolvedTitle = materialNoteBuildCsvTitle($question, $fileNames);
         } else {
-            $resolvedTitle = 'AI資料メモ_' . date('Ymd');
+            $resolvedTitle = materialNoteBuildGeneralTitle($question);
         }
         $nextContent = '# ' . $resolvedTitle . "\n\n" . $appendBlock;
         $saved = $service->save((int)$projectId, $resolvedTitle, $nextContent, null);
