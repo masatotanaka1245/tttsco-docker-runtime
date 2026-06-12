@@ -35,10 +35,10 @@ AI_System_Data/config/schema_check.sql
 期待値:
 
 ```text
-SUMMARY  expected_columns=106  actual_columns_in_expected_tables=106
+SUMMARY  expected_columns=107  actual_columns_in_expected_tables=107
 ```
 
-差分行が表示されず、`SUMMARY` が `106 / 106` なら補正SQLは不要です。
+差分行が表示されず、`SUMMARY` が `107 / 107` なら補正SQLは不要です。
 
 ## 3. 差分補正
 
@@ -58,6 +58,12 @@ AI_System_Data/config/migrate_20260601_align_schema.sql
 
 このSQLは `INFORMATION_SCHEMA` を確認してから実行するため、対象カラムが存在しない場合はスキップします。
 
+`users.vision_model` が `MISSING_COLUMN` に出た場合は、続けて次も実行します。
+
+```text
+AI_System_Data/config/migrate_20260612_add_vision_model.sql
+```
+
 ## 4. 再チェック
 
 補正後に、もう一度以下を実行します。
@@ -69,7 +75,7 @@ AI_System_Data/config/schema_check.sql
 期待値:
 
 ```text
-SUMMARY  expected_columns=106  actual_columns_in_expected_tables=106
+SUMMARY  expected_columns=107  actual_columns_in_expected_tables=107
 ```
 
 `MISSING_COLUMN` / `EXTRA_COLUMN` / `TYPE_MISMATCH` の結果が表示されなければ完了です。
@@ -83,6 +89,10 @@ SUMMARY  expected_columns=106  actual_columns_in_expected_tables=106
 - `chat_reasoning_steps.search_context` を `LONGTEXT NULL` に変更
 - `chat_reasoning_steps.sub_answer` を `LONGTEXT NULL` に変更
 - `logs.ip_address` を削除
+
+`migrate_20260612_add_vision_model.sql` が行う変更:
+
+- `users.vision_model` を `VARCHAR(100) DEFAULT 'gemma4:e4b'` で追加
 
 ## 6. 注意
 

@@ -15,6 +15,7 @@ class UserSettingsSessionSynchronizer
             'sub_model' => (string)($_SESSION['sub_model'] ?? $defaults['sub_model']),
             'sql_model' => (string)($_SESSION['sql_model'] ?? $defaults['sql_model']),
             'embedding_model' => (string)($_SESSION['embedding_model'] ?? $defaults['embedding_model']),
+            'vision_model' => (string)($_SESSION['vision_model'] ?? $defaults['vision_model']),
             'ollama_host' => (string)($_SESSION['ollama_host'] ?? $defaults['ollama_host']),
         ];
 
@@ -26,6 +27,7 @@ class UserSettingsSessionSynchronizer
 
         $hasEmbeddingModelColumn = UserSettingsSchema::hasEmbeddingModelColumn($pdo);
         $hasSqlModelColumn = UserSettingsSchema::hasSqlModelColumn($pdo);
+        $hasVisionModelColumn = UserSettingsSchema::hasVisionModelColumn($pdo);
         try {
             $selectColumns = 'default_prompt, default_lang, default_model, sub_model, ollama_host';
             if ($hasSqlModelColumn) {
@@ -33,6 +35,9 @@ class UserSettingsSessionSynchronizer
             }
             if ($hasEmbeddingModelColumn) {
                 $selectColumns .= ', embedding_model';
+            }
+            if ($hasVisionModelColumn) {
+                $selectColumns .= ', vision_model';
             }
 
             $stmt = $pdo->prepare("SELECT {$selectColumns} FROM users WHERE id = ?");
@@ -56,6 +61,9 @@ class UserSettingsSessionSynchronizer
         if (!$hasSqlModelColumn && ($settings['sql_model'] ?? '') === '') {
             $settings['sql_model'] = $settings['sub_model'] ?? $defaults['sql_model'];
         }
+        if (!$hasVisionModelColumn && ($settings['vision_model'] ?? '') === '') {
+            $settings['vision_model'] = $settings['default_model'] ?? $defaults['vision_model'];
+        }
 
         self::writeSession($settings);
         return $settings;
@@ -69,6 +77,7 @@ class UserSettingsSessionSynchronizer
         $_SESSION['sub_model'] = (string)($settings['sub_model'] ?? ModelRoleResolver::DEFAULT_SUB_MODEL);
         $_SESSION['sql_model'] = (string)($settings['sql_model'] ?? $_SESSION['sub_model'] ?? ModelRoleResolver::DEFAULT_SQL_MODEL);
         $_SESSION['embedding_model'] = (string)($settings['embedding_model'] ?? ModelRoleResolver::DEFAULT_EMBEDDING_MODEL);
+        $_SESSION['vision_model'] = (string)($settings['vision_model'] ?? $_SESSION['default_model'] ?? ModelRoleResolver::DEFAULT_VISION_MODEL);
         $_SESSION['ollama_host'] = rtrim((string)($settings['ollama_host'] ?? ModelRoleResolver::DEFAULT_OLLAMA_HOST), '/');
     }
 }

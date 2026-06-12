@@ -82,6 +82,19 @@ class GlobalChatRouteProcessor {
         chatLogger("[PROMPT-BUDGET] route={$this->routeName} | phase={$phase} | num_ctx={$numCtx} | totalChars={$totalChars} | " . implode(' | ', $segments));
     }
 
+    private function logGlobalEvent(string $event, string $message, array $context = []): void
+    {
+        $suffix = '';
+        if ($context !== []) {
+            $encoded = json_encode($context, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            if (is_string($encoded) && $encoded !== '') {
+                $suffix = ' | ' . $encoded;
+            }
+        }
+
+        chatLogger("[GLOBAL-{$event}] {$message}{$suffix}");
+    }
+
     /**
      * コンストラクタ (完全DI化への整流)
      */
@@ -166,7 +179,11 @@ class GlobalChatRouteProcessor {
                     'sub_query' => "調査時間上限に到達",
                     'sub_answer' => "安全装置により ReAct ループの総時間予算 {$max_loop_seconds} 秒に達したため、ここまでの観察結果で最終回答へ移行します。"
                 ];
-                chatLogger("[WARN] ReAct総時間予算を超過しました。elapsed=" . round($elapsedBeforeIteration, 2) . "秒 | max={$max_loop_seconds}秒");
+                $this->logGlobalEvent('REACT-STOP', 'ReAct総時間予算を超過したため打ち切ります。', [
+                    'reason' => 'time_budget',
+                    'elapsed' => round($elapsedBeforeIteration, 2),
+                    'max' => $max_loop_seconds,
+                ]);
                 break;
             }
 
@@ -213,7 +230,10 @@ class GlobalChatRouteProcessor {
                 $duplicateStop = $this->maybeStopRepeatedSqlAction($thought, $action_input, $iteration);
                 if ($duplicateStop) {
                     $is_finished = true;
-                    chatLogger("[WARN] ReAct [{$iteration}] 同一SQLの再実行を検知したため、ここまでの観察結果で調査を打ち切ります。");
+                    $this->logGlobalEvent('REACT-STOP', '同一SQLの再実行を検知したため打ち切ります。', [
+                        'reason' => 'duplicate_sql',
+                        'iteration' => $iteration,
+                    ]);
                     break;
                 }
 
@@ -227,7 +247,10 @@ class GlobalChatRouteProcessor {
                     'sub_query' => "不正なアクション (ステップ {$iteration})",
                     'sub_answer' => "【AIの推論】\n{$thought}\n\n【エラー】\n不正なアクション '{$action}' が選択されました。"
                 ];
-                chatLogger("[WARN] ReAct [{$iteration}] AIが不正なアクションを指定しました: " . $action);
+                $this->logGlobalEvent('REACT-WARN', 'AIが不正なアクションを指定しました。', [
+                    'iteration' => $iteration,
+                    'action' => $action,
+                ]);
             }
         }
 
@@ -237,7 +260,10 @@ class GlobalChatRouteProcessor {
                 'sub_query' => "調査強制終了",
                 'sub_answer' => "安全装置により最大試行回数({$max_iterations}回)で打ち切りました。これまでに集めた情報をもとに回答を生成します。"
             ];
-            chatLogger("[WARN] ReAct制限最大ループに達しました。安全に自律プロセスを打ち切り、最終統合フェーズへ移行します。");
+            $this->logGlobalEvent('REACT-STOP', '最大ループ数に達したため打ち切ります。', [
+                'reason' => 'max_iterations',
+                'max_iterations' => $max_iterations,
+            ]);
         }
     }
 
@@ -253,7 +279,10 @@ class GlobalChatRouteProcessor {
         $data = json_decode($clean_json, true);
         
         if (!is_array($data)) {
-            chatLogger("[WARN] ReAct [{$iteration}] JSONのパースに失敗。生成文字列: " . $rawResponse);
+            $this->logGlobalEvent('REACT-PARSE', 'ReAct応答JSONのパースに失敗しました。', [
+                'iteration' => $iteration,
+                'raw' => $rawResponse,
+            ]);
             return [
                 'thought'      => "出力形式エラーが発生しました。修正して再試行します。",
                 'action'       => "finish",
@@ -296,7 +325,10 @@ class GlobalChatRouteProcessor {
                 );
 
                 if ($this->activeReasoningModel !== $candidate) {
-                    chatLogger("[MODEL-FALLBACK] global ReAct reasoning model を {$this->activeReasoningModel} から {$candidate} へ切り替えました。");
+                    $this->logGlobalEvent('MODEL-FALLBACK', 'global ReAct reasoning model を切り替えました。', [
+                        'from' => $this->activeReasoningModel,
+                        'to' => $candidate,
+                    ]);
                     $this->activeReasoningModel = $candidate;
                 }
 
@@ -308,7 +340,10 @@ class GlobalChatRouteProcessor {
                 $hasNextCandidate = $candidate !== end($candidates);
 
                 if ($isModelNotFound && $hasNextCandidate) {
-                    chatLogger("[MODEL-FALLBACK] global ReAct reasoning model {$candidate} が利用できないため、次の候補へ切り替えます。detail={$message}");
+                    $this->logGlobalEvent('MODEL-FALLBACK', 'global ReAct reasoning model が利用できないため次候補へ切り替えます。', [
+                        'model' => $candidate,
+                        'detail' => $message,
+                    ]);
                     continue;
                 }
 
@@ -382,7 +417,11 @@ class GlobalChatRouteProcessor {
         $sanitizedSql = $this->sanitizeReActSql($generated_sql);
         if (!$sanitizedSql['success']) {
             $observation = $sanitizedSql['error'];
-            chatLogger("[WARN] ReAct [{$iteration}] SQL実行前ガードで停止: " . $observation);
+            $this->logGlobalEvent('REACT-SQL', 'SQL実行前ガードで停止しました。', [
+                'iteration' => $iteration,
+                'stage' => 'precheck',
+                'detail' => $observation,
+            ]);
 
             $this->observationHistory .= "\n[Action]: execute_sql\n[Query]: {$generated_sql}\n[Result]:\n{$observation}\n";
             $this->reasoningSteps[] = [
@@ -409,7 +448,11 @@ class GlobalChatRouteProcessor {
         
         if (!$execResult['success']) {
             $observation = "SQLエラー: " . ($execResult['error'] ?? 'クエリの監査拒否または実行エラー。') . "\nカラム名や構文を見直して再検索してください。";
-            chatLogger("[WARN] ReAct [{$iteration}] SQL実行失敗または監査拒否: " . $observation);
+            $this->logGlobalEvent('REACT-SQL', 'SQL実行失敗または監査拒否を検知しました。', [
+                'iteration' => $iteration,
+                'stage' => 'execute',
+                'detail' => $observation,
+            ]);
         } else {
             $limited_results = $execResult['data'] ?? [];
             $fetched_count = count($limited_results);
@@ -635,19 +678,26 @@ class GlobalChatRouteProcessor {
         chatLogger("[DEBUG] Ollama最終ストリーム cURL 通信完了。cURLエラー: " . ($curl_error ?: 'なし'));
 
         if (!empty($this->ollamaErrorMsg)) {
-            chatLogger("CRITICAL: Ollama内部システムエラーを検知しました: {$this->ollamaErrorMsg}");
+            $this->logGlobalEvent('FINAL-ERROR', 'Ollama内部システムエラーを検知しました。', [
+                'detail' => $this->ollamaErrorMsg,
+            ]);
             sendSSE('error', ['status' => 'error', 'error' => "⚠️ Ollama AIサーバーエラー: {$this->ollamaErrorMsg}"]);
             return false;
         }
 
         if (!$success) {
-            chatLogger("CRITICAL: AIサーバー通信失敗 (Host: {$this->ollama_host} | cURL Error: {$curl_error})");
+            $this->logGlobalEvent('FINAL-ERROR', 'AIサーバー通信に失敗しました。', [
+                'host' => $this->ollama_host,
+                'curl_error' => $curl_error,
+            ]);
             sendSSE('error', ['status' => 'error', 'error' => 'AIサーバーとの通信に失敗しました: ' . $curl_error]);
             return false;
         }
 
         if ($http_code !== 200) {
-            chatLogger("CRITICAL: AIサーバーがエラーコード {$http_code} を返しました。");
+            $this->logGlobalEvent('FINAL-ERROR', 'AIサーバーがHTTPエラーを返しました。', [
+                'http_code' => $http_code,
+            ]);
             sendSSE('error', ['status' => 'error', 'error' => "⚠️ AIサーバー通信エラー (HTTPステータス: {$http_code})"]);
             return false;
         }
@@ -766,7 +816,7 @@ class GlobalChatRouteProcessor {
              . "- `project_faqs` (ナレッジ): id, project_id, question_summary, answer_summary, created_at\n"
              . "- `chat_history` (チャット履歴): id, project_id, user_id, role, message, created_at\n"
              . "- `project_members` (アサイン管理): id, project_id, user_id, role, assigned_at\n"
-             . "- `users` (ユーザー設定情報): id, username, department, role, default_prompt, default_lang, default_model, sub_model, sql_model, embedding_model, ollama_host, created_at, updated_at\n\n"
+             . "- `users` (ユーザー設定情報): id, username, department, role, default_prompt, default_lang, default_model, sub_model, sql_model, embedding_model, vision_model, ollama_host, created_at, updated_at\n\n"
              . "【リレーションの基本ルール】\n"
              . "各テーブルは `projects.id` に対して `project_id` を外部キーとして持っています。`doc_chunks` は `documents.id` に紐づきます。";
     }

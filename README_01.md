@@ -109,6 +109,9 @@ Tailwind CSS	3.x
 - `embedding model`
   - ベクトル化専用
   - RAG / 類似検索 / 埋め込み更新に使用
+- `vision model`
+  - PDF / 画像解析専用
+  - ページ全体要約 / スライス読解 / タイル読解に使用
 
 この再設計では、`main` を「ユーザーが最終的に体験する品質責任のモデル」、`sub` を「途中の補助処理を受け持つモデル」、`embedding` を「検索基盤専用モデル」として分離します。
 
@@ -124,8 +127,9 @@ Tailwind CSS	3.x
 - 保存時のモデル検証では、`mxbai-embed-large` と `mxbai-embed-large:latest` のような tag 差を吸収し、Ollama 側の実在名へ正規化して保存する
 - 2026-06-04 の時点で、`data_analysis` も第一段として `sub_model` を受け取り始めており、CSV証拠読解、semantic 系、Text-to-SQL 生成と再生成から順に `sub` へ寄せている
 - 2026-06-08 の時点で、SQL専用に `sql_model` を追加し、`data_analysis` / `advanced_hybrid` / `global` の SQL 生成と SQL 自己修復を main/sub から分離した
-- 2026-06-05 の時点で、`history_summary / normal_rag / data_analysis / advanced_hybrid / global` の `result` payload には共通 shape の `model_roles` が入り、`main_model` / `sub_model` / `sql_model` / `embedding_model` / `applied_role` を後から確認できる
-- 2026-06-04 の時点で、`ChatRouteDispatcher` も `[MODEL-ROLES]` ログを出し、route 決定直後の `main / sub / sql / embedding` を追える
+- 2026-06-05 の時点で、`history_summary / normal_rag / data_analysis / advanced_hybrid / global` の `result` payload には共通 shape の `model_roles` が入り、`main_model` / `sub_model` / `sql_model` / `embedding_model` / `vision_model` / `applied_role` を後から確認できる
+- 2026-06-04 の時点で、`ChatRouteDispatcher` も `[MODEL-ROLES]` ログを出し、route 決定直後の `main / sub / sql / embedding / vision` を追える
+- 2026-06-12 の時点で、`vision_model` を追加し、`upload.php` の PDFページ全体要約・スライス読解・タイル読解は `main_model` 固定ではなく `vision_model` を優先使用する
 - 2026-06-04 の時点で、`callOllamaChat()` は `[OLLAMA-PAYLOAD]` と `[OLLAMA-THINK]` ログを出し、Gemma 系モデルで `<|think|>` を自動付与したか、応答に思考トレースが含まれたかを追える
 - `diagram_mode=on` の小規模CSV概要は、`CSV-SUMMARY` の軽量ルートでも deterministic に `json:chart` を返す
 - `登録済みCSVの概要` のような広域要約は、直前履歴の `recent_history` だけで `CSV-AGG` に誤進入しないよう抑制する
@@ -141,7 +145,7 @@ Tailwind CSS	3.x
 - `これまでの会話内容を簡潔にまとめてください` でも、`report_mode=on` なら軽量 `history_summary` より報告書化フローを優先する
 - `これまでの会話内容を簡潔にまとめて報告書を作成してください` は、当然 `report_mode=on` なら報告書化フローへ進む
 - `data_analysis` の第二段として、残る AI 補助工程があれば `main` / `sub` の責務境界を再点検する
-- `sql_model` / `embedding_model` 列を本番DBへ反映した環境で、セッション暫定設定から永続設定へ移行できるか確認する
+- `sql_model` / `embedding_model` / `vision_model` 列を本番DBへ反映した環境で、セッション暫定設定から永続設定へ移行できるか確認する
 
 ### モデル責務の確認観点
 
@@ -155,6 +159,8 @@ Tailwind CSS	3.x
   - 軽量 route (`history_summary` / `normal_rag`) でも、未使用なら `applied_role` とは切り離して configured value を返す
 - `embedding_model`
   - ベクトル検索や埋め込み更新で使う設定モデル
+- `vision_model`
+  - PDF / 画像解析で使う設定モデル
 - `applied_role`
   - その最終 payload をどの役で出荷したか
   - 現時点では最終回答の payload はすべて `main`
@@ -869,3 +875,4 @@ users	11	ollama_host	varchar(255)	YES		http://tsc25dtp116:11434	Ollama接続先U
 users	12	sub_model	varchar(100)	YES		gpt-oss:20b	中間処理・補助分析用サブモデル
 users	13	sql_model	varchar(100)	YES		gpt-oss:20b	Text-to-SQL・SQL自己修復用モデル
 users	14	embedding_model	varchar(100)	YES		mxbai-embed-large	ベクトル化専用モデル
+users	15	vision_model	varchar(100)	YES		gemma4:e4b	PDF・画像解析用ビジョンモデル

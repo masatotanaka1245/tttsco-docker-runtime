@@ -18,6 +18,7 @@ $userId = $_SESSION['user_id'] ?? 0;
 $modelDefaults = ModelRoleResolver::defaults();
 $hasEmbeddingModelColumn = UserSettingsSchema::hasEmbeddingModelColumn($pdo);
 $hasSqlModelColumn = UserSettingsSchema::hasSqlModelColumn($pdo);
+$hasVisionModelColumn = UserSettingsSchema::hasVisionModelColumn($pdo);
 $userSettings = UserSettingsSessionSynchronizer::sync($pdo, (int)$userId);
 $modelSettingFields = [
     [
@@ -47,6 +48,13 @@ $modelSettingFields = [
         'value' => $userSettings['embedding_model'],
         'placeholder' => 'mxbai-embed-large',
         'description' => '※ ベクトル化と類似検索の埋め込み生成に使います。',
+    ],
+    [
+        'name' => 'vision_model',
+        'label' => '画像処理モデル',
+        'value' => $userSettings['vision_model'] ?? $userSettings['default_model'],
+        'placeholder' => 'gemma4:e4b',
+        'description' => '※ PDFページ全体要約・スライス読解・画像解析に優先して使います。',
     ],
 ];
 
@@ -170,6 +178,9 @@ if (!function_exists('isActive')) {
                 <?php endif; ?>
                 <?php if (!$hasEmbeddingModelColumn): ?>
                     <p class="text-[10px] text-amber-600">※ 現在のDBでは `embedding_model` 列が未作成のため、この値はセッション上の暫定設定として扱われます。</p>
+                <?php endif; ?>
+                <?php if (!$hasVisionModelColumn): ?>
+                    <p class="text-[10px] text-amber-600">※ 現在のDBでは `vision_model` 列が未作成のため、この値はセッション上の暫定設定として扱われます。</p>
                 <?php endif; ?>
                 <p class="text-[10px] text-slate-500">※ 保存時に `Ollama /api/tags` を確認し、入力したモデル名が実在しない場合は保存しません。</p>
             </div>

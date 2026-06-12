@@ -331,6 +331,7 @@ try {
     $sub_model = $resolvedModels['sub_model'];
     $sql_model = $resolvedModels['sql_model'];
     $embedding_model = $resolvedModels['embedding_model'];
+    $vision_model = $resolvedModels['vision_model'] ?? $main_model;
     $prompt_key     = $input['prompt_mode'] ?? 'construction_consultant';
     $reasoning_id   = $input['reasoning_id'] ?? ($input['advanced_reasoning_id'] ?? null);
     $report_mode    = (isset($input['report_mode']) && $input['report_mode'] === true);
@@ -366,7 +367,7 @@ try {
             'hit_count' => 0,
             'reasoning_steps' => [],
             'applied_model' => $selected_model,
-            'model_roles' => ChatModelRolePayload::build($main_model, $sub_model, $embedding_model, 'main', $sql_model),
+            'model_roles' => ChatModelRolePayload::build($main_model, $sub_model, $embedding_model, 'main', $sql_model, $vision_model),
             'created_at' => date('Y/m/d H:i'),
             'report_document' => null,
             'csv_export' => null
@@ -405,7 +406,7 @@ try {
                 'hit_count' => 0,
                 'reasoning_steps' => [],
                 'applied_model' => $selected_model,
-                'model_roles' => ChatModelRolePayload::build($main_model, $sub_model, $embedding_model, 'main', $sql_model),
+                'model_roles' => ChatModelRolePayload::build($main_model, $sub_model, $embedding_model, 'main', $sql_model, $vision_model),
                 'created_at' => date('Y/m/d H:i'),
                 'report_document' => null,
                 'csv_export' => null
@@ -544,6 +545,7 @@ try {
         'sub_model' => $sub_model,
         'sql_model' => $sql_model,
         'embedding_model' => $embedding_model,
+        'vision_model' => $vision_model,
         'prompt_key' => $prompt_key,
         'project_context' => $project_context,
         'history_summary_text' => $history_summary_text,

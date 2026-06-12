@@ -57,15 +57,21 @@ $modelInputs = [
         'label' => 'Embeddingモデル',
         'value' => trim($input['embedding_model'] ?? $modelDefaults['embedding_model']),
     ],
+    'vision_model' => [
+        'label' => '画像処理モデル',
+        'value' => trim($input['vision_model'] ?? $input['default_model'] ?? $modelDefaults['vision_model']),
+    ],
 ];
 $model = $modelInputs['default_model']['value'];
 $sub_model = $modelInputs['sub_model']['value'];
 $sql_model = $modelInputs['sql_model']['value'];
 $embedding_model = $modelInputs['embedding_model']['value'];
+$vision_model = $modelInputs['vision_model']['value'];
 // URLの末尾の「/」を取り除く
 $ollama_host = rtrim(trim($input['ollama_host'] ?? 'http://127.0.0.1:11434'), '/');
 $hasEmbeddingModelColumn = UserSettingsSchema::hasEmbeddingModelColumn($pdo);
 $hasSqlModelColumn = UserSettingsSchema::hasSqlModelColumn($pdo);
+$hasVisionModelColumn = UserSettingsSchema::hasVisionModelColumn($pdo);
 
 $missingRequiredFields = [];
 if ($ollama_host === '') {
@@ -129,6 +135,7 @@ $model = OllamaModelCatalog::resolveRequestedModel($model, $availableModels) ?? 
 $sub_model = OllamaModelCatalog::resolveRequestedModel($sub_model, $availableModels) ?? $sub_model;
 $sql_model = OllamaModelCatalog::resolveRequestedModel($sql_model, $availableModels) ?? $sql_model;
 $embedding_model = OllamaModelCatalog::resolveRequestedModel($embedding_model, $availableModels) ?? $embedding_model;
+$vision_model = OllamaModelCatalog::resolveRequestedModel($vision_model, $availableModels) ?? $vision_model;
 
 try {
     // 5. データベース(usersテーブル)の更新
@@ -150,6 +157,11 @@ try {
             embedding_model = ?, ";
         $params[] = $embedding_model;
     }
+    if ($hasVisionModelColumn) {
+        $sql .= "
+            vision_model = ?, ";
+        $params[] = $vision_model;
+    }
     $sql .= "
             updated_at = NOW()
         WHERE id = ?
@@ -165,12 +177,14 @@ try {
     $_SESSION['sub_model']      = $sub_model;
     $_SESSION['sql_model']      = $sql_model;
     $_SESSION['embedding_model'] = $embedding_model;
+    $_SESSION['vision_model']   = $vision_model;
     $_SESSION['ollama_host']    = $ollama_host;
 
     echo json_encode([
         'success' => true,
         'sql_model_persisted' => $hasSqlModelColumn,
         'embedding_model_persisted' => $hasEmbeddingModelColumn,
+        'vision_model_persisted' => $hasVisionModelColumn,
         'validated_model_count' => count($availableModels)
     ]);
 

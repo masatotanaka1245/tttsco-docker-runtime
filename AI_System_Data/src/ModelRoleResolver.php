@@ -7,6 +7,7 @@ class ModelRoleResolver
     public const DEFAULT_SUB_MODEL = 'gpt-oss:20b';
     public const DEFAULT_SQL_MODEL = 'codellama:7b';
     public const DEFAULT_EMBEDDING_MODEL = 'mxbai-embed-large';
+    public const DEFAULT_VISION_MODEL = self::DEFAULT_MAIN_MODEL;
 
     public static function defaults(): array
     {
@@ -17,6 +18,7 @@ class ModelRoleResolver
             'sub_model' => self::DEFAULT_SUB_MODEL,
             'sql_model' => self::DEFAULT_SQL_MODEL,
             'embedding_model' => getenv('OLLAMA_EMBED_MODEL') ?: self::DEFAULT_EMBEDDING_MODEL,
+            'vision_model' => self::DEFAULT_VISION_MODEL,
         ];
     }
 
@@ -63,6 +65,14 @@ class ModelRoleResolver
             $defaults['embedding_model']
         );
 
+        $visionModel = self::normalizeModel(
+            $overrides['vision_model']
+                ?? $session['vision_model']
+                ?? $mainModel
+                ?? $defaults['vision_model'],
+            $defaults['vision_model']
+        );
+
         return [
             'ollama_host' => $ollamaHost,
             'main_model' => $mainModel,
@@ -70,6 +80,7 @@ class ModelRoleResolver
             'sub_model' => $subModel,
             'sql_model' => $sqlModel,
             'embedding_model' => $embeddingModel,
+            'vision_model' => $visionModel,
             'worker_model' => $subModel,
             'integration_model' => $mainModel,
         ];

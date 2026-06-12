@@ -404,9 +404,10 @@ try {
     @session_start();
     $ollamaHost = rtrim($_SESSION['ollama_host'] ?? (getenv('OLLAMA_HOST') ?: 'http://127.0.0.1:11434'), '/');
     $resolvedModels = ModelRoleResolver::resolveUserSettings($_SESSION);
-    $vlmModel   = $resolvedModels['main_model'];
+    $vlmModel   = $resolvedModels['vision_model'] ?? $resolvedModels['main_model'];
     $textModel  = $resolvedModels['sub_model']; // 重複排除と要約用
     session_write_close();
+    logger("[PDF-IMAGE-MODEL] vision_model={$vlmModel} | text_model={$textModel} | host={$ollamaHost}");
 
     // ★GPUフル活用のため、EmbeddingEngineを使わずにここで直接cURLを用いて num_gpu=999 を強制指定
     $embed_model = $resolvedModels['embedding_model'];

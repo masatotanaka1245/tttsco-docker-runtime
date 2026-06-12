@@ -4,6 +4,7 @@ class UserSettingsSchema
 {
     private static ?bool $hasEmbeddingModelColumn = null;
     private static ?bool $hasSqlModelColumn = null;
+    private static ?bool $hasVisionModelColumn = null;
 
     public static function hasEmbeddingModelColumn(PDO $pdo): bool
     {
@@ -13,6 +14,11 @@ class UserSettingsSchema
     public static function hasSqlModelColumn(PDO $pdo): bool
     {
         return self::hasColumn($pdo, 'sql_model', self::$hasSqlModelColumn);
+    }
+
+    public static function hasVisionModelColumn(PDO $pdo): bool
+    {
+        return self::hasColumn($pdo, 'vision_model', self::$hasVisionModelColumn);
     }
 
     private static function hasColumn(PDO $pdo, string $columnName, ?bool &$cache): bool
