@@ -33,6 +33,7 @@ require_once __DIR__ . '/../../config/session.php';
 require_once __DIR__ . '/../../src/Auth.php';
 require_once __DIR__ . '/../../src/ProjectAccess.php';
 require_once __DIR__ . '/../../src/AppLogger.php';
+require_once __DIR__ . '/../../src/DocChunkImageDescriptionNormalizer.php';
 require_once __DIR__ . '/../../src/ModelRoleResolver.php';
 require_once __DIR__ . '/../../src/UserSettingsSessionSynchronizer.php';
 
@@ -306,15 +307,7 @@ function textSuggestsVisualEvidence(string $rawText): bool {
 }
 
 function isVisionUnavailableResponse(string $text): bool {
-    $normalized = trim(preg_replace('/\s+/u', ' ', $text));
-    if ($normalized === '') {
-        return false;
-    }
-
-    return (bool)preg_match(
-        '/(画像|写真|添付|分析対象).{0,40}(ない|ありません|おりません|未提供|見当たりません)|再度.{0,20}(アップロード|提供)/iu',
-        $normalized
-    );
+    return DocChunkImageDescriptionNormalizer::isVisionUnavailableResponse($text);
 }
 
 function shouldUseVisualAnalysisForAuto(string $rawText, int $textCharCount, ?int $imageCount): bool {
@@ -561,7 +554,7 @@ try {
         if ($analysisMode === 'auto' && !$autoNeedsVisual && $textCharCount > 0) {
             updateProgress('processing', 'extraction', $pageNum - 0.5, $totalPages, "P.{$pageNum} 本文中心ページとして高速抽出を適用");
             $combinedText = "【電子テキスト】\n" . $rawText;
-            $finalImageDesc = "Auto Native Text | textChars={$textCharCount}";
+            $finalImageDesc = buildImageDescriptionForStorage('', '', $pageImageCount, 'native');
             $allPageOverviews[] = "P.{$pageNum}: 本文中心のページ（ネイティブテキスト抽出）";
         } else {
             $renderDpi = $analysisMode === 'auto' ? 200 : 300;
@@ -719,10 +712,12 @@ try {
                     $emb = $embedWithRetry($safeTextForEmbedding, "P.{$pageNum} Chunk " . ($chunkIdx + 1));
                     abortIfUploadCancelled($pdo, $destPath, $pageNum, $totalPages);
                     updateProgress('processing', 'storing', $pageNum, $totalPages, "P.{$pageNum} データベースへ保存中... (" . ($chunkIdx + 1) . "/{$totalChunks})");
-                    $stmtChunk->execute([$docId, $pageNum, $chunkText, json_encode($emb), $finalImageDesc]);
+                    $normalizedImageDesc = DocChunkImageDescriptionNormalizer::normalizeForStorage($finalImageDesc, $chunkText);
+                    $stmtChunk->execute([$docId, $pageNum, $chunkText, json_encode($emb), $normalizedImageDesc]);
                 } catch (Exception $e) {
                     logger("Embedding Skip P.{$pageNum} Chunk " . ($chunkIdx + 1) . ": " . $e->getMessage());
-                    $stmtChunk->execute([$docId, $pageNum, $chunkText, json_encode([]), $finalImageDesc]);
+                    $normalizedImageDesc = DocChunkImageDescriptionNormalizer::normalizeForStorage($finalImageDesc, $chunkText);
+                    $stmtChunk->execute([$docId, $pageNum, $chunkText, json_encode([]), $normalizedImageDesc]);
                 }
             }
         }
