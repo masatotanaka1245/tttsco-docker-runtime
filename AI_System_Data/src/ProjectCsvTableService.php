@@ -157,6 +157,124 @@ class ProjectCsvTableService
         return $updated;
     }
 
+    public function mergeIntoMain(int $projectId, int $mainCsvFileId, array $subCsvFileIds, string $outputFileName = '', array $columnMappings = []): array
+    {
+        $mainFile = $this->findById($projectId, $mainCsvFileId);
+        if (!$mainFile) {
+            throw new RuntimeException('メインCSVが見つかりません。');
+        }
+
+        $normalizedSubIds = [];
+        foreach ($subCsvFileIds as $subCsvFileId) {
+            $id = (int)$subCsvFileId;
+            if ($id <= 0 || $id === $mainCsvFileId || in_array($id, $normalizedSubIds, true)) {
+                continue;
+            }
+            $normalizedSubIds[] = $id;
+        }
+
+        if ($normalizedSubIds === []) {
+            throw new InvalidArgumentException('サブCSVを1件以上選択してください。');
+        }
+
+        $mainHeaders = $this->decodeHeaders((string)($mainFile['column_headers'] ?? ''));
+        if ($mainHeaders === []) {
+            throw new RuntimeException('メインCSVに有効な列定義がありません。');
+        }
+
+        $subFiles = [];
+        foreach ($normalizedSubIds as $subCsvFileId) {
+            $subFile = $this->findById($projectId, $subCsvFileId);
+            if (!$subFile) {
+                throw new RuntimeException('サブCSVの一部が見つかりません。');
+            }
+            $subFiles[] = $subFile;
+        }
+
+        $normalizedMappings = $this->normalizeColumnMappings($mainHeaders, $subFiles, $columnMappings);
+
+        $mergedHeaders = $mainHeaders;
+        foreach ($subFiles as $subFile) {
+            foreach ($this->decodeHeaders((string)($subFile['column_headers'] ?? '')) as $header) {
+                $header = $normalizedMappings[(int)$subFile['id']][$header] ?? $header;
+                if (!in_array($header, $mergedHeaders, true)) {
+                    $mergedHeaders[] = $header;
+                }
+            }
+        }
+
+        $cleanOutputFileName = $this->normalizeFileName($outputFileName);
+        if ($cleanOutputFileName === '') {
+            $mainBaseName = pathinfo((string)($mainFile['file_name'] ?? 'main.csv'), PATHINFO_FILENAME);
+            $cleanOutputFileName = $this->normalizeFileName($mainBaseName . '_merged.csv');
+        }
+
+        $orderedFileIds = array_merge([$mainCsvFileId], $normalizedSubIds);
+        $rowIndex = 1;
+
+        $this->pdo->beginTransaction();
+        try {
+            $stmtInsertFile = $this->pdo->prepare("
+                INSERT INTO project_csv_files (project_id, file_name, column_headers, row_count, created_at)
+                VALUES (?, ?, ?, 0, NOW())
+            ");
+            $stmtInsertFile->execute([
+                $projectId,
+                $cleanOutputFileName,
+                json_encode($mergedHeaders, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            ]);
+
+            $mergedCsvFileId = (int)$this->pdo->lastInsertId();
+            $stmtInsertRow = $this->pdo->prepare("
+                INSERT INTO project_csv_rows (csv_file_id, row_index, row_data, created_at)
+                VALUES (?, ?, ?, NOW())
+            ");
+
+            foreach ($orderedFileIds as $sourceCsvFileId) {
+                foreach ($this->loadRowsForFile($sourceCsvFileId) as $sourceRow) {
+                    $preparedRow = $sourceCsvFileId === $mainCsvFileId
+                        ? $sourceRow
+                        : $this->applyColumnMappingsToRow($sourceRow, $normalizedMappings[$sourceCsvFileId] ?? []);
+                    $normalizedRow = [];
+                    foreach ($mergedHeaders as $header) {
+                        $value = $preparedRow[$header] ?? '';
+                        if (is_array($value)) {
+                            $value = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                        }
+                        $normalizedRow[$header] = trim((string)$value);
+                    }
+
+                    $stmtInsertRow->execute([
+                        $mergedCsvFileId,
+                        $rowIndex,
+                        json_encode($normalizedRow, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                    ]);
+                    $rowIndex++;
+                }
+            }
+
+            $totalRows = max(0, $rowIndex - 1);
+            $stmtUpdateCount = $this->pdo->prepare('UPDATE project_csv_files SET row_count = ? WHERE id = ?');
+            $stmtUpdateCount->execute([$totalRows, $mergedCsvFileId]);
+
+            $this->pdo->commit();
+        } catch (Throwable $e) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+            throw $e;
+        }
+
+        $merged = $this->findById($projectId, $mergedCsvFileId);
+        if (!$merged) {
+            throw new RuntimeException('統合後CSVの取得に失敗しました。');
+        }
+
+        $merged['headers'] = $mergedHeaders;
+        $merged['source_csv_ids'] = $orderedFileIds;
+        return $merged;
+    }
+
     public function findById(int $projectId, int $csvFileId): ?array
     {
         $stmt = $this->pdo->prepare("
@@ -195,6 +313,78 @@ class ProjectCsvTableService
         }
 
         return $this->normalizeHeaders($decoded);
+    }
+
+    private function loadRowsForFile(int $csvFileId): array
+    {
+        $stmt = $this->pdo->prepare('SELECT row_data FROM project_csv_rows WHERE csv_file_id = ? ORDER BY row_index ASC');
+        $stmt->execute([$csvFileId]);
+
+        $rows = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $decoded = json_decode((string)($row['row_data'] ?? ''), true);
+            $rows[] = is_array($decoded) ? $decoded : [];
+        }
+
+        return $rows;
+    }
+
+    private function normalizeColumnMappings(array $mainHeaders, array $subFiles, array $columnMappings): array
+    {
+        $allowedMainHeaders = array_fill_keys($mainHeaders, true);
+        $normalized = [];
+
+        foreach ($subFiles as $subFile) {
+            $subFileId = (int)($subFile['id'] ?? 0);
+            $subHeaders = $this->decodeHeaders((string)($subFile['column_headers'] ?? ''));
+            $allowedSubHeaders = array_fill_keys($subHeaders, true);
+            $rawMappings = $columnMappings[(string)$subFileId] ?? $columnMappings[$subFileId] ?? [];
+            if (!is_array($rawMappings)) {
+                $normalized[$subFileId] = [];
+                continue;
+            }
+
+            $normalized[$subFileId] = [];
+            foreach ($rawMappings as $subHeader => $mainHeader) {
+                $subHeader = trim((string)$subHeader);
+                $mainHeader = trim((string)$mainHeader);
+                if ($subHeader === '' || $mainHeader === '') {
+                    continue;
+                }
+                if (!isset($allowedSubHeaders[$subHeader]) || !isset($allowedMainHeaders[$mainHeader])) {
+                    continue;
+                }
+                $normalized[$subFileId][$subHeader] = $mainHeader;
+            }
+        }
+
+        return $normalized;
+    }
+
+    private function applyColumnMappingsToRow(array $sourceRow, array $mappings): array
+    {
+        $preparedRow = [];
+        foreach ($sourceRow as $header => $value) {
+            $header = trim((string)$header);
+            if ($header === '') {
+                continue;
+            }
+
+            $targetHeader = trim((string)($mappings[$header] ?? $header));
+            if ($targetHeader === '') {
+                continue;
+            }
+
+            $stringValue = is_array($value)
+                ? json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+                : trim((string)$value);
+
+            if (!array_key_exists($targetHeader, $preparedRow) || ($preparedRow[$targetHeader] === '' && $stringValue !== '')) {
+                $preparedRow[$targetHeader] = $stringValue;
+            }
+        }
+
+        return $preparedRow;
     }
 
     private function normalizeFileName(string $fileName): string

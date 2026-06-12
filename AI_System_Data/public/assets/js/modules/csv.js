@@ -12,6 +12,7 @@ let activeCsvAiJobRequestController = null;
 let csvAiLifecycleBound = false;
 let csvAiJobPausedByVisibility = false;
 let csvAiJobHistoryRequestSeq = 0;
+let csvMergeState = { mainId: 0, subIds: [], mappings: {}, suggestions: [], suggestionSource: 'heuristic' };
 
 function notifySupportToast(message, variant = 'success', duration = 3200) {
     if (typeof window.showSupportToast === 'function') {
@@ -81,6 +82,98 @@ function setCsvHistoryCount(count) {
     if (countEl) {
         countEl.textContent = String(Math.max(0, count));
     }
+}
+
+function getCsvMergeRows() {
+    return Array.from(document.querySelectorAll('[data-csv-merge-row]'));
+}
+
+function getCsvMergeRowById(csvFileId) {
+    return getCsvMergeRows().find((row) => Number(row.dataset.csvFileId || 0) === Number(csvFileId)) || null;
+}
+
+function parseCsvMergeHeaders(row) {
+    if (!row) return [];
+    try {
+        const decoded = JSON.parse(String(row.dataset.headers || '[]'));
+        return Array.isArray(decoded) ? decoded.map((header) => String(header || '').trim()).filter(Boolean) : [];
+    } catch (error) {
+        return [];
+    }
+}
+
+function getCsvMergeMappingsForSub(csvFileId) {
+    const id = String(Number(csvFileId || 0));
+    const mappings = csvMergeState?.mappings;
+    if (!mappings || typeof mappings !== 'object' || Array.isArray(mappings)) {
+        return {};
+    }
+    const current = mappings[id];
+    return current && typeof current === 'object' && !Array.isArray(current) ? current : {};
+}
+
+function getCsvMergeMappedHeaders(row) {
+    const headers = parseCsvMergeHeaders(row);
+    const csvFileId = Number(row?.dataset.csvFileId || 0);
+    const mappings = getCsvMergeMappingsForSub(csvFileId);
+    return headers.map((header) => {
+        const mapped = String(mappings[header] || '').trim();
+        return mapped || header;
+    });
+}
+
+function setCsvMergeSuggestions(payload = null) {
+    const suggestions = Array.isArray(payload?.suggestions) ? payload.suggestions : [];
+    const source = String(payload?.source || 'heuristic');
+    const nextMappings = {};
+
+    suggestions.forEach((fileSuggestion) => {
+        const subFileId = String(Number(fileSuggestion?.sub_file_id || 0));
+        if (!subFileId || subFileId === '0') return;
+        nextMappings[subFileId] = {};
+        (Array.isArray(fileSuggestion?.mappings) ? fileSuggestion.mappings : []).forEach((mapping) => {
+            const subHeader = String(mapping?.sub_header || '').trim();
+            const mainHeader = String(mapping?.main_header || '').trim();
+            if (!subHeader || !mainHeader) return;
+            nextMappings[subFileId][subHeader] = mainHeader;
+        });
+    });
+
+    csvMergeState.suggestions = suggestions;
+    csvMergeState.suggestionSource = source;
+    csvMergeState.mappings = nextMappings;
+}
+
+function appendCsvMergeRow(csvFile) {
+    const list = document.getElementById('csv-merge-list');
+    if (!list || !csvFile?.id) return;
+    if (list.querySelector(`[data-csv-file-id="${String(csvFile.id)}"]`)) return;
+    Array.from(list.children).forEach((child) => {
+        if (!child.hasAttribute('data-csv-merge-row')) {
+            child.remove();
+        }
+    });
+
+    const fileName = String(csvFile.file_name || 'CSV');
+    const headers = Array.isArray(csvFile.headers) ? csvFile.headers : [];
+    const rowCount = Number(csvFile.row_count || 0);
+    const csvId = Number(csvFile.id || 0);
+
+    list.insertAdjacentHTML('afterbegin', `
+        <label class="grid grid-cols-[4.5rem_4.5rem_minmax(0,1fr)_5rem_5rem] gap-0 items-center bg-white hover:bg-slate-50 transition-colors px-0 py-0" data-csv-merge-row data-csv-file-id="${csvId}" data-csv-file-name="${escapeHTML(fileName)}" data-row-count="${rowCount}" data-header-count="${headers.length}" data-headers="${escapeHTML(JSON.stringify(headers))}">
+            <div class="px-3 py-3 text-center">
+                <input type="radio" name="merge_main_csv_id" value="${csvId}" class="w-4 h-4 accent-[#00758F]" onchange="window.handleCsvMergeMainChange && window.handleCsvMergeMainChange(this.value)">
+            </div>
+            <div class="px-3 py-3 text-center">
+                <input type="checkbox" name="merge_sub_csv_ids[]" value="${csvId}" class="w-4 h-4 accent-[#00758F]" onchange="window.handleCsvMergeSubToggle && window.handleCsvMergeSubToggle(this.value, this.checked)">
+            </div>
+            <div class="px-3 py-3 min-w-0">
+                <div class="text-[11px] font-bold text-slate-700 truncate" title="${escapeHTML(fileName)}">${escapeHTML(fileName)}</div>
+            </div>
+            <div class="px-3 py-3 text-right text-[10px] text-slate-500 font-mono">${rowCount.toLocaleString()}</div>
+            <div class="px-3 py-3 text-right text-[10px] text-slate-500 font-mono">${headers.length.toLocaleString()}</div>
+        </label>
+    `);
 }
 
 function buildCsvHistoryItemHtml(csvFile) {
@@ -294,6 +387,213 @@ function renderCsvAppendFields() {
     `).join('');
 }
 
+function resetCsvMergeState() {
+    csvMergeState = {
+        mainId: selectedCsvContext?.id ? Number(selectedCsvContext.id) : 0,
+        subIds: [],
+        mappings: {},
+        suggestions: [],
+        suggestionSource: 'heuristic',
+    };
+}
+
+function renderCsvMergeState() {
+    const rows = getCsvMergeRows();
+    const mainBadge = document.getElementById('csv-merge-main-badge');
+    const subBadge = document.getElementById('csv-merge-sub-badge');
+    const summaryMain = document.getElementById('csv-merge-summary-main');
+    const summarySubs = document.getElementById('csv-merge-summary-subs');
+    const summaryOutput = document.getElementById('csv-merge-summary-output');
+    const outputInput = document.getElementById('csv-merge-output-file-name');
+    const submitBtn = document.getElementById('csv-merge-submit');
+    const suggestBtn = document.getElementById('csv-merge-suggest-btn');
+
+    const mainRow = getCsvMergeRowById(csvMergeState.mainId);
+    const subRows = csvMergeState.subIds.map((id) => getCsvMergeRowById(id)).filter(Boolean);
+    const mainFileName = String(mainRow?.dataset.csvFileName || '');
+    const mainRowCount = Number(mainRow?.dataset.rowCount || 0);
+    const mainHeaders = parseCsvMergeHeaders(mainRow);
+    const subTotalRows = subRows.reduce((sum, row) => sum + Number(row.dataset.rowCount || 0), 0);
+    const outputRowCount = mainRowCount + subTotalRows;
+    const unionHeaders = [...mainHeaders];
+    subRows.forEach((row) => {
+        getCsvMergeMappedHeaders(row).forEach((header) => {
+            if (!unionHeaders.includes(header)) {
+                unionHeaders.push(header);
+            }
+        });
+    });
+    const outputHeaderCount = unionHeaders.length;
+
+    rows.forEach((row) => {
+        const id = Number(row.dataset.csvFileId || 0);
+        const radio = row.querySelector('input[type="radio"]');
+        const checkbox = row.querySelector('input[type="checkbox"]');
+        const isMain = id === Number(csvMergeState.mainId || 0);
+        const isSub = csvMergeState.subIds.includes(id);
+
+        if (radio) {
+            radio.checked = isMain;
+        }
+        if (checkbox) {
+            checkbox.checked = isSub;
+            checkbox.disabled = isMain;
+        }
+        row.classList.toggle('bg-teal-50/50', isMain || isSub);
+    });
+
+    if (mainBadge) {
+        mainBadge.textContent = mainFileName ? `メイン: ${mainFileName}` : 'メイン未選択';
+    }
+    if (subBadge) {
+        subBadge.textContent = `サブ ${csvMergeState.subIds.length} 件`;
+    }
+    if (summaryMain) {
+        summaryMain.textContent = mainFileName ? `メイン: ${mainFileName}` : 'メイン: 未選択';
+    }
+    if (summarySubs) {
+        summarySubs.textContent = csvMergeState.subIds.length > 0
+            ? `サブ: ${csvMergeState.subIds.length} 件 / ${subTotalRows.toLocaleString()} 行`
+            : 'サブ: 0 件';
+    }
+    if (summaryOutput) {
+        summaryOutput.textContent = mainFileName
+            ? `統合後見込み: ${outputRowCount.toLocaleString()} 行 / ${outputHeaderCount.toLocaleString()} 列`
+            : '統合後見込み: -- 行 / -- 列';
+    }
+
+    if (outputInput) {
+        const currentValue = String(outputInput.value || '').trim();
+        if (!currentValue || /_merged\.csv$/i.test(currentValue)) {
+            const baseName = mainFileName ? mainFileName.replace(/\.csv$/i, '') : 'merged_csv';
+            outputInput.value = `${baseName}_merged.csv`;
+        }
+    }
+
+    if (submitBtn) {
+        const canSubmit = Number(csvMergeState.mainId || 0) > 0 && csvMergeState.subIds.length > 0;
+        submitBtn.disabled = !canSubmit;
+        submitBtn.className = canSubmit
+            ? 'px-7 py-2 bg-[#00758F] text-white rounded-xl font-bold shadow-2xs hover:shadow-md hover:bg-[#005a6e] transition-all duration-200 ease-in-out transform active:scale-98'
+            : 'px-7 py-2 bg-slate-300 text-white rounded-xl font-bold shadow-sm cursor-not-allowed';
+    }
+    if (suggestBtn) {
+        const canSuggest = Number(csvMergeState.mainId || 0) > 0 && csvMergeState.subIds.length > 0;
+        suggestBtn.disabled = !canSuggest;
+        suggestBtn.className = canSuggest
+            ? 'px-4 py-2 bg-white border border-slate-200 rounded-xl font-bold text-[#00758F] hover:bg-slate-50 transition-all duration-200 ease-in-out whitespace-nowrap'
+            : 'px-4 py-2 bg-slate-100 border border-slate-200 rounded-xl font-bold text-slate-400 cursor-not-allowed whitespace-nowrap';
+    }
+}
+
+function renderCsvMergeSuggestions(payload = null) {
+    const container = document.getElementById('csv-merge-suggestions');
+    if (!container) return;
+
+    if (payload) {
+        setCsvMergeSuggestions(payload);
+    }
+
+    const suggestions = Array.isArray(csvMergeState.suggestions) ? csvMergeState.suggestions : [];
+    const sourceLabel = csvMergeState.suggestionSource === 'ai' ? 'AI提案' : '規則ベース候補';
+    const mainHeaders = parseCsvMergeHeaders(getCsvMergeRowById(csvMergeState.mainId));
+
+    if (suggestions.length === 0) {
+        container.className = 'min-h-[4.5rem] rounded-xl border border-dashed border-slate-200 bg-white/80 px-4 py-4 text-[10px] text-slate-400';
+        container.textContent = '候補はまだありません。メインCSVとサブCSVを選んで提案を実行してください。';
+        return;
+    }
+
+    container.className = 'min-h-[4.5rem] rounded-xl border border-slate-200 bg-white px-4 py-4 text-[10px] text-slate-600 space-y-3';
+    container.innerHTML = suggestions.map((fileSuggestion) => {
+        const subFileId = Number(fileSuggestion.sub_file_id || 0);
+        const fileName = escapeHTML(String(fileSuggestion.sub_file_name || 'サブCSV'));
+        const rows = Array.isArray(fileSuggestion.mappings) ? fileSuggestion.mappings : [];
+        const currentMappings = getCsvMergeMappingsForSub(subFileId);
+        return `
+            <div class="space-y-2">
+                <div class="flex items-center justify-between gap-3">
+                    <div class="font-bold text-slate-700">${fileName}</div>
+                    <span class="text-[9px] text-slate-500 bg-slate-100 border border-slate-200 rounded-full px-2 py-0.5 font-bold">${sourceLabel}</span>
+                </div>
+                ${rows.length > 0 ? `
+                    <div class="space-y-2">
+                        ${rows.map((mapping) => `
+                            <div class="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_1.4rem_minmax(0,1fr)] gap-2 items-center text-[10px] rounded-xl border border-slate-100 bg-slate-50/60 px-3 py-2">
+                                <span class="font-mono bg-white border border-slate-200 rounded px-2 py-1 text-slate-600 truncate" title="${escapeHTML(String(mapping.sub_header || ''))}">${escapeHTML(String(mapping.sub_header || ''))}</span>
+                                <span class="text-center text-slate-400">→</span>
+                                <select onchange="window.handleCsvMergeMappingChange && window.handleCsvMergeMappingChange(${subFileId}, '${String(mapping.sub_header || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'")}', this.value)" class="w-full border border-slate-200 rounded-lg bg-white px-2 py-1.5 text-[10px] font-medium text-slate-700 outline-none focus:border-teal-400">
+                                    <option value="">対応なし</option>
+                                    ${mainHeaders.map((header) => {
+                                        const selectedValue = String(currentMappings[String(mapping.sub_header || '')] || mapping.main_header || '').trim();
+                                        const selected = selectedValue === String(header) ? 'selected' : '';
+                                        return `<option value="${escapeHTML(String(header))}" ${selected}>${escapeHTML(String(header))}</option>`;
+                                    }).join('')}
+                                </select>
+                                ${mapping.reason ? `<div class="md:col-span-3 text-slate-400">${escapeHTML(String(mapping.reason))}</div>` : ''}
+                            </div>
+                        `).join('')}
+                    </div>
+                ` : `<div class="text-slate-400">対応候補は見つかりませんでした。</div>`}
+            </div>
+        `;
+    }).join('');
+}
+
+function handleCsvMergeMainChange(csvFileId) {
+    const nextMainId = Number(csvFileId || 0);
+    csvMergeState.mainId = nextMainId;
+    csvMergeState.subIds = csvMergeState.subIds.filter((id) => id !== nextMainId);
+    csvMergeState.mappings = {};
+    csvMergeState.suggestions = [];
+    renderCsvMergeState();
+    renderCsvMergeSuggestions(null);
+}
+
+function handleCsvMergeSubToggle(csvFileId, checked) {
+    const id = Number(csvFileId || 0);
+    if (!id || id === Number(csvMergeState.mainId || 0)) {
+        renderCsvMergeState();
+        return;
+    }
+
+    if (checked) {
+        if (!csvMergeState.subIds.includes(id)) {
+            csvMergeState.subIds.push(id);
+        }
+    } else {
+        csvMergeState.subIds = csvMergeState.subIds.filter((currentId) => currentId !== id);
+    }
+    csvMergeState.mappings = {};
+    csvMergeState.suggestions = [];
+    renderCsvMergeState();
+    renderCsvMergeSuggestions(null);
+}
+
+function handleCsvMergeMappingChange(subCsvFileId, subHeader, mainHeader) {
+    const subFileKey = String(Number(subCsvFileId || 0));
+    const normalizedSubHeader = String(subHeader || '').trim();
+    if (!subFileKey || subFileKey === '0' || !normalizedSubHeader) {
+        return;
+    }
+
+    if (!csvMergeState.mappings || typeof csvMergeState.mappings !== 'object' || Array.isArray(csvMergeState.mappings)) {
+        csvMergeState.mappings = {};
+    }
+    if (!csvMergeState.mappings[subFileKey] || typeof csvMergeState.mappings[subFileKey] !== 'object') {
+        csvMergeState.mappings[subFileKey] = {};
+    }
+
+    const normalizedMainHeader = String(mainHeader || '').trim();
+    if (normalizedMainHeader) {
+        csvMergeState.mappings[subFileKey][normalizedSubHeader] = normalizedMainHeader;
+    } else {
+        delete csvMergeState.mappings[subFileKey][normalizedSubHeader];
+    }
+
+    renderCsvMergeState();
+}
+
 function closeCsvCreateModal() {
     const modal = document.getElementById('csv-create-modal');
     if (!modal) return;
@@ -316,6 +616,13 @@ function closeCsvAppendModal() {
     const modal = document.getElementById('csv-row-append-modal');
     if (!modal) return;
     modal.classList.replace('flex', 'hidden');
+}
+
+function closeCsvMergeModal() {
+    const modal = document.getElementById('csv-merge-modal');
+    if (!modal) return;
+    modal.classList.replace('flex', 'hidden');
+    renderCsvMergeSuggestions(null);
 }
 
 function closeCsvAiCategorizeModal() {
@@ -541,6 +848,25 @@ function openCsvAppendModal() {
     modal.classList.replace('hidden', 'flex');
 }
 
+function openCsvMergeModal() {
+    const rows = getCsvMergeRows();
+    if (rows.length < 2) {
+        alert('CSV統合には少なくとも2件のCSVが必要です。');
+        return;
+    }
+
+    resetCsvMergeState();
+    renderCsvMergeState();
+    renderCsvMergeSuggestions(null);
+    const modal = document.getElementById('csv-merge-modal');
+    if (!modal) {
+        console.warn('csv-merge-modal not found');
+        alert('CSV統合モーダルが見つかりません。画面を再読み込みしてください。');
+        return;
+    }
+    modal.classList.replace('hidden', 'flex');
+}
+
 function handleAddCsvColumnDraft() {
     if (!selectedCsvContext) {
         alert('先に編集対象のCSVを選択してください。');
@@ -575,7 +901,7 @@ function handleRemoveCsvColumnDraft(index) {
 function bindCsvToolbarActions() {
     const bindings = [
         ['csv-create-trigger', openCsvCreateModal],
-        ['csv-append-trigger', openCsvAppendModal],
+        ['csv-merge-trigger', openCsvMergeModal],
     ];
 
     bindings.forEach(([id, handler]) => {
@@ -813,6 +1139,7 @@ async function loadCsvData(csvFileId, fileName) {
                         <div class="flex items-center gap-3 flex-shrink-0 whitespace-nowrap">
                             <button type="button" onclick="window.downloadCsvFile && window.downloadCsvFile(${csvFileId})" class="text-[#00758F] hover:text-[#005a6e] font-bold hover:underline">⬇️ ダウンロード</button>
                             <button type="button" onclick="window.openCsvAiCategorizeModal && window.openCsvAiCategorizeModal()" class="text-[#00758F] hover:text-[#005a6e] font-bold hover:underline">🤖 AI行解析</button>
+                            <button type="button" onclick="window.openCsvAppendModal && window.openCsvAppendModal()" class="text-[#00758F] hover:text-[#005a6e] font-bold hover:underline">✍️ 1行追加</button>
                             <button type="button" onclick="window.openCsvColumnEditModal && window.openCsvColumnEditModal()" class="text-[#00758F] hover:text-[#005a6e] font-bold hover:underline">📝 編集</button>
                             <button type="button" onclick="handleDeleteCsv(${csvFileId})" class="text-red-500 hover:text-red-700 font-bold hover:underline">🗑️ CSVを全削除</button>
                         </div>
@@ -968,6 +1295,7 @@ async function handleCreateManualCsv(e) {
         }
 
         prependCsvHistoryItem(response.csv_file);
+        appendCsvMergeRow(response.csv_file);
         setCsvHistoryCount(document.querySelectorAll('[id^="csv-item-"]').length);
         updateCsvBadge(1);
         form.reset();
@@ -1016,6 +1344,109 @@ async function handleAppendCsvRow(e) {
         notifySupportToast('CSVへ1行追加しました。');
     } catch (err) {
         alert(`CSVへの追記に失敗しました: ${err.message}`);
+    }
+}
+
+async function handleMergeCsvFiles(e) {
+    e.preventDefault();
+    const { projectId } = getConfig();
+    const outputInput = document.getElementById('csv-merge-output-file-name');
+    const submitBtn = document.getElementById('csv-merge-submit');
+    const outputFileName = String(outputInput?.value || '').trim();
+
+    if (!projectId) {
+        alert('案件情報が見つかりません。');
+        return;
+    }
+    if (!csvMergeState.mainId) {
+        alert('メインCSVを選択してください。');
+        return;
+    }
+    if (!Array.isArray(csvMergeState.subIds) || csvMergeState.subIds.length === 0) {
+        alert('サブCSVを1件以上選択してください。');
+        return;
+    }
+
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = '統合中...';
+    }
+
+    try {
+        const response = await secureFetch('api/merge_csv_files.php', {
+            method: 'POST',
+            body: JSON.stringify({
+                project_id: Number(projectId),
+                main_csv_file_id: Number(csvMergeState.mainId),
+                sub_csv_file_ids: csvMergeState.subIds.map((id) => Number(id)),
+                output_file_name: outputFileName,
+                column_mappings: csvMergeState.mappings,
+            }),
+        });
+
+        if (!response?.success || !response.csv_file) {
+            throw new Error(response?.error || 'CSV統合に失敗しました。');
+        }
+
+        prependCsvHistoryItem(response.csv_file);
+        appendCsvMergeRow(response.csv_file);
+        setCsvHistoryCount(document.querySelectorAll('[id^="csv-item-"]').length);
+        updateCsvBadge(1);
+        closeCsvMergeModal();
+        await loadCsvData(response.csv_file.id, response.csv_file.file_name);
+        notifySupportToast(`CSV統合結果「${response.csv_file.file_name}」を作成しました。`);
+    } catch (err) {
+        alert(`CSV統合に失敗しました: ${err.message}`);
+        renderCsvMergeState();
+    } finally {
+        if (submitBtn) {
+            submitBtn.textContent = '統合する';
+            renderCsvMergeState();
+        }
+    }
+}
+
+async function handleSuggestCsvMergeMapping() {
+    const { projectId } = getConfig();
+    const button = document.getElementById('csv-merge-suggest-btn');
+
+    if (!projectId || !csvMergeState.mainId || csvMergeState.subIds.length === 0) {
+        alert('先にメインCSVとサブCSVを選択してください。');
+        return;
+    }
+
+    if (button) {
+        button.disabled = true;
+        button.textContent = '提案中...';
+    }
+
+    try {
+        const response = await secureFetch('api/suggest_csv_merge_mapping.php', {
+            method: 'POST',
+            body: JSON.stringify({
+                project_id: Number(projectId),
+                main_csv_file_id: Number(csvMergeState.mainId),
+                sub_csv_file_ids: csvMergeState.subIds.map((id) => Number(id)),
+            }),
+        });
+
+        if (!response?.success) {
+            throw new Error(response?.error || '列名ゆれ候補の提案に失敗しました。');
+        }
+
+        renderCsvMergeSuggestions({
+            source: response.source || 'heuristic',
+            suggestions: Array.isArray(response.suggestions) ? response.suggestions : [],
+        });
+        renderCsvMergeState();
+        notifySupportToast('列名ゆれ候補を更新しました。');
+    } catch (err) {
+        alert(`列名ゆれ候補の提案に失敗しました: ${err.message}`);
+    } finally {
+        renderCsvMergeState();
+        if (button) {
+            button.textContent = '🤖 提案する';
+        }
     }
 }
 
@@ -1461,10 +1892,17 @@ async function handleStartCsvAiCategorizeJob(e) {
     window.openCsvPreviewByDocId = openCsvPreviewByDocId;
     window.handleCreateManualCsv = handleCreateManualCsv;
     window.handleAppendCsvRow = handleAppendCsvRow;
+    window.handleMergeCsvFiles = handleMergeCsvFiles;
+    window.handleSuggestCsvMergeMapping = handleSuggestCsvMergeMapping;
+    window.handleCsvMergeMappingChange = handleCsvMergeMappingChange;
     window.openCsvCreateModal = openCsvCreateModal;
     window.closeCsvCreateModal = closeCsvCreateModal;
     window.openCsvAppendModal = openCsvAppendModal;
     window.closeCsvAppendModal = closeCsvAppendModal;
+    window.openCsvMergeModal = openCsvMergeModal;
+    window.closeCsvMergeModal = closeCsvMergeModal;
+    window.handleCsvMergeMainChange = handleCsvMergeMainChange;
+    window.handleCsvMergeSubToggle = handleCsvMergeSubToggle;
     window.openCsvColumnEditModal = openCsvColumnEditModal;
     window.closeCsvColumnEditModal = closeCsvColumnEditModal;
     window.handleAddCsvColumnDraft = handleAddCsvColumnDraft;
@@ -1512,10 +1950,15 @@ export {
     openCsvPreviewByDocId,
     handleCreateManualCsv,
     handleAppendCsvRow,
+    handleMergeCsvFiles,
+    handleSuggestCsvMergeMapping,
+    handleCsvMergeMappingChange,
     openCsvCreateModal,
     closeCsvCreateModal,
     openCsvAppendModal,
     closeCsvAppendModal,
+    openCsvMergeModal,
+    closeCsvMergeModal,
     openCsvColumnEditModal,
     closeCsvColumnEditModal,
     handleAddCsvColumnDraft,

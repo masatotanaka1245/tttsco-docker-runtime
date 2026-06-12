@@ -294,6 +294,94 @@ if (!isset($URL_SVG_XMLNS)) {
     </div>
 </div>
 
+<div id="csv-merge-modal" class="fixed inset-0 bg-slate-950/40 backdrop-blur-xs hidden items-center justify-center z-50 p-4 animate-fadeIn duration-200" role="dialog" aria-modal="true" aria-labelledby="modal-title-csv-merge">
+    <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-4xl mx-auto border border-slate-100/80 transition-all duration-200">
+        <h3 id="modal-title-csv-merge" class="text-sm md:text-base font-black tracking-wider text-slate-700 mb-5 border-b border-slate-100 pb-3 uppercase">CSV統合</h3>
+        <form id="csv-merge-form" onsubmit="window.handleMergeCsvFiles && window.handleMergeCsvFiles(event)" class="space-y-4 text-xs">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+                <div class="space-y-1">
+                    <p class="text-[11px] text-slate-600 font-bold">メインCSVを1つ選び、サブCSVを複数選択すると、メイン基準で新しい統合CSVを作成します。</p>
+                    <p class="text-[10px] text-slate-400">v1 では縦結合のみ対応します。同名列はそのまま合わせ、足りない列は空欄で補完します。</p>
+                </div>
+                <div class="flex flex-wrap items-center gap-2 text-[9px]">
+                    <span id="csv-merge-main-badge" class="text-slate-500 bg-slate-100 border border-slate-200 rounded-full px-2 py-0.5 font-bold">メイン未選択</span>
+                    <span id="csv-merge-sub-badge" class="text-slate-500 bg-slate-100 border border-slate-200 rounded-full px-2 py-0.5 font-bold">サブ 0 件</span>
+                </div>
+            </div>
+
+            <div class="rounded-2xl border border-slate-200 bg-slate-50/40 overflow-hidden">
+                <div class="grid grid-cols-[4.5rem_4.5rem_minmax(0,1fr)_5rem_5rem] gap-0 bg-slate-100 text-[10px] font-black text-slate-500 uppercase tracking-wide border-b border-slate-200">
+                    <div class="px-3 py-2 text-center">メイン</div>
+                    <div class="px-3 py-2 text-center">サブ</div>
+                    <div class="px-3 py-2">CSV名</div>
+                    <div class="px-3 py-2 text-right">行数</div>
+                    <div class="px-3 py-2 text-right">列数</div>
+                </div>
+                <div id="csv-merge-list" class="max-h-[48vh] overflow-y-auto custom-scrollbar divide-y divide-slate-200">
+                    <?php if (!empty($csv_files)): ?>
+                        <?php foreach ($csv_files as $csvFile): ?>
+                            <?php
+                                $csvId = (int)($csvFile['id'] ?? 0);
+                                $csvName = (string)($csvFile['file_name'] ?? 'CSV');
+                                $headers = json_decode((string)($csvFile['column_headers'] ?? '[]'), true);
+                                $headerCount = is_array($headers) ? count($headers) : 0;
+                                $rowCount = (int)($csvFile['row_count'] ?? 0);
+                            ?>
+                            <label class="grid grid-cols-[4.5rem_4.5rem_minmax(0,1fr)_5rem_5rem] gap-0 items-center bg-white hover:bg-slate-50 transition-colors px-0 py-0" data-csv-merge-row data-csv-file-id="<?= h((string)$csvId) ?>" data-csv-file-name="<?= h($csvName) ?>" data-row-count="<?= h((string)$rowCount) ?>" data-header-count="<?= h((string)$headerCount) ?>" data-headers="<?= h((string)json_encode($headers, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)) ?>">
+                                <div class="px-3 py-3 text-center">
+                                    <input type="radio" name="merge_main_csv_id" value="<?= h((string)$csvId) ?>" class="w-4 h-4 accent-[#00758F]" onchange="window.handleCsvMergeMainChange && window.handleCsvMergeMainChange(this.value)">
+                                </div>
+                                <div class="px-3 py-3 text-center">
+                                    <input type="checkbox" name="merge_sub_csv_ids[]" value="<?= h((string)$csvId) ?>" class="w-4 h-4 accent-[#00758F]" onchange="window.handleCsvMergeSubToggle && window.handleCsvMergeSubToggle(this.value, this.checked)">
+                                </div>
+                                <div class="px-3 py-3 min-w-0">
+                                    <div class="text-[11px] font-bold text-slate-700 truncate" title="<?= h($csvName) ?>"><?= h($csvName) ?></div>
+                                </div>
+                                <div class="px-3 py-3 text-right text-[10px] text-slate-500 font-mono"><?= number_format($rowCount) ?></div>
+                                <div class="px-3 py-3 text-right text-[10px] text-slate-500 font-mono"><?= number_format($headerCount) ?></div>
+                            </label>
+                        <?php endforeach; ?>
+                    <?php else: ?>
+                        <div class="text-[10px] text-slate-400 italic bg-white px-3 py-8 text-center">
+                            統合対象のCSVがまだありません。
+                        </div>
+                    <?php endif; ?>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block font-bold text-slate-600 mb-1.5">出力CSV名 <span class="text-red-500 font-bold">*</span></label>
+                    <input id="csv-merge-output-file-name" type="text" name="output_file_name" class="w-full border border-slate-200/80 rounded-xl bg-slate-50/30 px-3 py-2.5 font-medium text-slate-700 outline-none focus:bg-white focus:border-teal-400 focus:ring-4 focus:ring-teal-500/5 transition-all duration-200 ease-in-out" placeholder="例: main_merged.csv" required>
+                </div>
+                <div class="rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3 text-[10px] text-slate-500 space-y-1.5">
+                    <div id="csv-merge-summary-main">メイン: 未選択</div>
+                    <div id="csv-merge-summary-subs">サブ: 0 件</div>
+                    <div id="csv-merge-summary-output">統合後見込み: -- 行 / -- 列</div>
+                </div>
+            </div>
+
+            <div class="rounded-2xl border border-slate-200 bg-slate-50/50 p-4 space-y-3">
+                <div class="flex items-center justify-between gap-3">
+                    <div>
+                        <h4 class="text-[11px] font-black text-slate-600 uppercase tracking-wide">AI列名ゆれ候補</h4>
+                        <p class="text-[10px] text-slate-400 mt-1">メイン列名に寄せる候補を提案します。AI が難しいときは規則ベースの候補で補います。</p>
+                    </div>
+                    <button id="csv-merge-suggest-btn" type="button" onclick="window.handleSuggestCsvMergeMapping && window.handleSuggestCsvMergeMapping()" class="px-4 py-2 bg-white border border-slate-200 rounded-xl font-bold text-[#00758F] hover:bg-slate-50 transition-all duration-200 ease-in-out whitespace-nowrap">🤖 提案する</button>
+                </div>
+                <div id="csv-merge-suggestions" class="min-h-[4.5rem] rounded-xl border border-dashed border-slate-200 bg-white/80 px-4 py-4 text-[10px] text-slate-400">
+                    メインCSVとサブCSVを選択すると、ここに列名ゆれ候補を表示できます。
+                </div>
+            </div>
+
+            <div class="flex justify-end gap-2.5 pt-4 border-t border-slate-100">
+                <button type="button" onclick="window.closeCsvMergeModal && window.closeCsvMergeModal()" class="px-5 py-2 bg-slate-100 rounded-xl font-bold text-slate-500 hover:bg-slate-200 hover:text-slate-700 transition-all duration-200 ease-in-out transform active:scale-98">キャンセル</button>
+                <button id="csv-merge-submit" type="submit" class="px-7 py-2 bg-slate-300 text-white rounded-xl font-bold shadow-sm cursor-not-allowed" disabled>統合する</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <div id="csv-ai-categorize-modal" class="fixed inset-0 bg-slate-950/40 backdrop-blur-xs hidden items-center justify-center z-50 p-4 animate-fadeIn duration-200" role="dialog" aria-modal="true" aria-labelledby="modal-title-csv-ai-categorize">
     <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-2xl mx-auto border border-slate-100/80 transition-all duration-200">
         <h3 id="modal-title-csv-ai-categorize" class="text-sm md:text-base font-black tracking-wider text-slate-700 mb-5 border-b border-slate-100 pb-3 uppercase">AI行解析CSVを作成</h3>

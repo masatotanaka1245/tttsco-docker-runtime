@@ -1369,15 +1369,15 @@ $projectCenterTabs = [
                             <button type="button" onclick="if(typeof window.openAppModal === 'function') window.openAppModal('postgres-import-modal')" class="bg-teal-50 hover:bg-teal-100 text-[#00758F] border border-teal-200 px-3 py-1.5 rounded-xl font-bold text-[10px] shadow-2xs flex items-center gap-1 transition-all duration-200 ease-in-out transform active:scale-95 whitespace-nowrap">
                                 <span>🐘 PostgreSQLから取得</span>
                             </button>
+
+                            <button id="csv-merge-trigger" type="button" onclick="window.openCsvMergeModal && window.openCsvMergeModal()" class="bg-white hover:bg-slate-50 text-[#00758F] border border-teal-200 px-3 py-1.5 rounded-xl font-bold text-[10px] shadow-2xs flex items-center gap-1 transition-all duration-200 ease-in-out transform active:scale-95 whitespace-nowrap">
+                                <span>🔗 CSV統合</span>
+                            </button>
                         </div>
 
                         <div class="flex items-center gap-2 flex-nowrap overflow-x-auto no-scrollbar justify-end">
                             <button id="csv-create-trigger" type="button" onclick="window.openCsvCreateModal && window.openCsvCreateModal()" class="bg-[#00758F] hover:bg-[#005a6e] text-white border border-[#00758F] px-3 py-1.5 rounded-xl font-bold text-[10px] shadow-2xs flex items-center gap-1 transition-all duration-200 ease-in-out transform active:scale-95 whitespace-nowrap">
                                 <span>➕ CSV台帳を作成</span>
-                            </button>
-
-                            <button id="csv-append-trigger" type="button" onclick="window.openCsvAppendModal && window.openCsvAppendModal()" class="bg-white hover:bg-slate-50 text-[#00758F] border border-teal-200 px-3 py-1.5 rounded-xl font-bold text-[10px] shadow-2xs flex items-center gap-1 transition-all duration-200 ease-in-out transform active:scale-95 whitespace-nowrap">
-                                <span>✍️ 1行追加</span>
                             </button>
                         </div>
                     </div>
