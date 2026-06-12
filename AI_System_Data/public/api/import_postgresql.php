@@ -18,6 +18,7 @@ require_once __DIR__ . '/../../src/ModelRoleResolver.php';
 require_once __DIR__ . '/../../src/VectorSearch.php';
 require_once __DIR__ . '/../../src/ProjectAccess.php';
 require_once __DIR__ . '/../../src/AppLogger.php';
+require_once __DIR__ . '/../../src/DocChunkSummaryBuilder.php';
 require_once __DIR__ . '/../../src/UserSettingsSessionSynchronizer.php';
 
 header('Content-Type: application/json; charset=utf-8');
@@ -229,8 +230,8 @@ try {
     ");
 
     $insert_chunk_stmt = $pdo->prepare("
-        INSERT INTO doc_chunks (doc_id, page_number, chunk_text, embedding, image_description) 
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO doc_chunks (doc_id, page_number, chunk_text, chunk_summary, embedding, image_description)
+        VALUES (?, ?, ?, ?, ?, ?)
     ");
 
     $row_index = 1;
@@ -266,7 +267,8 @@ try {
         $vector_json = json_encode($vector);
 
         // 4. RAGインデックス用 doc_chunks への別行格納
-        $insert_chunk_stmt->execute([$document_id, 1, $chunk_text, $vector_json, "CSVデータ行レコード"]);
+        $chunkSummary = DocChunkSummaryBuilder::build($chunk_text, "CSVデータ行レコード");
+        $insert_chunk_stmt->execute([$document_id, 1, $chunk_text, $chunkSummary, $vector_json, "CSVデータ行レコード"]);
 
         // =========================================================================
         // ★低スペックPC（VRAM制限環境）向け安定化チューニング

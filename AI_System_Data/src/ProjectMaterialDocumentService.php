@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/AppLogger.php';
+require_once __DIR__ . '/DocChunkSummaryBuilder.php';
 require_once __DIR__ . '/EmbeddingEngine.php';
 require_once __DIR__ . '/ModelRoleResolver.php';
 
@@ -334,14 +335,16 @@ class ProjectMaterialDocumentService
             $stmtDeleteChunks->execute([$savedDocumentId]);
 
             $stmtInsertChunk = $this->pdo->prepare(
-                'INSERT INTO doc_chunks (doc_id, page_number, chunk_text, embedding, image_description, created_at) VALUES (?, ?, ?, ?, ?, NOW())'
+                'INSERT INTO doc_chunks (doc_id, page_number, chunk_text, chunk_summary, embedding, image_description, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW())'
             );
             foreach ($chunks as $index => $chunk) {
                 $embedding = $chunkEmbeddings[$index] ?? [];
+                $chunkSummary = DocChunkSummaryBuilder::build($chunk, '案件資料メモ（Markdown/RAG）: ' . $title);
                 $stmtInsertChunk->execute([
                     $savedDocumentId,
                     1,
                     $chunk,
+                    $chunkSummary,
                     json_encode($embedding, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
                     '案件資料メモ（Markdown/RAG）: ' . $title,
                 ]);

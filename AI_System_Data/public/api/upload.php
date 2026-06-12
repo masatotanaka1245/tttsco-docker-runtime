@@ -34,6 +34,7 @@ require_once __DIR__ . '/../../src/Auth.php';
 require_once __DIR__ . '/../../src/ProjectAccess.php';
 require_once __DIR__ . '/../../src/AppLogger.php';
 require_once __DIR__ . '/../../src/DocChunkImageDescriptionNormalizer.php';
+require_once __DIR__ . '/../../src/DocChunkSummaryBuilder.php';
 require_once __DIR__ . '/../../src/ModelRoleResolver.php';
 require_once __DIR__ . '/../../src/UserSettingsSessionSynchronizer.php';
 
@@ -526,7 +527,7 @@ try {
         return null;
     };
 
-    $stmtChunk = $pdo->prepare('INSERT INTO doc_chunks (doc_id, page_number, chunk_text, embedding, image_description) VALUES (?, ?, ?, ?, ?)');
+    $stmtChunk = $pdo->prepare('INSERT INTO doc_chunks (doc_id, page_number, chunk_text, chunk_summary, embedding, image_description) VALUES (?, ?, ?, ?, ?, ?)');
     $allPageOverviews = [];
 
     for ($pageNum = 1; $pageNum <= $totalPages; $pageNum++) {
@@ -713,11 +714,13 @@ try {
                     abortIfUploadCancelled($pdo, $destPath, $pageNum, $totalPages);
                     updateProgress('processing', 'storing', $pageNum, $totalPages, "P.{$pageNum} データベースへ保存中... (" . ($chunkIdx + 1) . "/{$totalChunks})");
                     $normalizedImageDesc = DocChunkImageDescriptionNormalizer::normalizeForStorage($finalImageDesc, $chunkText);
-                    $stmtChunk->execute([$docId, $pageNum, $chunkText, json_encode($emb), $normalizedImageDesc]);
+                    $chunkSummary = DocChunkSummaryBuilder::build($chunkText, $normalizedImageDesc);
+                    $stmtChunk->execute([$docId, $pageNum, $chunkText, $chunkSummary, json_encode($emb), $normalizedImageDesc]);
                 } catch (Exception $e) {
                     logger("Embedding Skip P.{$pageNum} Chunk " . ($chunkIdx + 1) . ": " . $e->getMessage());
                     $normalizedImageDesc = DocChunkImageDescriptionNormalizer::normalizeForStorage($finalImageDesc, $chunkText);
-                    $stmtChunk->execute([$docId, $pageNum, $chunkText, json_encode([]), $normalizedImageDesc]);
+                    $chunkSummary = DocChunkSummaryBuilder::build($chunkText, $normalizedImageDesc);
+                    $stmtChunk->execute([$docId, $pageNum, $chunkText, $chunkSummary, json_encode([]), $normalizedImageDesc]);
                 }
             }
         }
@@ -739,9 +742,11 @@ try {
                 // ★ 変更: GPUに完全オフロードする embedWithRetry 関数を使用
                 $embSummary = $embedWithRetry($safeSummaryText, "Summary");
                 abortIfUploadCancelled($pdo, $destPath, $totalPages, $totalPages);
-                $stmtChunk->execute([$docId, 0, $summaryText, json_encode($embSummary), "資料全体の要約・構成情報"]);
+                $summaryChunkSummary = DocChunkSummaryBuilder::build($summaryText, "資料全体の要約・構成情報");
+                $stmtChunk->execute([$docId, 0, $summaryText, $summaryChunkSummary, json_encode($embSummary), "資料全体の要約・構成情報"]);
             } catch (Exception $e) {
-                $stmtChunk->execute([$docId, 0, $summaryText, json_encode([]), "資料全体の要約・構成情報"]);
+                $summaryChunkSummary = DocChunkSummaryBuilder::build($summaryText, "資料全体の要約・構成情報");
+                $stmtChunk->execute([$docId, 0, $summaryText, $summaryChunkSummary, json_encode([]), "資料全体の要約・構成情報"]);
             }
         }
     }

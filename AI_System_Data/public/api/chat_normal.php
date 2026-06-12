@@ -277,17 +277,18 @@ class NormalStreamingRouteProcessor {
             $all_hits = [];
 
             if ($this->referAllMode) {
-                $stmtSummary = $this->pdo->prepare("SELECT c.id, c.doc_id, d.title, c.chunk_text, c.page_number, c.image_description FROM doc_chunks c JOIN documents d ON c.doc_id = d.id WHERE d.project_id = ? AND c.page_number = 0");
+                $stmtSummary = $this->pdo->prepare("SELECT c.id, c.doc_id, d.title, c.chunk_text, c.chunk_summary, c.page_number, c.image_description FROM doc_chunks c JOIN documents d ON c.doc_id = d.id WHERE d.project_id = ? AND c.page_number = 0");
                 $stmtSummary->execute([$this->projectId]);
                 $summaries = $stmtSummary->fetchAll(PDO::FETCH_ASSOC);
 
                 foreach ($summaries as $sum) {
                     $all_hits[] = [
-                        'document_id' => $sum['doc_id'], 
-                        'title' => $sum['title'], 
-                        'content' => $sum['chunk_text'], 
-                        'page_number' => 0, 
-                        'image_description' => $sum['image_description'], 
+                        'document_id' => $sum['doc_id'],
+                        'title' => $sum['title'],
+                        'content' => $sum['chunk_text'],
+                        'chunk_summary' => $sum['chunk_summary'] ?? null,
+                        'page_number' => 0,
+                        'image_description' => $sum['image_description'],
                         'score' => 1.0
                     ];
                 }
@@ -329,6 +330,9 @@ class NormalStreamingRouteProcessor {
                 $pNum = $hit['page_number'];
                 $label = ($pNum == 0) ? "【資料全体の構成・要約（目次情報）】" : "【参考資料: {$hit['title']} P.{$pNum}】";
                 $this->contextText .= "{$label}\n[本文テキスト]:\n{$hit['content']}\n";
+                if (!empty($hit['chunk_summary'])) {
+                    $this->contextText .= "[このチャンクの要点]:\n{$hit['chunk_summary']}\n";
+                }
                 if (!empty($hit['image_description'])) {
                     $this->contextText .= "[このページに含まれる画像/図表の説明]:\n{$hit['image_description']}\n";
                 }

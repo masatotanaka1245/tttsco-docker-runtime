@@ -164,7 +164,7 @@ final class AdvancedPlanExecutor
             . "  JSON型（row_data カラム）から「所属」や「課題など」といった日本語キーを抽出・集計する際は、必ず `JSON_UNQUOTE(JSON_EXTRACT(T1.row_data, '$.\"項目名\"'))` を使用せよ。\n"
             . "  `project_csv_rows` に `row_count` カラムは存在しない。CSV行数は `COUNT(T1.id)`、CSVファイル側の登録行数は `project_csv_files.row_count` を使用せよ。\n"
             . "・キャスト時に COLLATE 句は絶対に使用しないでください。\n"
-            . "・PDFや資料本文を読む semantic_extract では title, page_number, chunk_text, image_description を優先して取得してください。\n"
+            . "・PDFや資料本文を読む semantic_extract では title, page_number, chunk_text, chunk_summary, image_description を優先して取得してください。\n"
             . "・出力は必ず実行可能なSQL文字列1つのみを内包したJSON形式で出力してください。Markdownや説明テキスト、コメントは完全禁止です。\n"
             . '{"sql": "SELECT ..."}';
 
@@ -331,7 +331,7 @@ final class AdvancedPlanExecutor
 
     private function buildPresetDocSemanticExtractSql(): string
     {
-        return "SELECT d.id AS doc_id, d.title, d.file_path, c.page_number, c.chunk_text, c.image_description
+        return "SELECT d.id AS doc_id, d.title, d.file_path, c.page_number, c.chunk_text, c.chunk_summary, c.image_description
                 FROM documents d
                 JOIN doc_chunks c ON d.id = c.doc_id
                 WHERE d.project_id = {$this->projectId}
