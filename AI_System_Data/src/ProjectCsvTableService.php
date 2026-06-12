@@ -5,6 +5,7 @@
 
 class ProjectCsvTableService
 {
+    private const MERGE_ADD_AS_NEW = '__ADD_AS_NEW__';
     private PDO $pdo;
 
     public function __construct(PDO $pdo)
@@ -196,7 +197,11 @@ class ProjectCsvTableService
         $mergedHeaders = $mainHeaders;
         foreach ($subFiles as $subFile) {
             foreach ($this->decodeHeaders((string)($subFile['column_headers'] ?? '')) as $header) {
-                $header = $normalizedMappings[(int)$subFile['id']][$header] ?? $header;
+                $mappedHeader = $normalizedMappings[(int)$subFile['id']][$header] ?? '';
+                if ($mappedHeader === '') {
+                    continue;
+                }
+                $header = $mappedHeader === self::MERGE_ADD_AS_NEW ? $header : $mappedHeader;
                 if (!in_array($header, $mergedHeaders, true)) {
                     $mergedHeaders[] = $header;
                 }
@@ -351,7 +356,10 @@ class ProjectCsvTableService
                 if ($subHeader === '' || $mainHeader === '') {
                     continue;
                 }
-                if (!isset($allowedSubHeaders[$subHeader]) || !isset($allowedMainHeaders[$mainHeader])) {
+                if (!isset($allowedSubHeaders[$subHeader])) {
+                    continue;
+                }
+                if ($mainHeader !== self::MERGE_ADD_AS_NEW && !isset($allowedMainHeaders[$mainHeader])) {
                     continue;
                 }
                 $normalized[$subFileId][$subHeader] = $mainHeader;
@@ -370,10 +378,11 @@ class ProjectCsvTableService
                 continue;
             }
 
-            $targetHeader = trim((string)($mappings[$header] ?? $header));
-            if ($targetHeader === '') {
+            $mappedHeader = trim((string)($mappings[$header] ?? ''));
+            if ($mappedHeader === '') {
                 continue;
             }
+            $targetHeader = $mappedHeader === self::MERGE_ADD_AS_NEW ? $header : $mappedHeader;
 
             $stringValue = is_array($value)
                 ? json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)

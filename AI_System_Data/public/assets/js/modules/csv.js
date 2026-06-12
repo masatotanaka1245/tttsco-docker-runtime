@@ -13,6 +13,7 @@ let csvAiLifecycleBound = false;
 let csvAiJobPausedByVisibility = false;
 let csvAiJobHistoryRequestSeq = 0;
 let csvMergeState = { mainId: 0, subIds: [], mappings: {}, suggestions: [], suggestionSource: 'heuristic', suggestionsLoaded: false };
+const CSV_MERGE_ADD_AS_NEW = '__ADD_AS_NEW__';
 
 function notifySupportToast(message, variant = 'success', duration = 3200) {
     if (typeof window.showSupportToast === 'function') {
@@ -118,8 +119,10 @@ function getCsvMergeMappedHeaders(row) {
     const mappings = getCsvMergeMappingsForSub(csvFileId);
     return headers.map((header) => {
         const mapped = String(mappings[header] || '').trim();
-        return mapped || header;
-    });
+        if (!mapped) return '';
+        if (mapped === CSV_MERGE_ADD_AS_NEW) return header;
+        return mapped;
+    }).filter(Boolean);
 }
 
 function setCsvMergeSuggestions(payload = null) {
@@ -537,7 +540,8 @@ function renderCsvMergeSuggestions(payload = null) {
                                 <span class="font-mono bg-white border border-slate-200 rounded px-2 py-1 text-slate-600 truncate" title="${escapeHTML(String(subHeader || ''))}">${escapeHTML(String(subHeader || ''))}</span>
                                 <span class="text-center text-slate-400">→</span>
                                 <select onchange="window.handleCsvMergeMappingChange && window.handleCsvMergeMappingChange(${subFileId}, '${String(subHeader || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'")}', this.value)" class="w-full border border-slate-200 rounded-lg bg-white px-2 py-1.5 text-[10px] font-medium text-slate-700 outline-none focus:border-teal-400">
-                                    <option value="">対応なし</option>
+                                    <option value="">対応なし（取り込まない）</option>
+                                    <option value="${CSV_MERGE_ADD_AS_NEW}" ${String(currentMappings[String(subHeader || '')] || '').trim() === CSV_MERGE_ADD_AS_NEW ? 'selected' : ''}>新規列として追加</option>
                                     ${mainHeaders.map((header) => {
                                         const selectedValue = String(currentMappings[String(subHeader || '')] || '').trim();
                                         const selected = selectedValue === String(header) ? 'selected' : '';
