@@ -7,6 +7,7 @@ require_once __DIR__ . '/../../config/session.php';
 require_once __DIR__ . '/../../src/Auth.php';
 require_once __DIR__ . '/../../src/ProjectAccess.php';
 require_once __DIR__ . '/../../src/AppLogger.php';
+require_once __DIR__ . '/../../src/FaqSummaryFormatter.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -41,9 +42,24 @@ if (!canAccessProject($pdo, (int)$project_id, (int)$_SESSION['user_id'], $_SESSI
     exit;
 }
 
+$questionSummary = FaqSummaryFormatter::buildQuestionSummary($question);
+$answerSummary = FaqSummaryFormatter::buildAnswerSummary($answer);
+
+if (mb_strlen($questionSummary) < 8) {
+    http_response_code(400);
+    echo json_encode(['success' => false, 'error' => '質問概要が短すぎます。もう少し具体的に入力してください。']);
+    exit;
+}
+
+if (!FaqSummaryFormatter::isAnswerEligible($answerSummary)) {
+    http_response_code(400);
+    echo json_encode(['success' => false, 'error' => '回答内容が短すぎるか、ナレッジとして保存しにくい内容です。文章を整えてから登録してください。']);
+    exit;
+}
+
 try {
     $stmt = $pdo->prepare("INSERT INTO project_faqs (project_id, question_summary, answer_summary, created_by, created_at) VALUES (?, ?, ?, ?, NOW())");
-    $stmt->execute([$project_id, $question, $answer, $_SESSION['user_id']]);
+    $stmt->execute([$project_id, $questionSummary, $answerSummary, $_SESSION['user_id']]);
     
     echo json_encode(['success' => true, 'faq_id' => (int)$pdo->lastInsertId()]);
 } catch (PDOException $e) {

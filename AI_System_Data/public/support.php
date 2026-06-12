@@ -477,15 +477,43 @@ if (!function_exists('renderProjectCommentItems')) {
 }
 
 if (!function_exists('renderFaqCards')) {
+    function faqPreviewText(string $text, int $limit = 220): string {
+        $normalized = trim(str_replace(["\r\n", "\r"], "\n", $text));
+        if (mb_strlen($normalized) <= $limit) {
+            return $normalized;
+        }
+        return rtrim(mb_substr($normalized, 0, $limit)) . '...';
+    }
+
+    function faqNeedsExpand(string $text, int $limit = 220): bool {
+        $normalized = trim(str_replace(["\r\n", "\r"], "\n", $text));
+        return mb_strlen($normalized) > $limit || substr_count($normalized, "\n") >= 4;
+    }
+
     function renderFaqCards(array $faqs, int $userId, string $role): void {
         foreach ($faqs as $faq) {
+            $question = (string)($faq['question_summary'] ?? '');
+            $answer = (string)($faq['answer_summary'] ?? '');
+            $questionPreview = faqPreviewText($question, 120);
+            $answerPreview = faqPreviewText($answer, 260);
+            $answerExpandable = faqNeedsExpand($answer, 260);
             ?>
             <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs relative group hover:shadow-sm transition-shadow duration-200">
                 <?php if ((int)$faq['created_by'] === $userId || $role === 'admin'): ?>
                     <button type="button" onclick="if(typeof window.handleDeleteFaq === 'function') window.handleDeleteFaq(<?= (int)$faq['id'] ?>)" class="absolute top-3 right-3 text-slate-300 hover:text-red-500 hover:bg-red-50 w-7 h-7 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 ease-in-out transform active:scale-90" title="ナレッジを削除">🗑️</button>
                 <?php endif; ?>
-                <div class="font-extrabold text-slate-800 text-xs mb-3 pb-2 border-b border-slate-100 pr-8 leading-relaxed">Q. <?= h((string)$faq['question_summary']) ?></div>
-                <div class="text-xs text-slate-600 font-medium leading-loose whitespace-pre-wrap"><?= h((string)$faq['answer_summary']) ?></div>
+                <div class="font-extrabold text-slate-800 text-xs mb-3 pb-2 border-b border-slate-100 pr-8 leading-relaxed" title="<?= h($question) ?>">Q. <?= h($questionPreview) ?></div>
+                <?php if ($answerExpandable): ?>
+                    <details class="group/details">
+                        <summary class="list-none cursor-pointer">
+                            <div class="text-xs text-slate-600 font-medium leading-loose whitespace-pre-wrap"><?= h($answerPreview) ?></div>
+                            <div class="mt-2 text-[11px] font-bold text-[#4F5D95] group-open/details:hidden">続きを読む</div>
+                        </summary>
+                        <div class="mt-3 pt-3 border-t border-slate-100 text-xs text-slate-600 font-medium leading-loose whitespace-pre-wrap"><?= h($answer) ?></div>
+                    </details>
+                <?php else: ?>
+                    <div class="text-xs text-slate-600 font-medium leading-loose whitespace-pre-wrap"><?= h($answer) ?></div>
+                <?php endif; ?>
             </div>
             <?php
         }

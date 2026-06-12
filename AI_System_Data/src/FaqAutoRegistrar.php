@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/FaqSummaryFormatter.php';
+
 /**
  * 高評価チャット回答を、案件FAQとして軽量に自動登録する。
  * 評価エラー時のフェイルセーフ高得点や、エラー回答・重複FAQは登録しない。
@@ -43,10 +45,10 @@ class FaqAutoRegistrar {
                 return false;
             }
 
-            $questionSummary = $this->buildQuestionSummary($question);
-            $answerSummary = $this->buildAnswerSummary($answer);
+            $questionSummary = FaqSummaryFormatter::buildQuestionSummary($question);
+            $answerSummary = FaqSummaryFormatter::buildAnswerSummary($answer);
 
-            if ($questionSummary === '' || $answerSummary === '') {
+            if ($questionSummary === '' || $answerSummary === '' || !FaqSummaryFormatter::isAnswerEligible($answerSummary)) {
                 $this->log("[FAQ-AUTO] 要約結果が空のため登録をスキップしました。chat_history_id: {$chatHistoryId}");
                 return false;
             }
@@ -189,73 +191,6 @@ class FaqAutoRegistrar {
         }
 
         return null;
-    }
-
-    private function buildQuestionSummary(string $question): string {
-        $question = $this->normalizeText($question);
-        $question = preg_replace('/^(質問|依頼|相談)\s*[:：]\s*/u', '', $question) ?? $question;
-        if (mb_strlen($question) > 180) {
-            $question = mb_substr($question, 0, 180) . '...';
-        }
-        return trim($question);
-    }
-
-    private function buildAnswerSummary(string $answer): string {
-        $answer = $this->removeNonFaqBlocks($answer);
-        $answer = str_replace(["\r\n", "\r"], "\n", $answer);
-
-        $lines = [];
-        foreach (explode("\n", $answer) as $line) {
-            $line = trim($line);
-            if ($line === '' || $this->shouldSkipAnswerLine($line)) {
-                continue;
-            }
-
-            $line = preg_replace('/^#{1,6}\s*/u', '', $line) ?? $line;
-            $line = preg_replace('/^\s*[-*]\s*/u', '- ', $line) ?? $line;
-            $line = preg_replace('/\s+/u', ' ', $line) ?? $line;
-
-            if (mb_strlen($line) > 180) {
-                $line = mb_substr($line, 0, 180) . '...';
-            }
-
-            $lines[] = $line;
-            if (count($lines) >= 6) {
-                break;
-            }
-        }
-
-        if (!$lines) {
-            $plain = $this->normalizeText($this->stripMarkdown($answer));
-            if (mb_strlen($plain) > 700) {
-                $plain = mb_substr($plain, 0, 700) . '...';
-            }
-            return $plain;
-        }
-
-        $summary = implode("\n", $lines);
-        if (mb_strlen($summary) > 900) {
-            $summary = mb_substr($summary, 0, 900) . '...';
-        }
-
-        return trim($summary);
-    }
-
-    private function removeNonFaqBlocks(string $text): string {
-        $text = preg_replace('/```(?:json|chart|chart_data|mermaid|sql)?[\s\S]*?```/iu', '', $text) ?? $text;
-        $text = preg_replace('/<object\b[\s\S]*?<\/object>/iu', '', $text) ?? $text;
-        $text = preg_replace('/<canvas\b[\s\S]*?<\/canvas>/iu', '', $text) ?? $text;
-        return $text;
-    }
-
-    private function shouldSkipAnswerLine(string $line): bool {
-        if (preg_match('/^(data:|type:|status:|```|\{|\}|\[|\]|labels:|datasets:)/iu', $line)) {
-            return true;
-        }
-        if (preg_match('/(Chart\.js|Mermaid|chat_debug|推論プロセス|ストリーム進行中|品質審査)/u', $line)) {
-            return true;
-        }
-        return false;
     }
 
     private function stripMarkdown(string $text): string {
