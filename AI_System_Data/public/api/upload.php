@@ -305,8 +305,20 @@ function textSuggestsVisualEvidence(string $rawText): bool {
     return (bool)preg_match('/(図|表|写真|画像|グラフ|チャート|断面|平面|縦断|横断|詳細図|配置図|系統図|凡例|寸法|Figure|Fig\.|Table|Photo|Chart)/iu', $rawText);
 }
 
+function isVisionUnavailableResponse(string $text): bool {
+    $normalized = trim(preg_replace('/\s+/u', ' ', $text));
+    if ($normalized === '') {
+        return false;
+    }
+
+    return (bool)preg_match(
+        '/(画像|写真|添付|分析対象).{0,40}(ない|ありません|おりません|未提供|見当たりません)|再度.{0,20}(アップロード|提供)/iu',
+        $normalized
+    );
+}
+
 function shouldUseVisualAnalysisForAuto(string $rawText, int $textCharCount, ?int $imageCount): bool {
-    if ($textCharCount < 450) {
+    if ($textCharCount < 300) {
         return true;
     }
     if ($imageCount !== null && $imageCount > 0) {
@@ -335,6 +347,57 @@ function chooseAutoVisualMode(string $overview, string $rawText, int $textCharCo
     }
 
     return 'tiles';
+}
+
+function compactStorageText(string $text, int $limit = 120): string {
+    $normalized = trim(preg_replace('/\s+/u', ' ', $text));
+    if ($normalized === '') {
+        return '';
+    }
+    return mb_strimwidth($normalized, 0, $limit, '...');
+}
+
+function detectOverviewCategory(string $overview): string {
+    $categories = ['テキスト文書', '図面', 'スキャン画像', '写真', '表・グラフ', 'その他'];
+    foreach ($categories as $category) {
+        if (mb_strpos($overview, $category) !== false) {
+            return $category;
+        }
+    }
+    return '未分類';
+}
+
+function buildImageDescriptionForStorage(
+    string $overview,
+    string $mode = '',
+    ?int $imageCount = null,
+    string $fallbackKind = ''
+): string {
+    if ($fallbackKind === 'native') {
+        return '本文中心ページ';
+    }
+    if ($fallbackKind === 'vlm_fallback') {
+        return '本文中心ページ（VLMフォールバック）';
+    }
+    if ($fallbackKind === 'text_fallback') {
+        return 'テキスト主体ページ（画像変換フォールバック）';
+    }
+
+    $category = detectOverviewCategory($overview);
+    $summary = compactStorageText($overview, 100);
+
+    $parts = ["ページ種別: {$category}"];
+    if ($summary !== '' && $summary !== $category && !isVisionUnavailableResponse($summary)) {
+        $parts[] = "概要: {$summary}";
+    }
+    if ($mode !== '') {
+        $parts[] = "抽出モード: {$mode}";
+    }
+    if ($imageCount !== null) {
+        $parts[] = "画像数: {$imageCount}";
+    }
+
+    return implode(' | ', $parts);
 }
 
 try {
@@ -511,7 +574,7 @@ try {
 
             if (empty($imageFiles)) {
                 $combinedText = $rawText;
-                $finalImageDesc = "テキスト抽出(フォールバック)";
+                $finalImageDesc = buildImageDescriptionForStorage('', '', $pageImageCount, 'text_fallback');
                 $allPageOverviews[] = "P.{$pageNum}: テキスト主体のページ";
             } else {
                 $mainImg = $imageFiles[0];
@@ -521,6 +584,10 @@ try {
                 $overviewPrompt = "この画像（PDFの1ページ）の種類を、必ず【テキスト文書】【図面】【スキャン画像】【写真】【表・グラフ】【その他】のいずれかのタグで分類し、その後に全体の概要を100文字以内で説明してください。";
                 $overview = callVLM($mainImg, $ollamaHost, $vlmModel, $overviewPrompt);
                 abortIfUploadCancelled($pdo, $destPath, $pageNum - 0.55, $totalPages);
+                $overviewRejected = isVisionUnavailableResponse($overview);
+                if ($overviewRejected) {
+                    logger("[VLM-FALLBACK] P.{$pageNum} overview rejected as vision-unavailable response. raw=" . mb_substr($overview, 0, 160));
+                }
                 $imageMetaParts[] = "種類と概要: " . $overview;
                 $allPageOverviews[] = "P.{$pageNum}: " . $overview;
 
@@ -528,10 +595,16 @@ try {
                 $canUseNativeTextOnly = ($analysisMode !== 'auto' && $isTextDocument && $textCharCount > 100)
                     || ($analysisMode === 'auto' && $isTextDocument && $textCharCount >= 1200 && !textSuggestsVisualEvidence($rawText) && (($pageImageCount ?? 0) === 0));
 
-                if ($canUseNativeTextOnly) {
+                if ($overviewRejected && $textCharCount > 0) {
+                    updateProgress('processing', 'extraction', $pageNum - 0.5, $totalPages, "P.{$pageNum} VLM応答不成立のためネイティブテキストへフォールバック");
+                    $combinedText = "【電子テキスト】\n" . $rawText;
+                    $finalImageDesc = buildImageDescriptionForStorage($overview, '', $pageImageCount, 'vlm_fallback');
+                    $allPageOverviews[count($allPageOverviews) - 1] = "P.{$pageNum}: VLM応答不成立のためネイティブテキスト抽出へフォールバック";
+                    @unlink($mainImg);
+                } elseif ($canUseNativeTextOnly) {
                     updateProgress('processing', 'extraction', $pageNum - 0.5, $totalPages, "P.{$pageNum} 高速テキスト抽出を適用");
                     $combinedText = "【電子テキスト】\n" . $rawText;
-                    $finalImageDesc = implode(" | ", $imageMetaParts) . " (Native Text)";
+                    $finalImageDesc = buildImageDescriptionForStorage($overview, '', $pageImageCount, 'native');
                     @unlink($mainImg);
                 } else {
                     $effectiveMode = $analysisMode === 'auto'
@@ -554,7 +627,11 @@ try {
                             updateProgress('processing', 'extraction', $pageNum - 0.4, $totalPages, "P.{$pageNum} タイル分割解析中... (" . ($idx+1) . "/{$totalTiles})");
                             $tileResult = callVLM($tPath, $ollamaHost, $vlmModel, "画像内の文字（文章、表データ、ラベル、図面注記、凡例）を正確に書き起こしてください。");
                             abortIfUploadCancelled($pdo, $destPath, $pageNum - 0.4, $totalPages);
-                            if ($tileResult) $tileContents[] = "--- 領域" . ($idx+1) . " ---\n" . $tileResult;
+                            if ($tileResult && !isVisionUnavailableResponse($tileResult)) {
+                                $tileContents[] = "--- 領域" . ($idx+1) . " ---\n" . $tileResult;
+                            } elseif ($tileResult) {
+                                logger("[VLM-FALLBACK] P.{$pageNum} tile " . ($idx + 1) . " rejected as vision-unavailable response.");
+                            }
                             @unlink($tPath);
                         }
                         $tileText = implode("\n\n", $tileContents);
@@ -569,7 +646,11 @@ try {
                             updateProgress('processing', 'extraction', $pageNum - 0.3, $totalPages, "P.{$pageNum} スライス分割解析中... (" . ($idx+1) . "/{$totalSlices})");
                             $sliceResult = callVLM($sPath, $ollamaHost, $vlmModel, "この水平分割画像内の文字（横書きの表や文章など）を左から右へ正確に書き起こしてください。");
                             abortIfUploadCancelled($pdo, $destPath, $pageNum - 0.3, $totalPages);
-                            if ($sliceResult) $sliceContents[] = "--- 水平区画" . ($idx+1) . " ---\n" . $sliceResult;
+                            if ($sliceResult && !isVisionUnavailableResponse($sliceResult)) {
+                                $sliceContents[] = "--- 水平区画" . ($idx+1) . " ---\n" . $sliceResult;
+                            } elseif ($sliceResult) {
+                                logger("[VLM-FALLBACK] P.{$pageNum} slice " . ($idx + 1) . " rejected as vision-unavailable response.");
+                            }
                             @unlink($sPath);
                         }
                         $sliceText = implode("\n\n", $sliceContents);
@@ -580,6 +661,10 @@ try {
                         updateProgress('processing', 'extraction', $pageNum - 0.2, $totalPages, "P.{$pageNum} ページ全体のVLM解析中...");
                         $fullText = callVLM($mainImg, $ollamaHost, $vlmModel, "この画像に含まれる本文、図、表、写真、注記、凡例の要点をRAG検索に使える形で整理して書き起こしてください。");
                         abortIfUploadCancelled($pdo, $destPath, $pageNum - 0.2, $totalPages);
+                        if (isVisionUnavailableResponse($fullText)) {
+                            logger("[VLM-FALLBACK] P.{$pageNum} full-page analysis rejected as vision-unavailable response.");
+                            $fullText = "";
+                        }
                     }
 
                     @unlink($mainImg);
@@ -593,8 +678,12 @@ try {
                     if ($fullText)  $combineParts[] = "【ページ全体要約・文字起こし】\n" . $fullText;
 
                     $rawCombinedText = implode("\n\n", $combineParts);
+                    if ($rawCombinedText === '' && $textCharCount > 0) {
+                        logger("[VLM-FALLBACK] P.{$pageNum} visual extraction yielded no usable text. Fallback to native text.");
+                        $rawCombinedText = "【電子テキスト】\n" . $rawText;
+                    }
 
-                    if (count($combineParts) > 1 && $analysisMode !== 'auto') {
+                    if (count($combineParts) > 1) {
                         abortIfUploadCancelled($pdo, $destPath, $pageNum - 0.15, $totalPages);
                         updateProgress('processing', 'extraction', $pageNum - 0.1, $totalPages, "P.{$pageNum} LLMによる重複排除とテキスト整理中...");
                         $organizePrompt = "以下のテキストは、同一のページ画像を異なる分割方法でOCR読み取りした結果の集まりです。\n"
@@ -608,7 +697,7 @@ try {
                         $combinedText = $rawCombinedText;
                     }
 
-                    $finalImageDesc = implode(" | ", $imageMetaParts) . " (Mode: {$effectiveMode})";
+                    $finalImageDesc = buildImageDescriptionForStorage($overview, $effectiveMode, $pageImageCount);
                 }
             }
         }
