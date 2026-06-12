@@ -76,7 +76,6 @@ CREATE TABLE IF NOT EXISTS doc_chunks (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     doc_id BIGINT UNSIGNED NOT NULL,
     chunk_text LONGTEXT NOT NULL COMMENT '抽出されたテキスト本文',
-    chunk_summary TEXT NULL COMMENT 'チャンクの短い要約',
     embedding JSON NOT NULL,
     image_description TEXT NULL,
     page_number INT NULL COMMENT 'PDFの該当ページ番号',

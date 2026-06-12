@@ -485,7 +485,7 @@ class AdvancedReasoningRouteProcessor {
     private static $tablesSchema = [
         'chat_history' => "テーブル名: chat_history\n物理カラム:\n- id (INT, PK)\n- project_id (INT)\n- user_id (INT)\n- role (VARCHAR: 'user' または 'assistant')\n- message (TEXT: 会話本文)\n- created_at (DATETIME)",
         'chat_reasoning_steps' => "テーブル名: chat_reasoning_steps\n物理カラム:\n- id (INT, PK)\n- project_id (INT)\n- session_id (VARCHAR:推論セッションID)\n- chat_history_id (INT)\n- original_question (TEXT)\n- step_number (INT: ステップ番号)\n- sub_query (TEXT: 実行目的)\n- search_context (TEXT)\n- sub_answer (TEXT: クエリ内容と実行結果の中間考察)\n- created_at (DATETIME)",
-        'doc_chunks' => "テーブル名: doc_chunks\n物理カラム:\n- id (INT, PK)\n- doc_id (INT: documents.idへの外部キー)\n- page_number (INT: 資料 of ページ番号)\n- chunk_text (LONGTEXT: 抽出されたテキスト本文)\n- chunk_summary (TEXT: チャンクの短い要約)\n- embedding (VECTOR: ベクトルデータ)\n- image_description (TEXT: 画像または図表の説明)\n- created_at (DATETIME)",
+        'doc_chunks' => "テーブル名: doc_chunks\n物理カラム:\n- id (INT, PK)\n- doc_id (INT: documents.idへの外部キー)\n- page_number (INT: 資料 of ページ番号)\n- chunk_text (LONGTEXT: 抽出されたテキスト本文)\n- embedding (VECTOR: ベクトルデータ)\n- image_description (TEXT: 画像または図表の説明)\n- created_at (DATETIME)",
         'documents' => "テーブル名: documents\n物理カラム:\n- id (INT, PK)\n- project_id (INT)\n- title (VARCHAR: 資料 of タイトル)\n- file_path (VARCHAR: 物理ファイルパス)\n- created_at (DATETIME)",
         'project_comments' => "テーブル名: project_comments\n物理カラム:\n- id (INT, PK)\n- project_id (INT)\n- user_id (INT)\n- comment_text (TEXT: コメント内容)\n- created_at (DATETIME)",
         'project_csv_files' => "テーブル名: project_csv_files\n物理カラム:\n- id (INT, PK)\n- project_id (INT)\n- file_name (VARCHAR: CSV名)\n- column_headers (TEXT: JSON型ヘッダー名一覧)\n- row_count (INT)\n- created_at (DATETIME)",

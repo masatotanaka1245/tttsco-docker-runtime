@@ -91,10 +91,9 @@ class VectorSearch {
         return array_slice(array_keys($terms), 0, 10);
     }
 
-    private function buildSearchSql(int $projectId, ?int $targetPage, array $terms, bool $includeImageDescription = true, bool $includeChunkSummary = true, int $candidateLimit = 800): array {
+    private function buildSearchSql(int $projectId, ?int $targetPage, array $terms, bool $includeImageDescription = true, int $candidateLimit = 800): array {
         $imageColumn = $includeImageDescription ? ', c.image_description' : '';
-        $summaryColumn = $includeChunkSummary ? ', c.chunk_summary' : '';
-        $sql = "SELECT c.id, c.doc_id, d.title, d.file_path, c.chunk_text, c.page_number, c.embedding{$imageColumn}{$summaryColumn}
+        $sql = "SELECT c.id, c.doc_id, d.title, d.file_path, c.chunk_text, c.page_number, c.embedding{$imageColumn}
                 FROM doc_chunks c
                 JOIN documents d ON c.doc_id = d.id
                 WHERE d.project_id = ?";
@@ -108,10 +107,6 @@ class VectorSearch {
             foreach ($terms as $term) {
                 $likeConditions[] = "c.chunk_text LIKE ?";
                 $params[] = '%' . $term . '%';
-                if ($includeChunkSummary) {
-                    $likeConditions[] = "c.chunk_summary LIKE ?";
-                    $params[] = '%' . $term . '%';
-                }
                 if ($includeImageDescription) {
                     $likeConditions[] = "c.image_description LIKE ?";
                     $params[] = '%' . $term . '%';
@@ -145,15 +140,15 @@ class VectorSearch {
 
         $stmt = null;
         try {
-            [$sql, $params] = $this->buildSearchSql($projectId, $targetPage, $terms, true, true);
+            [$sql, $params] = $this->buildSearchSql($projectId, $targetPage, $terms, true);
             $stmt = $this->pdo->prepare($sql);
             $stmt->execute($params);
         } catch (PDOException $e) {
             // カラムが存在しない場合などのフォールバック
-            self::writeDebugLog("Column 'image_description' or 'chunk_summary' might be missing, retrying with minimal columns...");
+            self::writeDebugLog("Column 'image_description' might be missing, retrying with minimal columns...");
 
             if ($e->getCode() == '42S22') {
-                [$sql, $params] = $this->buildSearchSql($projectId, $targetPage, $terms, false, false);
+                [$sql, $params] = $this->buildSearchSql($projectId, $targetPage, $terms, false);
                 $stmt = $this->pdo->prepare($sql);
                 $stmt->execute($params);
             } else {
@@ -179,8 +174,7 @@ class VectorSearch {
                         $terms,
                         (string)($row['title'] ?? ''),
                         (string)($row['chunk_text'] ?? ''),
-                        (string)($row['image_description'] ?? ''),
-                        (string)($row['chunk_summary'] ?? '')
+                        (string)($row['image_description'] ?? '')
                     );
                     if ($fallbackScore > 0) {
                         $materialFallbackCount++;
@@ -189,7 +183,6 @@ class VectorSearch {
                             'document_id' => $row['doc_id'],
                             'title' => $row['title'],
                             'content' => $row['chunk_text'],
-                            'chunk_summary' => $row['chunk_summary'] ?? null,
                             'page_number' => $row['page_number'] ?? '-',
                             'image_description' => $row['image_description'] ?? null,
                             'score' => $fallbackScore,
@@ -206,15 +199,13 @@ class VectorSearch {
                 $terms,
                 $sourceType,
                 (string)($row['title'] ?? ''),
-                (string)($row['chunk_text'] ?? ''),
-                (string)($row['chunk_summary'] ?? '')
+                (string)($row['chunk_text'] ?? '')
             );
             $results[] = [
                 'id' => $row['id'],
                 'document_id' => $row['doc_id'],
                 'title' => $row['title'],
                 'content' => $row['chunk_text'],
-                'chunk_summary' => $row['chunk_summary'] ?? null,
                 'page_number' => $row['page_number'] ?? '-',
                 'image_description' => $row['image_description'] ?? null,
                 'score' => $score,
@@ -267,12 +258,11 @@ class VectorSearch {
         return $finalResults;
     }
 
-    private function scoreMaterialKeywordFallback(array $terms, string $title, string $chunkText, string $imageDescription = '', string $chunkSummary = ''): float
+    private function scoreMaterialKeywordFallback(array $terms, string $title, string $chunkText, string $imageDescription = ''): float
     {
         $title = mb_strtolower($title);
         $chunkText = mb_strtolower($chunkText);
         $imageDescription = mb_strtolower($imageDescription);
-        $chunkSummary = mb_strtolower($chunkSummary);
         $headingText = mb_strtolower(implode(' ', $this->extractMarkdownHeadings($chunkText)));
 
         $score = 0.0;
@@ -291,9 +281,6 @@ class VectorSearch {
             if ($headingText !== '' && mb_stripos($headingText, $term) !== false) {
                 $score += 0.08;
             }
-            if ($chunkSummary !== '' && mb_stripos($chunkSummary, $term) !== false) {
-                $score += 0.08;
-            }
             if ($imageDescription !== '' && mb_stripos($imageDescription, $term) !== false) {
                 $score += 0.04;
             }
@@ -302,7 +289,7 @@ class VectorSearch {
         return min(0.42, $score);
     }
 
-    private function scoreMaterialSemanticBoost(array $terms, string $sourceType, string $title, string $chunkText, string $chunkSummary = ''): float
+    private function scoreMaterialSemanticBoost(array $terms, string $sourceType, string $title, string $chunkText): float
     {
         if ($sourceType !== 'material_note' || empty($terms)) {
             return 0.0;
@@ -310,7 +297,6 @@ class VectorSearch {
 
         $title = mb_strtolower($title);
         $chunkText = mb_strtolower($chunkText);
-        $chunkSummary = mb_strtolower($chunkSummary);
         $headingText = mb_strtolower(implode(' ', $this->extractMarkdownHeadings($chunkText)));
         $score = 0.0;
         foreach ($terms as $term) {
@@ -327,9 +313,6 @@ class VectorSearch {
             }
             if (mb_stripos($chunkText, $term) !== false) {
                 $score += 0.01;
-            }
-            if ($chunkSummary !== '' && mb_stripos($chunkSummary, $term) !== false) {
-                $score += 0.04;
             }
         }
 

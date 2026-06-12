@@ -809,7 +809,7 @@ class GlobalChatRouteProcessor {
         return "【利用可能なデータベース構成 (MySQL 8.0)】\n"
              . "- `projects` (案件一覧): id, project_name, description, status(active/completed/on_hold), address, start_date, end_date, latitude, longitude, created_by, updated_at\n"
              . "- `documents` (資料一覧): id, project_id, title, file_path, created_at\n"
-             . "- `doc_chunks` (資料テキスト・チャンク): id, doc_id, page_number, chunk_text(LONGTEXT), chunk_summary, image_description\n"
+             . "- `doc_chunks` (資料テキスト・チャンク): id, doc_id, page_number, chunk_text(LONGTEXT), image_description\n"
              . "- `project_csv_files` (CSV一覧): id, project_id, file_name, column_headers(JSON), row_count, created_at\n"
              . "- `project_csv_rows` (CSV行データ): id, csv_file_id, row_index, row_data(JSON)\n"
              . "- `project_comments` (コメント): id, project_id, user_id, comment_text, created_at\n"

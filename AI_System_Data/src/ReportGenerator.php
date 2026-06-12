@@ -2,7 +2,6 @@
 
 require_once __DIR__ . '/EmbeddingEngine.php';
 require_once __DIR__ . '/ModelRoleResolver.php';
-require_once __DIR__ . '/DocChunkSummaryBuilder.php';
 
 class ReportGenerator
 {
@@ -108,14 +107,12 @@ class ReportGenerator
             $stmtDoc->execute([$projectId, $title, $dbPath]);
             $docId = (int)$this->pdo->lastInsertId();
 
-            $stmtChunk = $this->pdo->prepare('INSERT INTO doc_chunks (doc_id, page_number, chunk_text, chunk_summary, embedding, image_description, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW())');
+            $stmtChunk = $this->pdo->prepare('INSERT INTO doc_chunks (doc_id, page_number, chunk_text, embedding, image_description, created_at) VALUES (?, ?, ?, ?, ?, NOW())');
             foreach ($searchChunks as $idx => $chunkData) {
-                $chunkSummary = DocChunkSummaryBuilder::build((string)$chunkData['text'], 'AI生成報告書（Report Mode）');
                 $stmtChunk->execute([
                     $docId,
                     1,
                     $chunkData['text'],
-                    $chunkSummary,
                     json_encode($chunkData['embedding']),
                     'AI生成報告書（Report Mode）'
                 ]);

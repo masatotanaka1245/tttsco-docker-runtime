@@ -1,7 +1,6 @@
 <?php
 
 require_once __DIR__ . '/AppLogger.php';
-require_once __DIR__ . '/DocChunkSummaryBuilder.php';
 require_once __DIR__ . '/EmbeddingEngine.php';
 require_once __DIR__ . '/ModelRoleResolver.php';
 
@@ -50,6 +49,11 @@ class ProjectMaterialDocumentService
         if ($documentId && $documentId > 0) {
             $fallback = $this->readContentFromChunks($documentId);
             if ($fallback !== '') {
+                $this->logRag('material note content restored from doc_chunks', [
+                    'document_id' => $documentId,
+                    'file_path' => $relativePath,
+                    'content_chars' => mb_strlen($fallback),
+                ]);
                 return $fallback;
             }
         }
@@ -317,6 +321,16 @@ class ProjectMaterialDocumentService
         if (empty($chunks)) {
             $chunks[] = '# ' . $title;
         }
+        $saveMode = $existingDocument ? 'update' : 'create';
+        $this->logRag('material note save prepared', [
+            'project_id' => $projectId,
+            'document_id' => $existingDocument ? (int)$existingDocument['id'] : null,
+            'title' => $title,
+            'mode' => $saveMode,
+            'content_chars' => mb_strlen($content),
+            'chunks' => count($chunks),
+            'file_path' => $relativePath,
+        ]);
         $chunkEmbeddings = $this->buildChunkEmbeddings($projectId, $title, $chunks, $existingDocument ? (int)$existingDocument['id'] : null);
 
         $this->pdo->beginTransaction();
@@ -335,16 +349,14 @@ class ProjectMaterialDocumentService
             $stmtDeleteChunks->execute([$savedDocumentId]);
 
             $stmtInsertChunk = $this->pdo->prepare(
-                'INSERT INTO doc_chunks (doc_id, page_number, chunk_text, chunk_summary, embedding, image_description, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW())'
+                'INSERT INTO doc_chunks (doc_id, page_number, chunk_text, embedding, image_description, created_at) VALUES (?, ?, ?, ?, ?, NOW())'
             );
             foreach ($chunks as $index => $chunk) {
                 $embedding = $chunkEmbeddings[$index] ?? [];
-                $chunkSummary = DocChunkSummaryBuilder::build($chunk, '案件資料メモ（Markdown/RAG）: ' . $title);
                 $stmtInsertChunk->execute([
                     $savedDocumentId,
                     1,
                     $chunk,
-                    $chunkSummary,
                     json_encode($embedding, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
                     '案件資料メモ（Markdown/RAG）: ' . $title,
                 ]);
@@ -363,9 +375,12 @@ class ProjectMaterialDocumentService
             'project_id' => $projectId,
             'document_id' => $savedDocumentId,
             'title' => $title,
+            'mode' => $saveMode,
             'chunks' => count($chunks),
             'embedded_chunks' => $embeddedCount,
+            'content_chars' => mb_strlen($content),
             'file_path' => $relativePath,
+            'modified_at' => $this->getModifiedAt($relativePath),
         ]);
 
         return [
@@ -405,6 +420,13 @@ class ProjectMaterialDocumentService
         if (is_file($absolutePath)) {
             @unlink($absolutePath);
         }
+
+        $this->logRag('material note deleted', [
+            'project_id' => $projectId,
+            'document_id' => $documentId,
+            'title' => (string)($existingDocument['title'] ?? ''),
+            'file_path' => (string)($existingDocument['file_path'] ?? ''),
+        ]);
 
         return true;
     }

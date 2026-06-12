@@ -100,7 +100,6 @@ final class AdvancedDocAnswerBuilder
             $row = $rows[$i];
             $title = trim((string)($row['title'] ?? $row['file_path'] ?? '資料名不明'));
             $page = (int)($row['page_number'] ?? 0);
-            $chunkSummary = $this->compactEvidenceText((string)($row['chunk_summary'] ?? ''), 120);
             $chunkText = $this->summarizeDocEvidenceText((string)($row['chunk_text'] ?? ''), 180);
             $imageDescription = $this->compactEvidenceText((string)($row['image_description'] ?? ''), 140);
 
@@ -110,9 +109,6 @@ final class AdvancedDocAnswerBuilder
             }
             $lines[] = $header;
 
-            if ($chunkSummary !== '') {
-                $lines[] = "  - 要点: {$chunkSummary}";
-            }
             if ($chunkText !== '') {
                 $lines[] = "  - 本文抜粋: {$chunkText}";
             }

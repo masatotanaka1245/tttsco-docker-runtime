@@ -4,8 +4,6 @@ namespace App\Service;
 use PDO;
 use Exception;
 
-require_once dirname(__DIR__) . '/DocChunkSummaryBuilder.php';
-
 class DocumentService {
     private PDO $pdo;
     private ChatService $chatService;
@@ -55,9 +53,8 @@ class DocumentService {
             // ※APIリクエストが多いため、本来はループの外でAPIを叩くか、時間を考慮する
             foreach ($chunks as $index => $content) {
                 $vector = $this->chatService->embedText($content); // 内部でOllama呼び出し
-                $stmt = $this->pdo->prepare("INSERT INTO doc_chunks (doc_id, page_number, chunk_text, chunk_summary, embedding) VALUES (?, ?, ?, ?, ?)");
-                $chunkSummary = \DocChunkSummaryBuilder::build($content);
-                $stmt->execute([$documentId, max(1, $index + 1), $content, $chunkSummary, $vector ?: json_encode([])]);
+                $stmt = $this->pdo->prepare("INSERT INTO doc_chunks (doc_id, page_number, chunk_text, embedding) VALUES (?, ?, ?, ?)");
+                $stmt->execute([$documentId, max(1, $index + 1), $content, $vector ?: json_encode([])]);
             }
             $this->pdo->commit();
             return $documentId;
