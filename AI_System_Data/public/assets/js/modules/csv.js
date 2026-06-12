@@ -499,12 +499,12 @@ function renderCsvMergeSuggestions(payload = null) {
     const mainHeaders = parseCsvMergeHeaders(getCsvMergeRowById(csvMergeState.mainId));
 
     if (suggestions.length === 0) {
-        container.className = 'min-h-[4.5rem] rounded-xl border border-dashed border-slate-200 bg-white/80 px-4 py-4 text-[10px] text-slate-400';
+        container.className = 'min-h-[4.5rem] max-h-[30vh] overflow-y-auto custom-scrollbar rounded-xl border border-dashed border-slate-200 bg-white/80 px-4 py-4 pr-3 text-[10px] text-slate-400';
         container.textContent = '候補はまだありません。メインCSVとサブCSVを選んで提案を実行してください。';
         return;
     }
 
-    container.className = 'min-h-[4.5rem] rounded-xl border border-slate-200 bg-white px-4 py-4 text-[10px] text-slate-600 space-y-3';
+    container.className = 'min-h-[4.5rem] max-h-[30vh] overflow-y-auto custom-scrollbar rounded-xl border border-slate-200 bg-white px-4 py-4 pr-3 text-[10px] text-slate-600 space-y-3';
     container.innerHTML = suggestions.map((fileSuggestion) => {
         const subFileId = Number(fileSuggestion.sub_file_id || 0);
         const fileName = escapeHTML(String(fileSuggestion.sub_file_name || 'サブCSV'));

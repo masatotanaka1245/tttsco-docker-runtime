@@ -295,9 +295,9 @@ if (!isset($URL_SVG_XMLNS)) {
 </div>
 
 <div id="csv-merge-modal" class="fixed inset-0 bg-slate-950/40 backdrop-blur-xs hidden items-center justify-center z-50 p-4 animate-fadeIn duration-200" role="dialog" aria-modal="true" aria-labelledby="modal-title-csv-merge">
-    <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-4xl mx-auto border border-slate-100/80 transition-all duration-200">
+    <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-4xl max-h-[88vh] mx-auto border border-slate-100/80 transition-all duration-200 overflow-hidden flex flex-col">
         <h3 id="modal-title-csv-merge" class="text-sm md:text-base font-black tracking-wider text-slate-700 mb-5 border-b border-slate-100 pb-3 uppercase">CSV統合</h3>
-        <form id="csv-merge-form" onsubmit="window.handleMergeCsvFiles && window.handleMergeCsvFiles(event)" class="space-y-4 text-xs">
+        <form id="csv-merge-form" onsubmit="window.handleMergeCsvFiles && window.handleMergeCsvFiles(event)" class="space-y-4 text-xs flex-1 min-h-0 overflow-y-auto pr-1 custom-scrollbar">
             <div class="flex flex-wrap items-center justify-between gap-3">
                 <div class="space-y-1">
                     <p class="text-[11px] text-slate-600 font-bold">メインCSVを1つ選び、サブCSVを複数選択すると、メイン基準で新しい統合CSVを作成します。</p>
@@ -369,7 +369,7 @@ if (!isset($URL_SVG_XMLNS)) {
                     </div>
                     <button id="csv-merge-suggest-btn" type="button" onclick="window.handleSuggestCsvMergeMapping && window.handleSuggestCsvMergeMapping()" class="px-4 py-2 bg-white border border-slate-200 rounded-xl font-bold text-[#00758F] hover:bg-slate-50 transition-all duration-200 ease-in-out whitespace-nowrap">🤖 提案する</button>
                 </div>
-                <div id="csv-merge-suggestions" class="min-h-[4.5rem] rounded-xl border border-dashed border-slate-200 bg-white/80 px-4 py-4 text-[10px] text-slate-400">
+                <div id="csv-merge-suggestions" class="min-h-[4.5rem] max-h-[30vh] overflow-y-auto custom-scrollbar rounded-xl border border-dashed border-slate-200 bg-white/80 px-4 py-4 pr-3 text-[10px] text-slate-400">
                     メインCSVとサブCSVを選択すると、ここに列名ゆれ候補を表示できます。
                 </div>
             </div>
