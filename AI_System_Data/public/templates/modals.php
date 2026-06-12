@@ -300,7 +300,7 @@ if (!isset($URL_SVG_XMLNS)) {
         <form id="csv-merge-form" onsubmit="window.handleMergeCsvFiles && window.handleMergeCsvFiles(event)" class="space-y-4 text-xs flex-1 min-h-0 overflow-y-auto pr-1 custom-scrollbar">
             <div class="flex flex-wrap items-center justify-between gap-3">
                 <div class="space-y-1">
-                    <p class="text-[11px] text-slate-600 font-bold">メインCSVを1つ選び、サブCSVを複数選択すると、メイン基準で新しい統合CSVを作成します。</p>
+                    <p class="text-[11px] text-slate-600 font-bold">メインCSVを1つ選び、サブCSVを複数選択すると、メイン基準でCSVを統合します。</p>
                     <p class="text-[10px] text-slate-400">v1 では縦結合のみ対応します。同名列はそのまま合わせ、足りない列は空欄で補完します。</p>
                 </div>
                 <div class="flex flex-wrap items-center gap-2 text-[9px]">
@@ -376,6 +376,10 @@ if (!isset($URL_SVG_XMLNS)) {
 
             <div class="flex justify-end gap-2.5 pt-4 border-t border-slate-100">
                 <button type="button" onclick="window.closeCsvMergeModal && window.closeCsvMergeModal()" class="px-5 py-2 bg-slate-100 rounded-xl font-bold text-slate-500 hover:bg-slate-200 hover:text-slate-700 transition-all duration-200 ease-in-out transform active:scale-98">キャンセル</button>
+                <label class="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-[10px] font-bold text-slate-600 whitespace-nowrap">
+                    <input id="csv-merge-create-new" type="checkbox" class="w-4 h-4 accent-[#00758F]" checked onchange="window.handleCsvMergeCreateModeChange && window.handleCsvMergeCreateModeChange()">
+                    新規にCSVを作成する
+                </label>
                 <button id="csv-merge-submit" type="submit" class="px-7 py-2 bg-slate-300 text-white rounded-xl font-bold shadow-sm cursor-not-allowed" disabled>統合する</button>
             </div>
         </form>

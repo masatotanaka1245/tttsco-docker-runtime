@@ -158,7 +158,7 @@ class ProjectCsvTableService
         return $updated;
     }
 
-    public function mergeIntoMain(int $projectId, int $mainCsvFileId, array $subCsvFileIds, string $outputFileName = '', array $columnMappings = []): array
+    public function mergeIntoMain(int $projectId, int $mainCsvFileId, array $subCsvFileIds, string $outputFileName = '', array $columnMappings = [], bool $createNewCsv = true): array
     {
         $mainFile = $this->findById($projectId, $mainCsvFileId);
         if (!$mainFile) {
@@ -209,58 +209,86 @@ class ProjectCsvTableService
         }
 
         $cleanOutputFileName = $this->normalizeFileName($outputFileName);
-        if ($cleanOutputFileName === '') {
+        if ($createNewCsv && $cleanOutputFileName === '') {
             $mainBaseName = pathinfo((string)($mainFile['file_name'] ?? 'main.csv'), PATHINFO_FILENAME);
             $cleanOutputFileName = $this->normalizeFileName($mainBaseName . '_merged.csv');
         }
 
-        $orderedFileIds = array_merge([$mainCsvFileId], $normalizedSubIds);
-        $rowIndex = 1;
-
         $this->pdo->beginTransaction();
         try {
-            $stmtInsertFile = $this->pdo->prepare("
-                INSERT INTO project_csv_files (project_id, file_name, column_headers, row_count, created_at)
-                VALUES (?, ?, ?, 0, NOW())
-            ");
-            $stmtInsertFile->execute([
-                $projectId,
-                $cleanOutputFileName,
-                json_encode($mergedHeaders, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-            ]);
+            if ($createNewCsv) {
+                $orderedFileIds = array_merge([$mainCsvFileId], $normalizedSubIds);
+                $rowIndex = 1;
 
-            $mergedCsvFileId = (int)$this->pdo->lastInsertId();
-            $stmtInsertRow = $this->pdo->prepare("
-                INSERT INTO project_csv_rows (csv_file_id, row_index, row_data, created_at)
-                VALUES (?, ?, ?, NOW())
-            ");
+                $stmtInsertFile = $this->pdo->prepare("
+                    INSERT INTO project_csv_files (project_id, file_name, column_headers, row_count, created_at)
+                    VALUES (?, ?, ?, 0, NOW())
+                ");
+                $stmtInsertFile->execute([
+                    $projectId,
+                    $cleanOutputFileName,
+                    json_encode($mergedHeaders, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                ]);
 
-            foreach ($orderedFileIds as $sourceCsvFileId) {
-                foreach ($this->loadRowsForFile($sourceCsvFileId) as $sourceRow) {
-                    $preparedRow = $sourceCsvFileId === $mainCsvFileId
-                        ? $sourceRow
-                        : $this->applyColumnMappingsToRow($sourceRow, $normalizedMappings[$sourceCsvFileId] ?? []);
-                    $normalizedRow = [];
-                    foreach ($mergedHeaders as $header) {
-                        $value = $preparedRow[$header] ?? '';
-                        if (is_array($value)) {
-                            $value = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-                        }
-                        $normalizedRow[$header] = trim((string)$value);
+                $mergedCsvFileId = (int)$this->pdo->lastInsertId();
+                $stmtInsertRow = $this->pdo->prepare("
+                    INSERT INTO project_csv_rows (csv_file_id, row_index, row_data, created_at)
+                    VALUES (?, ?, ?, NOW())
+                ");
+
+                foreach ($orderedFileIds as $sourceCsvFileId) {
+                    foreach ($this->loadRowsForFile($sourceCsvFileId) as $sourceRow) {
+                        $preparedRow = $sourceCsvFileId === $mainCsvFileId
+                            ? $sourceRow
+                            : $this->applyColumnMappingsToRow($sourceRow, $normalizedMappings[$sourceCsvFileId] ?? []);
+                        $normalizedRow = $this->normalizeRowForHeaders($preparedRow, $mergedHeaders);
+                        $stmtInsertRow->execute([
+                            $mergedCsvFileId,
+                            $rowIndex,
+                            json_encode($normalizedRow, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                        ]);
+                        $rowIndex++;
                     }
-
-                    $stmtInsertRow->execute([
-                        $mergedCsvFileId,
-                        $rowIndex,
-                        json_encode($normalizedRow, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-                    ]);
-                    $rowIndex++;
                 }
-            }
 
-            $totalRows = max(0, $rowIndex - 1);
-            $stmtUpdateCount = $this->pdo->prepare('UPDATE project_csv_files SET row_count = ? WHERE id = ?');
-            $stmtUpdateCount->execute([$totalRows, $mergedCsvFileId]);
+                $totalRows = max(0, $rowIndex - 1);
+                $stmtUpdateCount = $this->pdo->prepare('UPDATE project_csv_files SET row_count = ? WHERE id = ?');
+                $stmtUpdateCount->execute([$totalRows, $mergedCsvFileId]);
+            } else {
+                $mergedCsvFileId = $mainCsvFileId;
+                $this->syncExistingRowsToHeaders($mergedCsvFileId, $mergedHeaders);
+
+                $stmtNext = $this->pdo->prepare("SELECT COALESCE(MAX(row_index), 0) + 1 FROM project_csv_rows WHERE csv_file_id = ?");
+                $stmtNext->execute([$mergedCsvFileId]);
+                $rowIndex = (int)$stmtNext->fetchColumn();
+
+                $stmtInsertRow = $this->pdo->prepare("
+                    INSERT INTO project_csv_rows (csv_file_id, row_index, row_data, created_at)
+                    VALUES (?, ?, ?, NOW())
+                ");
+
+                foreach ($normalizedSubIds as $sourceCsvFileId) {
+                    foreach ($this->loadRowsForFile($sourceCsvFileId) as $sourceRow) {
+                        $preparedRow = $this->applyColumnMappingsToRow($sourceRow, $normalizedMappings[$sourceCsvFileId] ?? []);
+                        $normalizedRow = $this->normalizeRowForHeaders($preparedRow, $mergedHeaders);
+                        $stmtInsertRow->execute([
+                            $mergedCsvFileId,
+                            $rowIndex,
+                            json_encode($normalizedRow, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                        ]);
+                        $rowIndex++;
+                    }
+                }
+
+                $totalRows = max(0, $rowIndex - 1);
+                $stmtUpdateFile = $this->pdo->prepare('UPDATE project_csv_files SET column_headers = ?, row_count = ? WHERE id = ? AND project_id = ?');
+                $stmtUpdateFile->execute([
+                    json_encode($mergedHeaders, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                    $totalRows,
+                    $mergedCsvFileId,
+                    $projectId,
+                ]);
+            }
 
             $this->pdo->commit();
         } catch (Throwable $e) {
@@ -276,7 +304,7 @@ class ProjectCsvTableService
         }
 
         $merged['headers'] = $mergedHeaders;
-        $merged['source_csv_ids'] = $orderedFileIds;
+        $merged['source_csv_ids'] = $createNewCsv ? array_merge([$mainCsvFileId], $normalizedSubIds) : $normalizedSubIds;
         return $merged;
     }
 
@@ -394,6 +422,41 @@ class ProjectCsvTableService
         }
 
         return $preparedRow;
+    }
+
+    private function normalizeRowForHeaders(array $rowData, array $headers): array
+    {
+        $normalizedRow = [];
+        foreach ($headers as $header) {
+            $value = $rowData[$header] ?? '';
+            if (is_array($value)) {
+                $value = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            }
+            $normalizedRow[$header] = trim((string)$value);
+        }
+
+        return $normalizedRow;
+    }
+
+    private function syncExistingRowsToHeaders(int $csvFileId, array $headers): void
+    {
+        $stmtRows = $this->pdo->prepare('SELECT id, row_data FROM project_csv_rows WHERE csv_file_id = ? ORDER BY row_index ASC');
+        $stmtRows->execute([$csvFileId]);
+        $rows = $stmtRows->fetchAll(PDO::FETCH_ASSOC);
+        if ($rows === []) {
+            return;
+        }
+
+        $stmtUpdateRow = $this->pdo->prepare('UPDATE project_csv_rows SET row_data = ? WHERE id = ?');
+        foreach ($rows as $row) {
+            $decoded = json_decode((string)($row['row_data'] ?? ''), true);
+            $rowData = is_array($decoded) ? $decoded : [];
+            $normalizedRow = $this->normalizeRowForHeaders($rowData, $headers);
+            $stmtUpdateRow->execute([
+                json_encode($normalizedRow, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                (int)$row['id'],
+            ]);
+        }
     }
 
     private function normalizeFileName(string $fileName): string

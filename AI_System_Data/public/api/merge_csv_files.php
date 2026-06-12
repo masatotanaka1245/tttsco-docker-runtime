@@ -30,6 +30,7 @@ $projectId = (int)($payload['project_id'] ?? 0);
 $mainCsvFileId = (int)($payload['main_csv_file_id'] ?? 0);
 $subCsvFileIds = $payload['sub_csv_file_ids'] ?? [];
 $outputFileName = trim((string)($payload['output_file_name'] ?? ''));
+$createNewCsv = !isset($payload['create_new_csv']) || filter_var($payload['create_new_csv'], FILTER_VALIDATE_BOOL);
 $columnMappings = $payload['column_mappings'] ?? [];
 $userId = (int)($_SESSION['user_id'] ?? 0);
 $role = (string)($_SESSION['role'] ?? 'user');
@@ -54,7 +55,7 @@ if (!is_array($columnMappings)) {
 
 try {
     $service = new ProjectCsvTableService($pdo);
-    $csvFile = $service->mergeIntoMain($projectId, $mainCsvFileId, $subCsvFileIds, $outputFileName, $columnMappings);
+    $csvFile = $service->mergeIntoMain($projectId, $mainCsvFileId, $subCsvFileIds, $outputFileName, $columnMappings, $createNewCsv);
 
     echo json_encode([
         'success' => true,
@@ -65,7 +66,7 @@ try {
             'created_at' => (string)($csvFile['created_at'] ?? ''),
             'headers' => $csvFile['headers'] ?? (json_decode((string)($csvFile['column_headers'] ?? '[]'), true) ?: []),
         ],
-        'message' => 'CSVを統合しました。',
+        'message' => $createNewCsv ? 'CSVを統合しました。' : 'メインCSVへ統合しました。',
     ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 } catch (Throwable $e) {
     http_response_code(400);

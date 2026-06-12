@@ -400,6 +400,10 @@ function resetCsvMergeState() {
         suggestionSource: 'heuristic',
         suggestionsLoaded: false,
     };
+    const createNewCheckbox = document.getElementById('csv-merge-create-new');
+    if (createNewCheckbox) {
+        createNewCheckbox.checked = true;
+    }
 }
 
 function renderCsvMergeState() {
@@ -412,6 +416,7 @@ function renderCsvMergeState() {
     const outputInput = document.getElementById('csv-merge-output-file-name');
     const submitBtn = document.getElementById('csv-merge-submit');
     const suggestBtn = document.getElementById('csv-merge-suggest-btn');
+    const createNewCheckbox = document.getElementById('csv-merge-create-new');
 
     const mainRow = getCsvMergeRowById(csvMergeState.mainId);
     const subRows = csvMergeState.subIds.map((id) => getCsvMergeRowById(id)).filter(Boolean);
@@ -473,6 +478,11 @@ function renderCsvMergeState() {
             const baseName = mainFileName ? mainFileName.replace(/\.csv$/i, '') : 'merged_csv';
             outputInput.value = `${baseName}_merged.csv`;
         }
+        const shouldCreateNew = createNewCheckbox ? Boolean(createNewCheckbox.checked) : true;
+        outputInput.disabled = !shouldCreateNew;
+        outputInput.className = shouldCreateNew
+            ? 'w-full border border-slate-200/80 rounded-xl bg-slate-50/30 px-3 py-2.5 font-medium text-slate-700 outline-none focus:bg-white focus:border-teal-400 focus:ring-4 focus:ring-teal-500/5 transition-all duration-200 ease-in-out'
+            : 'w-full border border-slate-200/80 rounded-xl bg-slate-100 px-3 py-2.5 font-medium text-slate-400 outline-none cursor-not-allowed transition-all duration-200 ease-in-out';
     }
 
     if (submitBtn) {
@@ -885,6 +895,10 @@ function openCsvMergeModal() {
         return;
     }
     modal.classList.replace('hidden', 'flex');
+}
+
+function handleCsvMergeCreateModeChange() {
+    renderCsvMergeState();
 }
 
 function handleAddCsvColumnDraft() {
@@ -1372,7 +1386,9 @@ async function handleMergeCsvFiles(e) {
     const { projectId } = getConfig();
     const outputInput = document.getElementById('csv-merge-output-file-name');
     const submitBtn = document.getElementById('csv-merge-submit');
+    const createNewCheckbox = document.getElementById('csv-merge-create-new');
     const outputFileName = String(outputInput?.value || '').trim();
+    const createNewCsv = createNewCheckbox ? Boolean(createNewCheckbox.checked) : true;
 
     if (!projectId) {
         alert('案件情報が見つかりません。');
@@ -1399,7 +1415,8 @@ async function handleMergeCsvFiles(e) {
                 project_id: Number(projectId),
                 main_csv_file_id: Number(csvMergeState.mainId),
                 sub_csv_file_ids: csvMergeState.subIds.map((id) => Number(id)),
-                output_file_name: outputFileName,
+                output_file_name: createNewCsv ? outputFileName : '',
+                create_new_csv: createNewCsv,
                 column_mappings: csvMergeState.mappings,
             }),
         });
@@ -1411,10 +1428,15 @@ async function handleMergeCsvFiles(e) {
         prependCsvHistoryItem(response.csv_file);
         appendCsvMergeRow(response.csv_file);
         setCsvHistoryCount(document.querySelectorAll('[id^="csv-item-"]').length);
-        updateCsvBadge(1);
+        if (createNewCsv) {
+            updateCsvBadge(1);
+        }
         closeCsvMergeModal();
         await loadCsvData(response.csv_file.id, response.csv_file.file_name);
-        notifySupportToast(`CSV統合結果「${response.csv_file.file_name}」を作成しました。`);
+        notifySupportToast(createNewCsv
+            ? `CSV統合結果「${response.csv_file.file_name}」を作成しました。`
+            : `メインCSV「${response.csv_file.file_name}」へ統合しました。`
+        );
     } catch (err) {
         alert(`CSV統合に失敗しました: ${err.message}`);
         renderCsvMergeState();
@@ -1915,6 +1937,7 @@ async function handleStartCsvAiCategorizeJob(e) {
     window.handleMergeCsvFiles = handleMergeCsvFiles;
     window.handleSuggestCsvMergeMapping = handleSuggestCsvMergeMapping;
     window.handleCsvMergeMappingChange = handleCsvMergeMappingChange;
+    window.handleCsvMergeCreateModeChange = handleCsvMergeCreateModeChange;
     window.openCsvCreateModal = openCsvCreateModal;
     window.closeCsvCreateModal = closeCsvCreateModal;
     window.openCsvAppendModal = openCsvAppendModal;
@@ -1973,6 +1996,7 @@ export {
     handleMergeCsvFiles,
     handleSuggestCsvMergeMapping,
     handleCsvMergeMappingChange,
+    handleCsvMergeCreateModeChange,
     openCsvCreateModal,
     closeCsvCreateModal,
     openCsvAppendModal,

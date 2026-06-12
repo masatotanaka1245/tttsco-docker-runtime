@@ -142,6 +142,25 @@ if (!function_exists('buildCsvNaturalText')) {
     }
 }
 
+if (!function_exists('csvBuildRowPreview')) {
+    function csvBuildRowPreview(array $rowData, int $maxCells = 6): string {
+        $cells = [];
+        foreach (array_slice($rowData, 0, $maxCells) as $value) {
+            $value = trim((string)$value);
+            if ($value === '') {
+                $cells[] = '[空欄]';
+                continue;
+            }
+            $cells[] = mb_substr($value, 0, 60);
+        }
+        $preview = implode(' | ', $cells);
+        if (count($rowData) > $maxCells) {
+            $preview .= ' | ...';
+        }
+        return $preview;
+    }
+}
+
 // 2. CSRFトークン検証
 $csrfToken = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
 if (!verifyCsrfToken($csrfToken)) {
@@ -278,6 +297,10 @@ try {
 
     $column_headers_json = json_encode($headers, JSON_UNESCAPED_UNICODE);
     logger("抽出された列名ヘッダー: " . $column_headers_json);
+    $expected_column_count = count($headers);
+    $csv_parse_warning_count = 0;
+    $csv_parse_warning_rows = [];
+    $csv_parse_warning_limit = 10;
 
     $embed_model = $resolvedModels['embedding_model'];
     $is_large_csv = $total_rows > 1000;
@@ -381,7 +404,7 @@ try {
     ");
 
     while (($row_data = fgetcsv($stream, 0, $delimiter)) !== false) {
-        
+
         // セルがすべて空の行（ゴミデータ）は完全にスキップ
         $isEmptyRow = true;
         foreach ($row_data as $val) {
@@ -391,6 +414,23 @@ try {
             }
         }
         if ($isEmptyRow) continue;
+
+        $parsed_column_count = count($row_data);
+        if ($parsed_column_count !== $expected_column_count) {
+            $csv_parse_warning_count++;
+            $warningType = $parsed_column_count > $expected_column_count ? '列数超過' : '列数不足';
+            $warningMessage = "{$warningType}: logical_row={$row_index} | expected={$expected_column_count} | parsed={$parsed_column_count} | delimiter={$delimiterLabel} | preview=" . csvBuildRowPreview($row_data);
+            logger("[CSV-PARSE-WARN] {$warningMessage}");
+            if (count($csv_parse_warning_rows) < $csv_parse_warning_limit) {
+                $csv_parse_warning_rows[] = [
+                    'row_index' => $row_index,
+                    'type' => $warningType,
+                    'expected_columns' => $expected_column_count,
+                    'parsed_columns' => $parsed_column_count,
+                    'preview' => csvBuildRowPreview($row_data),
+                ];
+            }
+        }
 
         // ヘッダー数とデータ数の不一致を安全に補正
         $assoc_row = [];
@@ -552,6 +592,10 @@ try {
     $completeMessage = $rag_warning
         ? 'CSV本体の取り込みは完了しました。RAGチャンク生成に一部課題があります。'
         : 'CSVデータの取り込みとRAGチャンク生成が完了しました！';
+    $csv_parse_warning = $csv_parse_warning_count > 0
+        ? "CSV構文または列数不一致の疑いが {$csv_parse_warning_count} 行あります。upload_debug.log を確認してください。"
+        : null;
+    $combinedWarning = array_values(array_filter([$rag_warning, $csv_parse_warning], static fn($value): bool => trim((string)$value) !== ''));
     updateCsvProgress('completed', 'done', $total_rows_imported, $total_rows_imported, $completeMessage);
 
     echo json_encode([
@@ -562,7 +606,9 @@ try {
         'total_rows'  => $total_rows_imported,
         'rag_chunks'  => $rag_chunk_count,
         'embedding_failures' => $embedding_failure_count,
-        'warning' => $rag_warning
+        'warning' => $combinedWarning !== [] ? implode(' / ', $combinedWarning) : null,
+        'csv_parse_warning_count' => $csv_parse_warning_count,
+        'csv_parse_warning_rows' => $csv_parse_warning_rows,
     ]);
 
 } catch (Exception $e) {
