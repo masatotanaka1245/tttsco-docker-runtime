@@ -280,21 +280,56 @@ class NormalStreamingRouteProcessor {
                 $stmtSummary = $this->pdo->prepare("SELECT c.id, c.doc_id, d.title, c.chunk_text, c.page_number, c.image_description FROM doc_chunks c JOIN documents d ON c.doc_id = d.id WHERE d.project_id = ? AND c.page_number = 0");
                 $stmtSummary->execute([$this->projectId]);
                 $summaries = $stmtSummary->fetchAll(PDO::FETCH_ASSOC);
-
+                $summaryByDocId = [];
                 foreach ($summaries as $sum) {
+                    $summaryByDocId[(int)($sum['doc_id'] ?? 0)] = $sum;
+                }
+
+                $semanticHits = $this->vectorSearch->search($qEmb, $this->projectId, 12, null, $this->searchQuery);
+                $detailHits = [];
+                $referencedSummaryDocIds = [];
+                foreach ($semanticHits as $sHit) {
+                    if ($sHit['page_number'] == 0 || $sHit['page_number'] === '0') {
+                        continue;
+                    }
+                    $detailHits[] = $sHit;
+                    $docId = (int)($sHit['document_id'] ?? 0);
+                    if ($docId > 0 && !in_array($docId, $referencedSummaryDocIds, true)) {
+                        $referencedSummaryDocIds[] = $docId;
+                    }
+                }
+
+                $referencedSummaryDocIds = array_slice($referencedSummaryDocIds, 0, 3);
+                foreach ($referencedSummaryDocIds as $docId) {
+                    if (!isset($summaryByDocId[$docId])) {
+                        continue;
+                    }
+                    $sum = $summaryByDocId[$docId];
                     $all_hits[] = [
                         'document_id' => $sum['doc_id'],
                         'title' => $sum['title'],
                         'content' => $sum['chunk_text'],
                         'page_number' => 0,
                         'image_description' => $sum['image_description'],
-                        'score' => 1.0
+                        'score' => 0.92,
                     ];
                 }
-                $semanticHits = $this->vectorSearch->search($qEmb, $this->projectId, 12, null, $this->searchQuery);
-                foreach ($semanticHits as $sHit) {
-                    if ($sHit['page_number'] == 0 || $sHit['page_number'] === '0') continue;
-                    $all_hits[] = $sHit;
+
+                if (empty($detailHits)) {
+                    foreach (array_slice($summaries, 0, 2) as $sum) {
+                        $all_hits[] = [
+                            'document_id' => $sum['doc_id'],
+                            'title' => $sum['title'],
+                            'content' => $sum['chunk_text'],
+                            'page_number' => 0,
+                            'image_description' => $sum['image_description'],
+                            'score' => 0.90,
+                        ];
+                    }
+                }
+
+                foreach ($detailHits as $detailHit) {
+                    $all_hits[] = $detailHit;
                 }
             } else {
                 $all_hits = $this->vectorSearch->search($qEmb, $this->projectId, 9999, $this->targetPage, $this->searchQuery);
@@ -322,18 +357,30 @@ class NormalStreamingRouteProcessor {
                 }
             }
 
-            $pdf_hits = array_slice($pdf_hits, 0, 6);
+            if ($this->referAllMode) {
+                $pdf_hits = $this->rebalanceReferAllPdfHits($pdf_hits, 6);
+            } else {
+                $pdf_hits = array_slice($pdf_hits, 0, 6);
+            }
             chatLogger("トリアージ完了。PDF適合チャンク(score>=0.35): " . count($pdf_hits) . "件 | 適合CSVファイル(score>=0.50): " . count($csv_hits_by_doc) . "件");
 
+            $suppressedImageDescriptionCount = 0;
             foreach ($pdf_hits as $hit) {
                 $pNum = $hit['page_number'];
                 $label = ($pNum == 0) ? "【資料全体の構成・要約（目次情報）】" : "【参考資料: {$hit['title']} P.{$pNum}】";
                 $this->contextText .= "{$label}\n[本文テキスト]:\n{$hit['content']}\n";
-                if (!empty($hit['image_description'])) {
-                    $this->contextText .= "[このページに含まれる画像/図表の説明]:\n{$hit['image_description']}\n";
+                $imageDescriptionForContext = $this->prepareImageDescriptionForContext((string)($hit['image_description'] ?? ''));
+                if ($imageDescriptionForContext !== '') {
+                    $this->contextText .= "[このページに含まれる画像/図表の説明]:\n{$imageDescriptionForContext}\n";
+                } elseif (!empty($hit['image_description'])) {
+                    $suppressedImageDescriptionCount++;
                 }
                 $this->contextText .= "\n";
                 $this->sourceDocs[] = ["title" => $hit['title'], "page" => $pNum, "doc_id" => $hit['document_id']];
+            }
+
+            if ($suppressedImageDescriptionCount > 0) {
+                chatLogger("[RAG-CONTEXT-FILTER] 汎用的すぎる image_description を {$suppressedImageDescriptionCount} 件、回答コンテキストから除外しました。");
             }
 
             foreach ($csv_hits_by_doc as $doc_id => $c_hits) {
@@ -852,6 +899,68 @@ class NormalStreamingRouteProcessor {
         }
 
         return false;
+    }
+
+    private function prepareImageDescriptionForContext(string $imageDescription): string
+    {
+        $normalized = trim((string)(preg_replace('/\s+/u', ' ', $imageDescription) ?? $imageDescription));
+        if ($normalized === '') {
+            return '';
+        }
+
+        if (
+            str_starts_with($normalized, '本文中心ページ')
+            || str_starts_with($normalized, 'テキスト主体ページ')
+            || str_starts_with($normalized, '資料全体の要約・構成情報')
+            || str_starts_with($normalized, '案件資料メモ')
+            || str_starts_with($normalized, 'ページ種別: 未判定')
+            || str_contains($normalized, 'CSVデータ')
+        ) {
+            return '';
+        }
+
+        if (preg_match('/^ページ種別:\s*[^|]+$/u', $normalized) === 1) {
+            return '';
+        }
+
+        if (mb_strlen($normalized) < 18) {
+            return '';
+        }
+
+        return $normalized;
+    }
+
+    private function rebalanceReferAllPdfHits(array $pdfHits, int $limit = 6): array
+    {
+        if (empty($pdfHits)) {
+            return [];
+        }
+
+        $summaryHits = [];
+        $detailHits = [];
+        foreach ($pdfHits as $hit) {
+            if (($hit['page_number'] ?? null) == 0) {
+                $summaryHits[] = $hit;
+            } else {
+                $detailHits[] = $hit;
+            }
+        }
+
+        $selected = [];
+        foreach (array_slice($detailHits, 0, min(4, $limit)) as $hit) {
+            $selected[] = $hit;
+        }
+        foreach (array_slice($summaryHits, 0, max(0, $limit - count($selected))) as $hit) {
+            $selected[] = $hit;
+        }
+        if (count($selected) < $limit) {
+            foreach (array_slice($detailHits, count($selected), $limit - count($selected)) as $hit) {
+                $selected[] = $hit;
+            }
+        }
+
+        chatLogger("[RAG-CONTEXT-FILTER] referAllMode で資料全体要約=" . count($summaryHits) . "件 / 本文ページ=" . count($detailHits) . "件 を再配分し、本文優先で " . count($selected) . "件を採用しました。");
+        return array_slice($selected, 0, $limit);
     }
 }
 

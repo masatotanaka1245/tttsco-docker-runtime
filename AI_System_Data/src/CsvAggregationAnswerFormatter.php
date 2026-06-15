@@ -2,6 +2,27 @@
 
 class CsvAggregationAnswerFormatter
 {
+    public function buildChartColumnClarificationAnswer(array $plan, array $fileTarget): string
+    {
+        $fileName = trim((string)($fileTarget['file_name'] ?? ($plan['target_file_name'] ?? '対象CSV')));
+        $columns = array_values(array_filter(array_map('strval', (array)($fileTarget['columns'] ?? []))));
+        $suggestedColumns = array_slice($columns, 0, 8);
+
+        $lines = [];
+        $lines[] = "{$fileName} をグラフ化すること自体は可能ですが、どの列を軸にするかがまだ指定されていません。";
+        $lines[] = "";
+        $lines[] = "- 対象CSV: {$fileName}";
+        $lines[] = "- 元レコード数: " . (int)($fileTarget['row_count'] ?? 0) . "件";
+        $lines[] = "- 状態: 列未指定のため、まだグラフ生成は実行していません。";
+        if (!empty($suggestedColumns)) {
+            $lines[] = "- 指定候補: " . implode(' / ', $suggestedColumns);
+        }
+        $lines[] = "";
+        $lines[] = "たとえば「{$fileName} の『件数』列ごとにグラフ化してください」のように列名を指定していただければ、そのまま集計してグラフ化できます。";
+
+        return implode("\n", $lines);
+    }
+
     public function buildMissingColumnAnswer(array $plan, array $suggestions = []): string
     {
         $column = trim((string)($plan['target_column'] ?? ''));

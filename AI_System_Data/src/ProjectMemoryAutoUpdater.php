@@ -139,6 +139,7 @@ final class ProjectMemoryAutoUpdater
         );
 
         $history = self::mergeHistoryRows($threadHistory, $projectRecentHistory, 36);
+        $recentEvaluations = self::fetchRecentEvaluatedAnswers($pdo, $projectId, $threadId);
 
         $commentCount = (int)self::fetchScalar(
             $pdo,
@@ -161,6 +162,7 @@ final class ProjectMemoryAutoUpdater
             'csv_files' => $csvFiles,
             'pdf_docs' => $pdfDocs,
             'history' => $history,
+            'recent_evaluations' => $recentEvaluations,
             'thread_history_count' => count($threadHistory),
             'project_recent_history_count' => count($projectRecentHistory),
             'comment_count' => $commentCount,
@@ -199,6 +201,14 @@ final class ProjectMemoryAutoUpdater
         $lines[] = '- 現在スレッド: ' . ($snapshot['thread_id'] === null ? '未選択' : (string)$snapshot['thread_id']);
         $lines[] = '- FAQ件数: ' . (int)$snapshot['faq_count'] . '件 / コメント件数: ' . (int)$snapshot['comment_count'] . '件';
         $lines[] = '- 参照履歴: 現在スレッド ' . (int)($snapshot['thread_history_count'] ?? 0) . '件 / 案件全体の最近履歴 ' . (int)($snapshot['project_recent_history_count'] ?? 0) . '件';
+        $improvementLines = self::buildImprovementLogLines($snapshot['recent_evaluations'] ?? []);
+        if ($improvementLines !== []) {
+            $lines[] = '';
+            $lines[] = '## 改善ログ';
+            foreach ($improvementLines as $line) {
+                $lines[] = $line;
+            }
+        }
 
         return implode("\n", $lines);
     }
@@ -365,6 +375,234 @@ final class ProjectMemoryAutoUpdater
         }
 
         return array_slice($merged, -$limit);
+    }
+
+    private static function fetchRecentEvaluatedAnswers(PDO $pdo, int $projectId, ?int $threadId): array
+    {
+        $sql = "
+            SELECT
+                h.id,
+                h.project_id,
+                h.thread_id,
+                h.message AS answer_message,
+                h.created_at,
+                e.total_score,
+                e.relevance_score,
+                e.faithfulness_score,
+                e.clarity_score,
+                e.feedback,
+                (
+                    SELECT hu.message
+                      FROM chat_history hu
+                     WHERE hu.project_id = h.project_id
+                       AND hu.role = 'user'
+                       AND hu.created_at <= h.created_at
+                       AND (h.thread_id IS NULL OR hu.thread_id = h.thread_id)
+                     ORDER BY hu.created_at DESC, hu.id DESC
+                     LIMIT 1
+                ) AS question_message
+            FROM chat_history h
+            INNER JOIN chat_evaluations e ON e.chat_id = h.id
+            WHERE h.project_id = ?
+              AND h.role = 'assistant'
+        ";
+        $params = [$projectId];
+        if ($threadId !== null) {
+            $sql .= " AND h.thread_id = ? ";
+            $params[] = $threadId;
+        }
+        $sql .= " ORDER BY h.created_at DESC, h.id DESC LIMIT 12";
+
+        return self::fetchAll($pdo, $sql, $params);
+    }
+
+    private static function buildImprovementLogLines(array $recentEvaluations): array
+    {
+        $grouped = [];
+
+        foreach ($recentEvaluations as $row) {
+            $totalScore = (int)($row['total_score'] ?? 0);
+            $relevance = (int)($row['relevance_score'] ?? 0);
+            $faithfulness = (int)($row['faithfulness_score'] ?? 0);
+            $question = self::compactLine((string)($row['question_message'] ?? ''), 90);
+            $feedback = self::compactLine((string)($row['feedback'] ?? ''), 120);
+
+            if ($question === '') {
+                continue;
+            }
+            if ($totalScore >= 92 && $relevance >= 90 && $faithfulness >= 90) {
+                continue;
+            }
+
+            [$issue, $improvement, $nextRule, $signature] = self::inferImprovementFromEvaluation(
+                $question,
+                (string)($row['answer_message'] ?? ''),
+                (string)($row['feedback'] ?? ''),
+                $totalScore,
+                $relevance,
+                $faithfulness
+            );
+            if ($signature === '') {
+                continue;
+            }
+
+            $severity = self::calculateImprovementSeverity($totalScore, $relevance, $faithfulness);
+            if (!isset($grouped[$signature])) {
+                $grouped[$signature] = [
+                    'issue' => $issue,
+                    'improvement' => $improvement,
+                    'next_rule' => $nextRule,
+                    'question' => $question,
+                    'feedback' => $feedback,
+                    'total_score' => $totalScore,
+                    'relevance' => $relevance,
+                    'faithfulness' => $faithfulness,
+                    'severity' => $severity,
+                    'latest_created_at' => (string)($row['created_at'] ?? ''),
+                    'occurrences' => 1,
+                ];
+                continue;
+            }
+
+            $grouped[$signature]['occurrences'] = (int)$grouped[$signature]['occurrences'] + 1;
+            if (
+                $severity > (int)$grouped[$signature]['severity']
+                || (
+                    $severity === (int)$grouped[$signature]['severity']
+                    && strcmp((string)($row['created_at'] ?? ''), (string)$grouped[$signature]['latest_created_at']) > 0
+                )
+            ) {
+                $grouped[$signature]['issue'] = $issue;
+                $grouped[$signature]['improvement'] = $improvement;
+                $grouped[$signature]['next_rule'] = $nextRule;
+                $grouped[$signature]['question'] = $question;
+                $grouped[$signature]['feedback'] = $feedback;
+                $grouped[$signature]['total_score'] = $totalScore;
+                $grouped[$signature]['relevance'] = $relevance;
+                $grouped[$signature]['faithfulness'] = $faithfulness;
+                $grouped[$signature]['severity'] = $severity;
+                $grouped[$signature]['latest_created_at'] = (string)($row['created_at'] ?? '');
+            }
+        }
+
+        if (empty($grouped)) {
+            return [];
+        }
+
+        uasort($grouped, static function (array $a, array $b): int {
+            $severityCompare = ((int)$b['severity'] <=> (int)$a['severity']);
+            if ($severityCompare !== 0) {
+                return $severityCompare;
+            }
+            return strcmp((string)$b['latest_created_at'], (string)$a['latest_created_at']);
+        });
+
+        $lines = [];
+        $count = 0;
+        foreach ($grouped as $item) {
+            $lines[] = '- 症状: ' . (string)$item['issue'];
+            $lines[] = '  質問: ' . (string)$item['question'];
+            $lines[] = '  評価: score=' . (int)$item['total_score'] . ' / relevance=' . (int)$item['relevance'] . ' / faithfulness=' . (int)$item['faithfulness'];
+            if ((int)$item['occurrences'] > 1) {
+                $lines[] = '  発生: 直近で ' . (int)$item['occurrences'] . '件';
+            }
+            if ((string)$item['feedback'] !== '') {
+                $lines[] = '  補足: ' . (string)$item['feedback'];
+            }
+            $lines[] = '  改善策: ' . (string)$item['improvement'];
+            $lines[] = '  次回ルール: ' . (string)$item['next_rule'];
+
+            $count++;
+            if ($count >= 3) {
+                break;
+            }
+        }
+
+        return $lines;
+    }
+
+    private static function inferImprovementFromEvaluation(
+        string $question,
+        string $answer,
+        string $feedback,
+        int $totalScore,
+        int $relevance,
+        int $faithfulness
+    ): array {
+        $text = mb_strtolower($question . "\n" . $answer . "\n" . $feedback);
+
+        if (preg_match('/(csv|\.csv|列|カラム|グラフ|件数|統合|転記|結合|マージ)/u', $text)) {
+            if (preg_match('/(グラフ|チャート)/u', $text) && !preg_match('/「.+」列|列ごと|カラム/u', $question)) {
+                return [
+                    'CSV質問で対象列が曖昧なまま概況寄りの回答になった',
+                    'グラフや件数分布は、対象列が未指定なら確認質問を返してから集計する。',
+                    'CSVグラフ要求では、対象ファイルと対象列の両方が確定するまで分析を始めない。',
+                    'csv_graph_clarify',
+                ];
+            }
+
+            if (preg_match('/(統合|転記|結合|マージ)/u', $text)) {
+                return [
+                    'CSV操作相談を分析質問として扱ってしまった',
+                    '操作案内と分析を分離し、統合・転記・結合はまず手順案内や前提確認として返す。',
+                    'CSVファイル名に言及していても、操作相談なら analysis へ強制遷移しない。',
+                    'csv_operation_guidance',
+                ];
+            }
+
+            return [
+                'CSV質問で意図解釈が浅く、要点の切り分けが弱かった',
+                'CSV質問では、対象ファイル・列・操作種別を先に固定してから回答する。',
+                'CSVは「要約」「集計」「グラフ」「統合」のどれかを最初に見極める。',
+                'csv_intent_scope',
+            ];
+        }
+
+        if (preg_match('/(pdf|資料|ページ|図表|画像|markdown|md)/u', $text)) {
+            return [
+                '資料/PDF質問で全体要約や薄い説明に寄り、本文根拠が弱かった',
+                '資料全体要約より本文ページの根拠を優先し、薄い image_description は回答本文へ入れない。',
+                '資料質問では、本文ページ・ページ番号・具体記述を先に使い、全体要約は補助にとどめる。',
+                'pdf_detail_first',
+            ];
+        }
+
+        if ($relevance < 90) {
+            return [
+                '質問意図に対して答えの焦点がずれた',
+                '曖昧な要求は確認質問へ倒し、答えられる前提がそろってから本文回答する。',
+                '意図が曖昧なら、推測回答より確認質問を優先する。',
+                'general_clarify_first',
+            ];
+        }
+
+        if ($faithfulness < 90) {
+            return [
+                '根拠に対する忠実性が弱かった',
+                '資料本文・DB実データ・確定済み設定だけを根拠にし、補助メモや推測を断定に使わない。',
+                '断定前に、根拠が資料本文か実データかを必ず確認する。',
+                'grounding_stricter',
+            ];
+        }
+
+        if ($totalScore >= 88 && trim($feedback) === '') {
+            return ['', '', '', ''];
+        }
+
+        return [
+            '最近の回答で品質スコアが伸びなかった',
+            '回答前に対象・根拠・次アクションを明示して、ぼんやりした要約を避ける。',
+            '低スコア回答では、結論・根拠・次アクションの三点を明示する。',
+            'generic_low_score',
+        ];
+    }
+
+    private static function calculateImprovementSeverity(int $totalScore, int $relevance, int $faithfulness): int
+    {
+        $severity = max(0, 100 - $totalScore);
+        $severity += max(0, 95 - $relevance);
+        $severity += max(0, 95 - $faithfulness);
+        return $severity;
     }
 
     private static function fetchOne(PDO $pdo, string $sql, array $params): array

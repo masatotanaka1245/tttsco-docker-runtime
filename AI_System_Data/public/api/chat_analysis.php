@@ -463,6 +463,24 @@ class AdvancedReasoningRouteProcessor {
             . " | target_value: " . ($plan['target_value'] ?? 'none')
         );
 
+        if (!empty($plan['wants_chart']) && !empty($plan['target_file_name']) && empty($plan['target_column'])) {
+            $fileTarget = $targetResolver->findFileTarget((string)$plan['target_file_name']);
+            if ($fileTarget !== null) {
+                $finalResponse = $csvAggregationAnswerFormatter->buildChartColumnClarificationAnswer($plan, $fileTarget);
+                $this->finalResponse = $finalResponse;
+                $this->subAnswers[] = $finalResponse;
+                $this->insertReasoningStep(
+                    1,
+                    'CSVグラフ化の列指定確認',
+                    "【集計計画】\n" . json_encode($plan, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
+                    . "\n\n【確認対象CSV】\n" . json_encode($fileTarget, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
+                );
+                chatLogger("[CSV-AGG] グラフ化要求だが対象列が未指定のため、確認質問で終了します。file=" . $plan['target_file_name']);
+                $this->completeCsvRoute();
+                return true;
+            }
+        }
+
         switch ((string)($plan['aggregation_mode'] ?? '')) {
             case 'distinct_count':
                 return $this->getCsvValueAggregationRunner()->runDistinctCount(

@@ -20,6 +20,134 @@ function materialNoteNormalizeLine(string $line): string
     return trim((string)$line);
 }
 
+function materialNoteSanitizeAnswerBody(string $answer): string
+{
+    $answer = preg_replace('/```(?:json|chart|chart_data|mermaid|sql)?[\s\S]*?```/iu', '', $answer) ?? $answer;
+    $answer = preg_replace('/<object\b[\s\S]*?<\/object>/iu', '', $answer) ?? $answer;
+    $answer = preg_replace('/<canvas\b[\s\S]*?<\/canvas>/iu', '', $answer) ?? $answer;
+    $answer = preg_replace('/^\s*(ありがとうございます|ご質問ありがとうございます|承知しました|了解しました)[^。\n]*[。\n]+/u', '', $answer) ?? $answer;
+    $answer = preg_replace('/\n{3,}/u', "\n\n", $answer) ?? $answer;
+    return trim((string)$answer);
+}
+
+function materialNoteShouldSkipSummaryLine(string $line): bool
+{
+    if ($line === '') {
+        return true;
+    }
+
+    if (preg_match('/^(data:|type:|status:|```|\{|\}|\[|\]|labels:|datasets:)/iu', $line)) {
+        return true;
+    }
+    if (preg_match('/(Chart\.js|Mermaid|chat_debug|推論プロセス|ストリーム進行中|品質審査)/u', $line)) {
+        return true;
+    }
+    if (preg_match('/^(ありがとうございます|承知しました|了解です|ご質問ありがとうございます)[。！!]*$/u', $line)) {
+        return true;
+    }
+
+    return false;
+}
+
+function materialNoteExtractSummaryLines(string $answer, int $limit = 6): array
+{
+    $answer = preg_replace('/```(?:json|chart|chart_data|mermaid|sql)?[\s\S]*?```/iu', '', $answer) ?? $answer;
+    $answer = preg_replace('/<object\b[\s\S]*?<\/object>/iu', '', $answer) ?? $answer;
+    $answer = preg_replace('/<canvas\b[\s\S]*?<\/canvas>/iu', '', $answer) ?? $answer;
+    $answer = str_replace(["\r\n", "\r"], "\n", $answer);
+
+    $lines = [];
+    foreach (explode("\n", $answer) as $rawLine) {
+        $line = trim((string)$rawLine);
+        $line = preg_replace('/^#{1,6}\s*/u', '', $line) ?? $line;
+        $line = preg_replace('/^\s*[-*]\s*/u', '', $line) ?? $line;
+        $line = preg_replace('/\s+/u', ' ', $line) ?? $line;
+        $line = materialNoteNormalizeLine($line);
+        if (materialNoteShouldSkipSummaryLine($line)) {
+            continue;
+        }
+
+        if (mb_strlen($line) > 160) {
+            $line = mb_substr($line, 0, 160) . '...';
+        }
+        if ($line === '' || in_array($line, $lines, true)) {
+            continue;
+        }
+
+        $lines[] = $line;
+        if (count($lines) >= $limit) {
+            break;
+        }
+    }
+
+    if ($lines === []) {
+        $plain = materialNoteNormalizeLine(strip_tags($answer));
+        if ($plain !== '') {
+            $lines[] = mb_strlen($plain) > 160 ? mb_substr($plain, 0, 160) . '...' : $plain;
+        }
+    }
+
+    return $lines;
+}
+
+function materialNoteClassifySummary(string $question, array $summaryLines): array
+{
+    $result = [
+        'conclusion' => null,
+        'reasons' => [],
+        'next_action' => null,
+    ];
+
+    foreach ($summaryLines as $line) {
+        if ($result['conclusion'] === null) {
+            $result['conclusion'] = $line;
+            continue;
+        }
+
+        if (
+            $result['next_action'] === null
+            && preg_match('/(確認|指定|選択|見直|設定|追加|修正|統合|転記|実行|再実行|ご提供|必要があります|してください|するとよい)/u', $line)
+        ) {
+            $result['next_action'] = $line;
+            continue;
+        }
+
+        if (count($result['reasons']) < 2) {
+            $result['reasons'][] = $line;
+        }
+    }
+
+    if ($result['next_action'] === null) {
+        if (preg_match('/(どう|できますか|可能|転記|統合|グラフ)/u', $question)) {
+            $result['next_action'] = '次に必要な条件や対象列、統合先の定義を確認してから実行方針を固めます。';
+        } elseif ($result['reasons'] !== []) {
+            $result['next_action'] = 'この要点をもとに、必要に応じて詳細条件や追加確認事項を整理します。';
+        }
+    }
+
+    return $result;
+}
+
+function materialNoteBuildDigestBlock(string $question, string $answer): string
+{
+    $summaryLines = materialNoteExtractSummaryLines($answer);
+    $summary = materialNoteClassifySummary($question, $summaryLines);
+    if (($summary['conclusion'] ?? null) === null) {
+        return '';
+    }
+
+    $parts = ["### 要点\n"];
+    $parts[] = '- 結論: ' . $summary['conclusion'];
+    foreach ($summary['reasons'] as $reason) {
+        $parts[] = '- 根拠: ' . $reason;
+    }
+    if (!empty($summary['next_action'])) {
+        $parts[] = '- 次アクション: ' . $summary['next_action'];
+    }
+
+    return implode("\n", $parts) . "\n\n";
+}
+
 function materialNoteExtractFileNames(string $question, string $answer, string $csvExportName = ''): array
 {
     $sources = [$question, $answer];
@@ -165,6 +293,11 @@ if ($answer === '') {
     exit;
 }
 
+$answerForNote = materialNoteSanitizeAnswerBody($answer);
+if ($answerForNote === '') {
+    $answerForNote = $answer;
+}
+
 $service = new ProjectMaterialDocumentService($pdo, dirname(__DIR__, 2));
 
 try {
@@ -175,12 +308,13 @@ try {
         ? materialNoteExtractFileNames($question, $answer, $csvExportName)
         : [];
     $appendBlock = "## {$sectionTitle} {$nowLabel}\n\n";
+    $appendBlock .= materialNoteBuildDigestBlock($question, $answerForNote);
     if ($question !== '') {
         $appendBlock .= "### 質問\n\n{$question}\n\n";
     }
-    $appendBlock .= "### 回答\n\n{$answer}\n";
+    $appendBlock .= "### 回答\n\n{$answerForNote}\n";
     if ($sourceKind === 'csv_analysis') {
-        $tags = materialNoteBuildTags($question, $answer, $fileNames);
+        $tags = materialNoteBuildTags($question, $answerForNote, $fileNames);
         if ($fileNames !== []) {
             $appendBlock .= "\n### 対象CSV\n\n- " . implode("\n- ", array_map('materialNoteNormalizeLine', $fileNames)) . "\n";
         }

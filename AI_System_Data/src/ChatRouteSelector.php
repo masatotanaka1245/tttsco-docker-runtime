@@ -34,6 +34,7 @@ class ChatRouteSelector
         $historyReportPattern = '/((会話|やりとり|チャット|履歴).*(報告書|レポート|PDF).*(作成|作って|出力|生成)|((報告書|レポート|PDF).*(作成|作って|出力|生成).*(会話|やりとり|チャット|履歴)))/u';
         $structuredAnalysisPattern = '/(transaction_uid|login_seconds|row_data|APP_\d+|ユーザー.*(操作|時間)|操作.*(時間|秒|秒数)|ログイン秒|利用時間|滞在時間|実行時間)/iu';
         $normalRagPreferredPattern = '/(良い案|よい案|方法|支援する方法|設計書案|仕様書案|要件定義|システム.*構築|提案|企画|たたき台|ドラフト)/u';
+        $csvOperationPattern = '/((転記|統合|結合|マージ|取り込|追加|反映|上書き).*(できますか|可能|したい|方法|手順|どうやって|どうすれば))|((できますか|可能|したい|方法|手順|どうやって|どうすれば).*(転記|統合|結合|マージ|取り込|追加|反映|上書き))/u';
         $hasHistorySummaryRequest = preg_match($historySummaryPattern, $message) === 1;
         $hasHistoryReportRequest = preg_match($historyReportPattern, $message) === 1;
 
@@ -143,6 +144,7 @@ class ChatRouteSelector
             !$advancedReasoning &&
             !$preferNormalRag &&
             !$isHistorySummaryMode &&
+            preg_match($csvOperationPattern, $message) !== 1 &&
             $factorizedRoute !== 'advanced_hybrid.doc_extract' &&
             ($factorizedRoute === '' || (!str_starts_with($factorizedRoute, 'advanced_hybrid.') && !str_starts_with($factorizedRoute, 'normal_rag.')))
         ) {

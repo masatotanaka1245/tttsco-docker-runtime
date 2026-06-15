@@ -239,6 +239,23 @@ if (!function_exists('renderProjectMemoryFlash')) {
 }
 
 if (!function_exists('renderProjectMemoryEditors')) {
+    function splitProjectMemoryAutoSections(string $content): array {
+        $content = trim($content);
+        if ($content === '') {
+            return ['main' => '', 'improvement' => ''];
+        }
+
+        $parts = preg_split('/^## 改善ログ\s*$/mu', $content, 2);
+        if (!is_array($parts) || count($parts) < 2) {
+            return ['main' => $content, 'improvement' => ''];
+        }
+
+        return [
+            'main' => trim((string)($parts[0] ?? '')),
+            'improvement' => "## 改善ログ\n" . trim((string)($parts[1] ?? '')),
+        ];
+    }
+
     function renderProjectMemoryEditors(array $projectMemoryDocs): void {
         $fields = [
             ['type' => 'readme', 'id' => 'memory-readme', 'name' => 'memory_readme', 'label' => '案件内容', 'placeholder' => '案件の背景、用語、前提、構成など'],
@@ -249,16 +266,24 @@ if (!function_exists('renderProjectMemoryEditors')) {
         foreach ($fields as $field) {
             $content = (string)($projectMemoryDocs[$field['type']]['content'] ?? '');
             $autoContent = (string)($projectMemoryDocs[$field['type']]['auto_content'] ?? '');
+            $autoSections = splitProjectMemoryAutoSections($autoContent);
             ?>
             <div class="space-y-1.5">
                 <label for="<?= h($field['id']) ?>" class="block text-[10px] font-black text-slate-400 tracking-wider"><?= h($field['label']) ?></label>
-                <textarea id="<?= h($field['id']) ?>" name="<?= h($field['name']) ?>" rows="8" class="w-full min-h-[11rem] border border-slate-200 rounded-xl p-3 text-xs leading-5 bg-slate-50/50 focus:bg-white focus:border-indigo-400/80 transition-all duration-200 resize-y font-mono text-slate-700 outline-none" placeholder="<?= h($field['placeholder']) ?>"><?= h($content) ?></textarea>
                 <?php if (trim($autoContent) !== ''): ?>
-                    <div class="border border-dashed border-slate-200 rounded-xl bg-slate-50/70 overflow-hidden">
-                        <div class="px-3 py-2 bg-slate-100/70 text-[10px] font-black text-slate-400 tracking-wider">自動生成メモ（参考表示）</div>
-                        <div class="px-3 py-2.5 text-[11px] leading-5 text-slate-500 whitespace-pre-wrap max-h-48 overflow-y-auto custom-scrollbar"><?= h($autoContent) ?></div>
+                    <div class="border border-indigo-200 rounded-xl bg-indigo-50/50 overflow-hidden">
+                        <div class="px-3 py-2 bg-indigo-100/70 text-[10px] font-black text-indigo-500 tracking-wider">自動生成メモ（優先参照）</div>
+                        <div class="px-3 py-2.5 text-[11px] leading-5 text-slate-600 whitespace-pre-wrap max-h-48 overflow-y-auto custom-scrollbar"><?= h($autoSections['main']) ?></div>
+                        <?php if ($field['type'] === 'agents' && trim((string)$autoSections['improvement']) !== ''): ?>
+                            <div class="border-t border-indigo-100 bg-white/70 px-3 py-2.5">
+                                <div class="text-[10px] font-black text-amber-600 tracking-wider mb-1">改善ログ（次回ルール）</div>
+                                <div class="text-[11px] leading-5 text-slate-600 whitespace-pre-wrap max-h-40 overflow-y-auto custom-scrollbar"><?= h($autoSections['improvement']) ?></div>
+                            </div>
+                        <?php endif; ?>
                     </div>
                 <?php endif; ?>
+                <textarea id="<?= h($field['id']) ?>" name="<?= h($field['name']) ?>" rows="8" class="w-full min-h-[11rem] border border-slate-200 rounded-xl p-3 text-xs leading-5 bg-slate-50/50 focus:bg-white focus:border-indigo-400/80 transition-all duration-200 resize-y font-mono text-slate-700 outline-none" placeholder="<?= h($field['placeholder']) ?>"><?= h($content) ?></textarea>
+                <p class="text-[10px] text-slate-400 leading-relaxed">手動メモは補助・補正用です。必要な修正や補足があればここで上書きできます。</p>
             </div>
             <?php
         }
@@ -271,6 +296,7 @@ if (!function_exists('renderProjectMemoryReadonly')) {
         foreach (['readme', 'agents', 'todo'] as $memoryType) {
             $memoryContent = trim((string)($projectMemoryDocs[$memoryType]['content'] ?? ''));
             $autoMemoryContent = trim((string)($projectMemoryDocs[$memoryType]['auto_content'] ?? ''));
+            $autoSections = splitProjectMemoryAutoSections($autoMemoryContent);
             if ($memoryContent === '' && $autoMemoryContent === '') {
                 continue;
             }
@@ -278,16 +304,22 @@ if (!function_exists('renderProjectMemoryReadonly')) {
             ?>
             <div class="border border-slate-200 rounded-xl overflow-hidden">
                 <div class="px-4 py-2 bg-slate-50 text-[10px] font-black text-slate-400 tracking-wider"><?= h((string)($projectMemoryDocs[$memoryType]['label'] ?? strtoupper($memoryType))) ?></div>
-                <?php if ($memoryContent !== ''): ?>
-                    <div class="px-4 py-2 border-b border-slate-100 bg-white">
-                        <div class="text-[10px] font-black text-slate-400 tracking-wider mb-1">手動メモ</div>
-                        <div class="text-xs text-slate-600 leading-relaxed whitespace-pre-wrap"><?= h($memoryContent) ?></div>
+                <?php if ($autoMemoryContent !== ''): ?>
+                    <div class="px-4 py-3 bg-indigo-50/50 border-b border-indigo-100">
+                        <div class="text-[10px] font-black text-indigo-500 tracking-wider mb-1">自動生成メモ（優先参照）</div>
+                        <div class="text-xs text-slate-500 leading-relaxed whitespace-pre-wrap"><?= h($autoSections['main']) ?></div>
+                        <?php if ($memoryType === 'agents' && trim((string)$autoSections['improvement']) !== ''): ?>
+                            <div class="mt-3 pt-3 border-t border-indigo-100">
+                                <div class="text-[10px] font-black text-amber-600 tracking-wider mb-1">改善ログ（次回ルール）</div>
+                                <div class="text-xs text-slate-600 leading-relaxed whitespace-pre-wrap"><?= h($autoSections['improvement']) ?></div>
+                            </div>
+                        <?php endif; ?>
                     </div>
                 <?php endif; ?>
-                <?php if ($autoMemoryContent !== ''): ?>
-                    <div class="px-4 py-3 bg-slate-50/60">
-                        <div class="text-[10px] font-black text-slate-400 tracking-wider mb-1">自動生成メモ</div>
-                        <div class="text-xs text-slate-500 leading-relaxed whitespace-pre-wrap"><?= h($autoMemoryContent) ?></div>
+                <?php if ($memoryContent !== ''): ?>
+                    <div class="px-4 py-2 bg-white">
+                        <div class="text-[10px] font-black text-slate-400 tracking-wider mb-1">手動メモ（補助・補正）</div>
+                        <div class="text-xs text-slate-600 leading-relaxed whitespace-pre-wrap"><?= h($memoryContent) ?></div>
                     </div>
                 <?php endif; ?>
             </div>

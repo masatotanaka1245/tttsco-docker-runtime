@@ -128,6 +128,97 @@ function csvMemoryBuildTags(string $question, string $answer, array $fileNames =
     return array_slice($tags, 0, 8);
 }
 
+function csvMemorySuggestNextAction(string $question, string $answerSummary): string
+{
+    $text = mb_strtolower($question . "\n" . $answerSummary);
+
+    if (preg_match('/(列|カラム).*(指定|選択)|グラフ/u', $text)) {
+        return '対象列やグラフ化条件を先に確定してから再実行します。';
+    }
+    if (preg_match('/(統合|転記|結合|マージ|取り込)/u', $text)) {
+        return '統合先の列定義と対応関係を確認したうえで、CSV統合モーダルまたは転記手順へ進みます。';
+    }
+    if (preg_match('/(pdf|資料|ページ|図表|画像)/u', $text)) {
+        return '資料本文とページ根拠を確認し、必要なら対象ページを絞って再確認します。';
+    }
+
+    return '今回の要点をもとに、必要な追加条件や確認事項を整理します。';
+}
+
+function csvMemoryDetectTargetDoc(string $question, string $answerSummary, array $tags, array $fileNames): string
+{
+    $text = mb_strtolower($question . "\n" . $answerSummary . "\n" . implode(' ', $tags));
+
+    if (preg_match('/(回答方針|優先|禁止|ルール|扱う|参照方針|相談モード|確認質問)/u', $question . "\n" . $answerSummary)) {
+        return 'agents';
+    }
+
+    if (
+        $fileNames !== []
+        || preg_match('/(対象csv|対象pdf|列構成|カラム構成|スキーマ|前提|用語|保有データ|資料構成|データ構成)/u', $question . "\n" . $answerSummary)
+    ) {
+        return 'readme';
+    }
+
+    if (preg_match('/(次アクション|確認|対応|修正|実行|統合|転記|グラフ|集計|要約)/u', $text)) {
+        return 'todo';
+    }
+
+    return 'todo';
+}
+
+function csvMemoryBuildStructuredNote(string $question, string $answer, string $csvExportName, array $fileNames, array $tags): string
+{
+    $nowLabel = date('Y-m-d H:i');
+    $questionLine = csvMemoryNormalizeLine($question);
+    $summaryLine = csvMemorySummarizeAnswer($answer);
+    $nextAction = csvMemorySuggestNextAction($question, $summaryLine);
+
+    $appendLines = ["## 運用メモ {$nowLabel}"];
+    if ($questionLine !== '') {
+        $appendLines[] = "- 質問: {$questionLine}";
+    }
+    if ($summaryLine !== '') {
+        $appendLines[] = "- 要点: {$summaryLine}";
+    }
+    if ($nextAction !== '') {
+        $appendLines[] = "- 次アクション: {$nextAction}";
+    }
+    if ($csvExportName !== '') {
+        $appendLines[] = "- 生成CSV: " . csvMemoryNormalizeLine($csvExportName);
+    }
+    if ($fileNames !== []) {
+        $appendLines[] = "- 対象CSV: " . implode(' / ', array_map('csvMemoryNormalizeLine', $fileNames));
+    }
+    if ($tags !== []) {
+        $appendLines[] = "- タグ: " . implode(' ', array_map(static fn(string $tag): string => '#' . $tag, $tags));
+    }
+
+    return implode("\n", $appendLines);
+}
+
+function csvMemoryBuildSignature(string $question, array $fileNames = [], string $summary = ''): string
+{
+    $base = mb_strtolower(csvMemoryNormalizeLine($question));
+    $base .= '|' . implode('|', array_map(static fn(string $name): string => mb_strtolower(csvMemoryNormalizeLine($name)), $fileNames));
+    if ($summary !== '') {
+        $base .= '|' . mb_strtolower(csvMemoryNormalizeLine($summary));
+    }
+    $base = preg_replace('/\s+/u', '', $base) ?? $base;
+    return trim((string)$base);
+}
+
+function csvMemoryAlreadyCaptured(string $existingContent, string $signature): bool
+{
+    if ($signature === '') {
+        return false;
+    }
+
+    $normalized = mb_strtolower($existingContent);
+    $normalized = preg_replace('/\s+/u', '', $normalized) ?? $normalized;
+    return str_contains($normalized, $signature);
+}
+
 $auth = new Auth($pdo);
 if (!$auth->isLoggedIn()) {
     http_response_code(401);
@@ -171,33 +262,26 @@ if ($answer === '') {
 
 try {
     $docs = ProjectContextMemory::load($pdo, (int)$projectId);
-    $manualTodo = trim((string)($docs['todo']['content'] ?? ''));
-    $nowLabel = date('Y-m-d H:i');
-    $questionLine = csvMemoryNormalizeLine($question);
-    $summaryLine = csvMemorySummarizeAnswer($answer);
     $fileNames = csvMemoryExtractFileNames($question, $answer, $csvExportName);
     $tags = csvMemoryBuildTags($question, $answer, $fileNames);
+    $summaryLine = csvMemorySummarizeAnswer($answer);
+    $targetDoc = csvMemoryDetectTargetDoc($question, $summaryLine, $tags, $fileNames);
+    $appendBlock = csvMemoryBuildStructuredNote($question, $answer, $csvExportName, $fileNames, $tags);
+    $signature = csvMemoryBuildSignature($question, $fileNames, $summaryLine);
+    $manualContent = trim((string)($docs[$targetDoc]['content'] ?? ''));
 
-    $appendLines = ["## CSV読解要点 {$nowLabel}"];
-    if ($questionLine !== '') {
-        $appendLines[] = "- 質問: {$questionLine}";
-    }
-    if ($summaryLine !== '') {
-        $appendLines[] = "- 要点: {$summaryLine}";
-    }
-    if ($csvExportName !== '') {
-        $appendLines[] = "- 生成CSV: " . csvMemoryNormalizeLine($csvExportName);
-    }
-    if ($fileNames !== []) {
-        $appendLines[] = "- 対象CSV: " . implode(' / ', array_map('csvMemoryNormalizeLine', $fileNames));
-    }
-    if ($tags !== []) {
-        $appendLines[] = "- タグ: " . implode(' ', array_map(static fn(string $tag): string => '#' . $tag, $tags));
+    if (csvMemoryAlreadyCaptured($manualContent, $signature)) {
+        echo json_encode([
+            'success' => true,
+            'saved_note' => '',
+            'skipped_duplicate' => true,
+            'target_doc' => $targetDoc,
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        exit;
     }
 
-    $appendBlock = implode("\n", $appendLines);
-    $docs['todo']['content'] = $manualTodo !== ''
-        ? rtrim($manualTodo) . "\n\n" . $appendBlock
+    $docs[$targetDoc]['content'] = $manualContent !== ''
+        ? rtrim($manualContent) . "\n\n" . $appendBlock
         : $appendBlock;
 
     ProjectContextMemory::save($pdo, (int)$projectId, [
@@ -209,6 +293,7 @@ try {
     echo json_encode([
         'success' => true,
         'saved_note' => $appendBlock,
+        'target_doc' => $targetDoc,
     ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 } catch (Throwable $e) {
     error_log('save_project_memory_note.php Error: ' . $e->getMessage());

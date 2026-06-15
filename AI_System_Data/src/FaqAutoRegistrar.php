@@ -98,6 +98,10 @@ class FaqAutoRegistrar {
             return ['qualified' => false, 'reason' => 'unsupported_evaluation_mode'];
         }
 
+        if ($evaluationSource === 'lightweight_rule_guard') {
+            return ['qualified' => false, 'reason' => 'lightweight_guard_not_promotable'];
+        }
+
         $feedback = (string)($evalResult['feedback'] ?? '');
         if (preg_match('/評価プロセス|タイムアウト|フェイルセーフ|初期ドラフトを採用/u', $feedback)) {
             return ['qualified' => false, 'reason' => 'fallback_or_timeout_feedback'];
@@ -132,16 +136,20 @@ class FaqAutoRegistrar {
             return ['qualified' => false, 'reason' => 'error_text_detected'];
         }
 
+        $questionSummary = FaqSummaryFormatter::buildQuestionSummary($questionText);
+        $answerSummary = FaqSummaryFormatter::buildAnswerSummary($answerText);
+        if (FaqSummaryFormatter::looksLikeProvisionalOrOperationalAnswer($questionSummary, $answerSummary)) {
+            return ['qualified' => false, 'reason' => 'provisional_or_operational_answer'];
+        }
+        if (FaqSummaryFormatter::looksLikeProjectSpecificAnalysis($questionSummary, $answerSummary)) {
+            return ['qualified' => false, 'reason' => 'project_specific_analysis'];
+        }
+
         return ['qualified' => true, 'reason' => 'qualified'];
     }
 
     private function isEligibleEvaluationMode(string $evaluationMode, string $evaluationSource): bool {
         if ($evaluationMode === 'real') {
-            return true;
-        }
-
-        if (($evaluationMode === 'rule' || $evaluationMode === 'synthetic')
-            && $evaluationSource === 'lightweight_rule_guard') {
             return true;
         }
 

@@ -57,6 +57,18 @@ if (!FaqSummaryFormatter::isAnswerEligible($answerSummary)) {
     exit;
 }
 
+if (FaqSummaryFormatter::looksLikeProvisionalOrOperationalAnswer($questionSummary, $answerSummary)) {
+    http_response_code(400);
+    echo json_encode(['success' => false, 'error' => 'この回答は確認待ちや操作案内の性格が強いため、ナレッジ登録より資料メモ保存の方が向いています。']);
+    exit;
+}
+
+if (FaqSummaryFormatter::looksLikeProjectSpecificAnalysis($questionSummary, $answerSummary)) {
+    http_response_code(400);
+    echo json_encode(['success' => false, 'error' => 'この回答は案件固有の分析結果に寄っているため、FAQナレッジより資料メモ保存の方が向いています。']);
+    exit;
+}
+
 try {
     $stmt = $pdo->prepare("INSERT INTO project_faqs (project_id, question_summary, answer_summary, created_by, created_at) VALUES (?, ?, ?, ?, NOW())");
     $stmt->execute([$project_id, $questionSummary, $answerSummary, $_SESSION['user_id']]);

@@ -329,6 +329,18 @@ function buildProjectMemoryNoteMessage(csvExport) {
     return `案件運用メモへ要点反映します。生成CSV「${fileName}」も記録します。`;
 }
 
+function projectMemoryTargetLabel(targetDoc) {
+    switch (String(targetDoc || '')) {
+        case 'agents':
+            return 'AIエージェント';
+        case 'readme':
+            return '案件内容';
+        case 'todo':
+        default:
+            return 'タスク一覧';
+    }
+}
+
 async function saveAnswerToMaterial(question, answer, button, statusEl, options = {}) {
     const { projectId, canManageMaterial } = getConfig();
     if (String(canManageMaterial || '0') !== '1') return;
@@ -403,7 +415,11 @@ async function saveAnswerToProjectMemory(question, answer, button, statusEl, opt
             throw new Error(data?.error || '案件運用メモへの反映に失敗しました。');
         }
 
-        statusEl.textContent = '案件運用メモへCSV読解要点を反映しました。';
+        if (data?.skipped_duplicate) {
+            statusEl.textContent = `案件運用メモの「${projectMemoryTargetLabel(data?.target_doc)}」には同じ要点が既にあります。`;
+        } else {
+            statusEl.textContent = `案件運用メモの「${projectMemoryTargetLabel(data?.target_doc)}」へ要点を反映しました。`;
+        }
         button.textContent = '運用メモへ反映済み';
     } catch (error) {
         statusEl.textContent = error?.message || '案件運用メモへの反映に失敗しました。';
