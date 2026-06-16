@@ -65,6 +65,10 @@ class CsvAggregationPlanner
             return true;
         }
 
+        if (preg_match('/(グラフ|グラフ化|チャート|棒グラフ|折れ線|円グラフ|可視化)/u', $question) === 1 && $mentionedFile !== null) {
+            return true;
+        }
+
         if ($isAggregationFollowUp && $recentContext !== null) {
             return true;
         }

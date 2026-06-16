@@ -151,6 +151,9 @@ class ChatHistoryContextResolver
             $mentionedCsv = $this->findMentionedCsvFileName($historyMessage);
             $mentionedColumnTarget = $this->findMentionedCsvColumnTarget($historyMessage);
             $explicitColumnReference = $this->findExplicitColumnReference($historyMessage);
+            if ($role === 'assistant') {
+                $explicitColumnReference = $this->resolveKnownColumnName($explicitColumnReference, $mentionedCsv);
+            }
             $globalColumn = $explicitColumnReference ?? $this->findMentionedCsvColumnNameAcrossFiles($historyMessage);
             if ($mentionedCsv === null && !empty($mentionedColumnTarget['file_name'])) {
                 $mentionedCsv = (string)$mentionedColumnTarget['file_name'];
@@ -272,6 +275,34 @@ class ChatHistoryContextResolver
             $candidate = trim((string)($matches[1] ?? ''));
             if ($candidate !== '') {
                 return $candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private function resolveKnownColumnName(?string $candidate, ?string $fileName = null): ?string
+    {
+        $candidate = trim((string)$candidate);
+        if ($candidate === '') {
+            return null;
+        }
+
+        foreach ($this->loadFiles() as $file) {
+            $currentFileName = (string)($file['file_name'] ?? '');
+            if ($fileName !== null && $fileName !== '' && $currentFileName !== $fileName) {
+                continue;
+            }
+
+            foreach ((array)($file['columns'] ?? []) as $column) {
+                $column = trim((string)$column);
+                if ($column === '') {
+                    continue;
+                }
+
+                if (mb_strtolower($candidate, 'UTF-8') === mb_strtolower($column, 'UTF-8')) {
+                    return $column;
+                }
             }
         }
 

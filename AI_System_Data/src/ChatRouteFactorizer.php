@@ -41,6 +41,7 @@ class ChatRouteFactorizer
         $hasDocReference = preg_match('/(PDF|pdf|資料|図面|仕様書|文書|設計書|報告書)/u', $message) === 1;
         $hasDocActionIntent = preg_match('/(留意点|注意点|確認すべき|確認事項|法規|基準|安全面|設計上|施工前|不明点|見落とし|箇条書きで抽出|箇条書きで|抽出してください)/u', $message) === 1;
         $hasRecommendationIntent = preg_match('/(おすすめ|オススメ|提案|良い案|よい案|案はありますか|どう書|どう表現|言い換え|追加したい|追加する項目|分析方法|集計方法|どう分析|どう集計|どのように.*分析|分析したら.*よい|どう進め|見るべき|観点|切り口|方針)/u', $message) === 1;
+        $hasProjectSummaryIntent = preg_match('/(案件|プロジェクト).*(内容|概要|全体像|まとめ|要約|詳細)|((内容|概要|全体像|まとめ|要約|詳細).*(案件|プロジェクト))/u', $message) === 1;
         $hasMaterialWorkflowIntent = preg_match('/((資料|資料メモ|メモ|markdown|Markdown|mdファイル|MDファイル).*(追加|追記|作成|作って|作っていく|育て|更新|整理|まとめ))|((どのような流れ|どういう流れ|どう進め|進め方).*(資料|資料メモ|メモ))|((資料|資料メモ|メモ).*(どのような流れ|どういう流れ|どう進め|進め方))/u', $message) === 1;
         $hasCsvOperationIntent = preg_match('/((転記|統合|結合|マージ|取り込|追加|反映|上書き).*(できますか|可能|したい|方法|手順|どうやって|どうすれば))|((できますか|可能|したい|方法|手順|どうやって|どうすれば).*(転記|統合|結合|マージ|取り込|追加|反映|上書き))/u', $message) === 1;
         $hasBroadDetailIntent = preg_match('/(詳細|詳しく|内訳|全体像|全体の傾向|どんなデータ|何がある)/u', $message) === 1;
@@ -96,7 +97,12 @@ class ChatRouteFactorizer
         $scope = 'unknown';
         $operation = 'unknown';
         $timeAxis = 'none';
-        $outputFormat = preg_match('/(表に|表形式|テーブル|一覧で|一覧にして)/u', $message) === 1 ? 'table' : 'prose';
+        $outputFormat = 'prose';
+        if (preg_match('/(グラフ|グラフ化|チャート|棒グラフ|折れ線|円グラフ|可視化)/u', $message) === 1) {
+            $outputFormat = 'chart';
+        } elseif (preg_match('/(表に|表形式|テーブル|一覧で|一覧にして)/u', $message) === 1) {
+            $outputFormat = 'table';
+        }
         $route = null;
 
         if ($hasHistoryReportRequest) {
@@ -105,6 +111,12 @@ class ChatRouteFactorizer
             $scope = 'conversation_thread';
             $operation = 'report';
             $route = 'advanced_hybrid.history_report';
+        } elseif ($hasProjectSummaryIntent && ($hasCsvContext || $hasDocReference || $this->hasRecentProjectAssetContext($recentHistory))) {
+            $intent = 'summarize';
+            $target = 'project_assets';
+            $scope = 'project_wide';
+            $operation = 'project_summary';
+            $route = 'advanced_hybrid.multi_source_advice';
         } elseif ($hasMixedDocumentAndCsvContext && $hasRecommendationIntent) {
             $intent = 'analyze';
             $target = 'project_assets';

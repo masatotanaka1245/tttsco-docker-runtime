@@ -29,6 +29,8 @@
   - `chat_analysis.php` 側でも、`route_detail=data_analysis.csv_agg.route_lock` を受け取り、planner / formatter / semantic runner へ `output_format`、`chart_type`、`base_sql` を明示的に受け渡す
   - `chat_history_summary.php` と `AdvancedRouteFinalizer` の SSE / reasoning 文言も、「軽量要約」や単なる保存ではなく、「会話履歴成果品の整理」「報告書 / CSV 成果品の出荷」という見せ方へ寄せ始めている
   - `CsvQuickResponseRunner` / `CsvMetadataResponseRunner` の軽量CSVルートも、「CSV成果品の要約ドラフト」「CSV成果品の項目整理」「CSV成果品の範囲整理」という見せ方へ寄せ始めている
+  - `advanced_hybrid.multi_source_advice` の意図は `route_detail` として advanced 側へ渡し、案件要約や次アクション相談では PDF抽出より deterministic fast path を優先する
+  - assistant 回答由来の follow-up 列補完では、見出し語を避け、実在カラムと一致する候補だけを採用する
 - 現在の主な残課題は以下です。
   - CSV follow-up の route lock 後に、すべての runner で `output_format` と `chart_type` の継続をさらに完全に揃えること
   - broad な factorize 結果と route lock の観測ログを、運用上さらに読みやすく揃えること

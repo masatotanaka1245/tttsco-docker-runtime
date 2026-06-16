@@ -149,7 +149,8 @@ class ChatRouteDispatcher
                 $threadId,
                 (bool)$context['report_mode'],
                 (bool)$context['diagram_mode'],
-                (bool)$context['csv_mode']
+                (bool)$context['csv_mode'],
+                $routeDetail
             );
             return $routeName;
         }

@@ -8,6 +8,7 @@ final class AdvancedFastPathResolver
     private $userId;
     private $searchQuery;
     private $originalMessage;
+    private $routeDetail;
     private $logger;
 
     public function __construct(
@@ -17,6 +18,7 @@ final class AdvancedFastPathResolver
         int $userId,
         string $searchQuery,
         string $originalMessage,
+        string $routeDetail = '',
         ?callable $logger = null
     ) {
         $this->pdo = $pdo;
@@ -25,6 +27,7 @@ final class AdvancedFastPathResolver
         $this->userId = $userId;
         $this->searchQuery = $searchQuery;
         $this->originalMessage = $originalMessage;
+        $this->routeDetail = trim($routeDetail);
         $this->logger = $logger;
     }
 
@@ -70,11 +73,15 @@ final class AdvancedFastPathResolver
 
     public function resolveMultiSourceAdvice(): ?array
     {
-        if (preg_match('/(おすすめ|オススメ|提案|分析方法|集計方法|どう分析|どう集計|どのように.*分析|分析したら.*よい|どう進め|見るべき|観点|切り口|方針)/u', $this->searchQuery) !== 1) {
+        $forcedByRoute = $this->routeDetail === 'advanced_hybrid.multi_source_advice';
+        $hasAdviceIntent = preg_match('/(おすすめ|オススメ|提案|分析方法|集計方法|どう分析|どう集計|どのように.*分析|分析したら.*よい|どう進め|見るべき|観点|切り口|方針)/u', $this->searchQuery) === 1;
+        $hasProjectSummaryIntent = preg_match('/(案件|プロジェクト).*(内容|概要|全体像|まとめ|要約|詳細)|((内容|概要|全体像|まとめ|要約|詳細).*(案件|プロジェクト))/u', $this->searchQuery) === 1;
+        $hasAssetContext = preg_match('/(分析|集計|データ|CSV|csv|PDF|pdf|資料|観点|切り口|案件|プロジェクト)/u', $this->searchQuery) === 1;
+
+        if (!$forcedByRoute && !$hasAdviceIntent && !$hasProjectSummaryIntent) {
             return null;
         }
-
-        if (preg_match('/(分析|集計|データ|CSV|csv|PDF|pdf|資料|観点|切り口)/u', $this->searchQuery) !== 1) {
+        if (!$forcedByRoute && !$hasAssetContext) {
             return null;
         }
 
@@ -84,7 +91,10 @@ final class AdvancedFastPathResolver
             return null;
         }
 
-        $finalResponse = $this->buildDeterministicMultiSourceAdvice($csvFiles, $pdfDocs);
+        $isSummaryMode = $hasProjectSummaryIntent && !$hasAdviceIntent;
+        $finalResponse = $isSummaryMode
+            ? $this->buildDeterministicProjectAssetSummary($csvFiles, $pdfDocs)
+            : $this->buildDeterministicMultiSourceAdvice($csvFiles, $pdfDocs);
         $summary = "CSV件数=" . count($csvFiles) . " / PDF件数=" . count($pdfDocs);
 
         return [
@@ -95,7 +105,7 @@ final class AdvancedFastPathResolver
                     'sub_answer' => $summary,
                 ],
                 [
-                    'sub_query' => '資産構成から推奨分析観点を組み立て',
+                    'sub_query' => $isSummaryMode ? '資産構成から案件の全体像を整理' : '資産構成から推奨分析観点を組み立て',
                     'sub_answer' => $finalResponse,
                 ],
             ],
@@ -103,6 +113,51 @@ final class AdvancedFastPathResolver
             'guard_context' => null,
             'force_report_mode_off' => false,
         ];
+    }
+
+    private function buildDeterministicProjectAssetSummary(array $csvFiles, array $pdfDocs): string
+    {
+        $lines = [];
+        $lines[] = "案件の内容を、現在確認できる成果品から整理します。";
+        $lines[] = "";
+        $lines[] = "## 全体像";
+        if (!empty($csvFiles) && !empty($pdfDocs)) {
+            $lines[] = "この案件では、CSVによる定量データとPDF資料による規程・説明資料の両方が存在しており、数値集計と文書根拠を組み合わせて進める前提の構成になっています。";
+        } elseif (!empty($csvFiles)) {
+            $lines[] = "この案件では、CSVによる構造化データが主な成果品であり、まず件数分布や時系列などの定量把握から進めやすい状態です。";
+        } else {
+            $lines[] = "この案件では、PDF資料が主な成果品であり、留意点・制約・確認事項をページ番号付きで整理する進め方が中心になります。";
+        }
+        $lines[] = "";
+        $lines[] = "## 現在確認できる成果品";
+        $lines[] = "- CSVファイル数: " . count($csvFiles) . "件";
+        $lines[] = "- PDF資料数: " . count($pdfDocs) . "件";
+        if (!empty($csvFiles)) {
+            foreach (array_slice($csvFiles, 0, 5) as $csv) {
+                $lines[] = "- CSV: " . (string)($csv['file_name'] ?? '名称不明') . " (" . (int)($csv['row_count'] ?? 0) . "件)";
+            }
+        }
+        if (!empty($pdfDocs)) {
+            foreach (array_slice($pdfDocs, 0, 5) as $doc) {
+                $lines[] = "- PDF: " . (string)($doc['title'] ?? basename((string)($doc['file_path'] ?? '資料PDF')));
+            }
+        }
+        $lines[] = "";
+        $lines[] = "## 進め方の見立て";
+        foreach ($this->buildMultiSourceAdviceWorkflow(!empty($csvFiles), !empty($pdfDocs)) as $step) {
+            $lines[] = $step;
+        }
+        $lines[] = "";
+        $lines[] = "## 次に着手しやすいこと";
+        foreach ($this->buildMultiSourceAdviceFirstActions(!empty($csvFiles), !empty($pdfDocs)) as $step) {
+            $lines[] = $step;
+        }
+        $lines[] = "";
+        $lines[] = "## 出典";
+        $lines[] = "- `project_csv_files`: " . count($csvFiles) . "件";
+        $lines[] = "- `documents` (PDF): " . count($pdfDocs) . "件";
+
+        return implode("\n", $lines);
     }
 
     private function loadCurrentThreadHistory(int $limit = 50): array
