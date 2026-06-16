@@ -511,6 +511,7 @@ try {
     $routingState = $routeSelector->select([
         'message' => $message,
         'project_id' => $project_id,
+        'recent_history' => $recentHistory,
         'factorized_query' => $factorizedQuery,
         'explicit_advanced' => $explicit_advanced,
         'report_mode' => $report_mode,
@@ -520,6 +521,7 @@ try {
     $is_history_summary_mode = (bool)($routingState['is_history_summary_mode'] ?? false);
     $prefer_normal_rag = (bool)($routingState['prefer_normal_rag'] ?? false);
     $explicit_advanced = (bool)($routingState['explicit_advanced'] ?? $explicit_advanced);
+    $routeDetail = (string)($routingState['route_detail_override'] ?? ($factorizedQuery['route'] ?? ''));
 
     if ($advanced_reasoning && empty($reasoning_id)) {
         $reasoning_id = 'auto-' . uniqid('reason_') . '-' . mt_rand(1000, 9999);
@@ -536,7 +538,7 @@ try {
         'ollama_host' => $ollama_host,
         'project_id' => $project_id,
         'message' => $message,
-        'route_detail' => $factorizedQuery['route'] ?? null,
+        'route_detail' => $routeDetail,
         'search_query' => $search_query,
         'reasoning_id' => $reasoning_id,
         'reasoning_model' => $reasoning_model,
@@ -561,8 +563,8 @@ try {
     ]);
 
     $routeDetailSuffix = '';
-    if (!empty($factorizedQuery['route']) && $factorizedQuery['route'] !== $routeName) {
-        $routeDetailSuffix = " | detail=" . $factorizedQuery['route'];
+    if ($routeDetail !== '' && $routeDetail !== $routeName) {
+        $routeDetailSuffix = " | detail=" . $routeDetail;
     }
     chatLogger("[SMART-ROUTER] ルート処理完了: {$routeName}{$routeDetailSuffix} | elapsed: " . number_format(microtime(true) - $routeStart, 2) . "秒");
 

@@ -17,6 +17,7 @@ class ChatRouteSelector
     {
         $message = (string)($context['message'] ?? '');
         $projectId = $context['project_id'] ?? null;
+        $recentHistory = (array)($context['recent_history'] ?? []);
         $factorizedQuery = (array)($context['factorized_query'] ?? []);
         $factorizedRoute = (string)($factorizedQuery['route'] ?? '');
         $explicitAdvanced = (bool)($context['explicit_advanced'] ?? false);
@@ -26,12 +27,14 @@ class ChatRouteSelector
         $isAnalysisMode = false;
         $isHistorySummaryMode = false;
         $preferNormalRag = false;
+        $routeDetailOverride = null;
+        $recentArtifactState = null;
 
         $complexPattern  = '/(比較|違い|相違|対比|網羅|分析|解析|詳細|詳しく|まとめ|総括|検討|留意点|評価|影響|検証|整合性|关系|どう違う|解説して)/u';
         $analysisPattern = '/(集計|何種類|割合|平均|カウント|件数|グラフ|チャート|分布|推移|合計)/u';
         $csvEvidencePattern = '/(CSV|csv|登録済み.*データ|データ.*(内容|概要|項目|列|カラム|入って)|列には|カラムには|項目には)/u';
         $historySummaryPattern = '/((これまで|今まで|過去|直近).*(会話|やりとり|チャット|履歴).*(まとめ|要約|整理)|((会話|やりとり|チャット|履歴).*(まとめ|要約|整理)))/u';
-        $historyReportPattern = '/((会話|やりとり|チャット|履歴).*(報告書|レポート|PDF).*(作成|作って|出力|生成)|((報告書|レポート|PDF).*(作成|作って|出力|生成).*(会話|やりとり|チャット|履歴)))/u';
+        $historyReportPattern = '/((会話|やりとり|チャット|履歴).*(報告書|レポート|PDF))|((報告書|レポート|PDF).*(会話|やりとり|チャット|履歴))|((会話|やりとり|チャット|履歴).*(報告書|レポート|PDF).*(作成|作って|出力|生成|にして|化して))|((報告書|レポート|PDF).*(作成|作って|出力|生成|にして|化して).*(会話|やりとり|チャット|履歴))/u';
         $structuredAnalysisPattern = '/(transaction_uid|login_seconds|row_data|APP_\d+|ユーザー.*(操作|時間)|操作.*(時間|秒|秒数)|ログイン秒|利用時間|滞在時間|実行時間)/iu';
         $normalRagPreferredPattern = '/(良い案|よい案|方法|支援する方法|設計書案|仕様書案|要件定義|システム.*構築|提案|企画|たたき台|ドラフト)/u';
         $csvOperationPattern = '/((転記|統合|結合|マージ|取り込|追加|反映|上書き).*(できますか|可能|したい|方法|手順|どうやって|どうすれば))|((できますか|可能|したい|方法|手順|どうやって|どうすれば).*(転記|統合|結合|マージ|取り込|追加|反映|上書き))/u';
@@ -53,6 +56,34 @@ class ChatRouteSelector
         } elseif ($reportMode && $projectId !== null) {
             $explicitAdvanced = true;
             $this->log("[SMART-ROUTER] 報告書モードを検知。PDF生成・検索登録のためフル思考ルートへ寄せます。");
+        }
+
+        if (
+            !$isHistorySummaryMode &&
+            !$reportMode &&
+            $projectId !== null &&
+            $this->csvContextResolver !== null &&
+            !($explicitAdvanced && $factorizedRoute !== 'data_analysis.csv_agg')
+        ) {
+            try {
+                $recentArtifactState = $this->csvContextResolver->findRecentArtifactState($recentHistory);
+                if ($this->shouldLockCsvAggregationRoute($message, $factorizedRoute, $factorizedQuery, $recentArtifactState)) {
+                    $isAnalysisMode = true;
+                    $advancedReasoning = false;
+                    $preferNormalRag = false;
+                    $routeDetailOverride = 'data_analysis.csv_agg.route_lock';
+                    $this->log(
+                        "[SMART-ROUTER] 直前の成果品ステートを検知したため CSV集計ルートを継続固定します。"
+                        . " file=" . ($recentArtifactState['target_file_name'] ?? 'unknown')
+                        . " | column=" . ($recentArtifactState['target_column'] ?? 'unknown')
+                        . " | aggregation_mode=" . ($recentArtifactState['aggregation_mode'] ?? 'unknown')
+                        . " | sort_order=" . ($recentArtifactState['sort_order'] ?? 'unknown')
+                        . " | wants_chart=" . (!empty($recentArtifactState['wants_chart']) ? 'yes' : 'no')
+                    );
+                }
+            } catch (Throwable $artifactStateEx) {
+                $this->log("[SMART-ROUTER] 成果品ステート継続判定に失敗: " . $artifactStateEx->getMessage());
+            }
         }
 
         $csvSummaryOrAggRoute = in_array(($factorizedQuery['route'] ?? null), ['data_analysis.csv_agg', 'data_analysis.csv_summary', 'data_analysis.csv_export_request'], true);
@@ -168,7 +199,70 @@ class ChatRouteSelector
             'is_history_summary_mode' => $isHistorySummaryMode,
             'prefer_normal_rag' => $preferNormalRag,
             'explicit_advanced' => $explicitAdvanced,
+            'route_detail_override' => $routeDetailOverride,
+            'recent_artifact_state' => $recentArtifactState,
         ];
+    }
+
+    private function shouldLockCsvAggregationRoute(
+        string $message,
+        string $factorizedRoute,
+        array $factorizedQuery,
+        ?array $recentArtifactState
+    ): bool {
+        if ($recentArtifactState === null) {
+            return false;
+        }
+
+        if (($recentArtifactState['last_success_route'] ?? '') !== 'data_analysis.csv_agg') {
+            return false;
+        }
+
+        if (!$this->csvContextResolver->isLikelyStateContinuationDirective($message)) {
+            return false;
+        }
+
+        if ($factorizedRoute === 'history_summary' || $factorizedRoute === 'advanced_hybrid.history_report') {
+            return false;
+        }
+
+        if (str_starts_with($factorizedRoute, 'advanced_hybrid.') && $factorizedRoute !== 'advanced_hybrid.history_report') {
+            return false;
+        }
+
+        if (str_starts_with($factorizedRoute, 'normal_rag.')) {
+            return false;
+        }
+
+        if ($this->isExplicitReportOrDocumentRequest($message)) {
+            return false;
+        }
+
+        if ($this->isExplicitArtifactSwitch($message)) {
+            return false;
+        }
+
+        $currentCsv = $this->csvContextResolver->findMentionedCsvFileName($message);
+        $lockedCsv = (string)($recentArtifactState['target_file_name'] ?? '');
+        if ($currentCsv !== null && $lockedCsv !== '' && $currentCsv !== $lockedCsv) {
+            return false;
+        }
+
+        if (($factorizedQuery['target'] ?? null) === 'pdf' || ($factorizedQuery['target'] ?? null) === 'history') {
+            return false;
+        }
+
+        return true;
+    }
+
+    private function isExplicitArtifactSwitch(string $message): bool
+    {
+        return preg_match('/(別の|他の|新しい|違う).*(CSV|csv|ファイル|資料|PDF|文書|列|カラム|項目)|((CSV|csv|ファイル|資料|PDF|文書|列|カラム|項目).*(別の|他の|新しい|違う))/u', $message) === 1;
+    }
+
+    private function isExplicitReportOrDocumentRequest(string $message): bool
+    {
+        return preg_match('/(報告書|レポート|PDF|資料|文書).*(作成|作って|出力|生成|まとめ)|((作成|作って|出力|生成|まとめ).*(報告書|レポート|PDF|資料|文書))/u', $message) === 1;
     }
 
     private function log(string $message): void

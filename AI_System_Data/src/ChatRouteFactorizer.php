@@ -37,7 +37,7 @@ class ChatRouteFactorizer
         $hasTimeBandIntent = preg_match('/(時間帯|時刻帯|時間ごと|時ごと|hour|何時台|時台|ピーク時間|多い時間帯)/iu', $message) === 1;
         $hasAggregationFollowUpIntent = $this->isAggregationFollowUpIntent($message);
         $hasHistorySummaryRequest = preg_match('/((これまで|今まで|過去|直近).*(会話|やりとり|チャット|履歴).*(まとめ|要約|整理)|((会話|やりとり|チャット|履歴).*(まとめ|要約|整理)))/u', $message) === 1;
-        $hasHistoryReportRequest = preg_match('/((会話|やりとり|チャット|履歴).*(報告書|レポート|PDF).*(作成|作って|出力|生成)|((報告書|レポート|PDF).*(作成|作って|出力|生成).*(会話|やりとり|チャット|履歴)))/u', $message) === 1;
+        $hasHistoryReportRequest = preg_match('/((会話|やりとり|チャット|履歴).*(報告書|レポート|PDF))|((報告書|レポート|PDF).*(会話|やりとり|チャット|履歴))|((会話|やりとり|チャット|履歴).*(報告書|レポート|PDF).*(作成|作って|出力|生成|にして|化して))|((報告書|レポート|PDF).*(作成|作って|出力|生成|にして|化して).*(会話|やりとり|チャット|履歴))/u', $message) === 1;
         $hasDocReference = preg_match('/(PDF|pdf|資料|図面|仕様書|文書|設計書|報告書)/u', $message) === 1;
         $hasDocActionIntent = preg_match('/(留意点|注意点|確認すべき|確認事項|法規|基準|安全面|設計上|施工前|不明点|見落とし|箇条書きで抽出|箇条書きで|抽出してください)/u', $message) === 1;
         $hasRecommendationIntent = preg_match('/(おすすめ|オススメ|提案|良い案|よい案|案はありますか|どう書|どう表現|言い換え|追加したい|追加する項目|分析方法|集計方法|どう分析|どう集計|どのように.*分析|分析したら.*よい|どう進め|見るべき|観点|切り口|方針)/u', $message) === 1;

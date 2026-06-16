@@ -2,23 +2,34 @@
 
 更新日: 2026-06-16
 
-このメモは、`public/api/chat.php` を入口とするチャット受付から、各ルートの回答生成、評価、保存、図解モード、今後の分割候補までを俯瞰するための現行仕様メモです。
+このメモは、`public/api/chat.php` を入口とするチャット受付から、各ルートの回答生成、評価、保存、図解モード、成果品の育成、今後の分割候補までを俯瞰するための現行仕様メモです。
 
-理想仕様ではなく、「いま実装がどう動いているか」を優先して整理しています。
+単なる一問一答ではなく、「会話しながら成果品を育てて出荷するシステム」としての仕様を優先して整理しています。
 
-## 0. 直近ログから確定した次着手方針
+## 0. 直近ログから確定した現状方針
 
-### 2026-06-05
+### 2026-06-16 (本日確定)
 
-- 第1優先は、主要ユーザーフローごとの期待動作を先に固定することです。
-- 背景として、内部の責務分離やモデル責務の整理はかなり進んだ一方、実際の使用感では以下のズレが残っています。
-  - CSV 集計の follow-up で、CSV 名と列名は補完できても、直前の `value_distribution` や `若い順` / `古い順` / `グラフ化` の意図が継続されず、広い `CSV-OVERVIEW` へ落ちることがある
-  - `report_mode=on` かつ `これまでの会話内容をまとめて報告書を作成` のような依頼でも、`history_summary` が優先され、報告書化へ進まないことがある
-- そのため、次の修正では局所的な if 文追加より先に、主要フローごとに
-  - どの route が正解か
-  - どの文脈を引き継ぐべきか
-  - `report_mode` / `diagram_mode` が route を変えるのか、出力だけを変えるのか
-  を固定してから実装へ戻る方針を取る
+- 成果品（Artifacts）駆動型エコシステムへ全面刷新する
+  - 一問一答のチャットボットではなく、VS Code + Codex のように「会話しながら複数の成果品を育てる」対話型開発環境として扱う
+- 5つの成果品の位置づけを固定する
+  - `運用メモ` → `資料` → `PDF / CSV` の育成レールを主軸とし、成功したやり取りは `ナレッジ（FAQ）` として資産化する
+- ローカルLLM（Ollama）最適化の基本方針を以下とする
+  - 長い会話履歴よりも、現在の成果品スナップショットを主役に据える
+  - 全文再生成よりも、部分・差分編集を優先する
+  - AIが成果品を直接生成・登録する流れは許可しつつ、必要な箇所では人間承認を追加できる設計にする
+  - 運用メモは古い方針や矛盾を残しっぱなしにせず、鮮度と整合性を保つ
+
+### 2026-06-16
+
+- 主要ユーザーフローのうち、以下は実装済みです。
+  - CSV 集計 follow-up で、CSV 名 / 列名だけでなく `aggregation_mode`、`sort_order`、`wants_chart`、`output_format`、`base_sql` を含む成果品ステートを復元する
+  - `若い順で`、`グラフ化して` のような短い追い指示では、`ChatRouteSelector` が直前の `data_analysis.csv_agg` を route lock で継続する
+  - `これまでの会話を報告書にして`、および `report_mode=on` 付きの履歴要約では、`history_summary` より報告書化向けの重い route を優先する
+- 現在の主な残課題は以下です。
+  - 復元した成果品ステートを `chat_analysis.php` 側の runner / planner / prompt へより明示的に受け渡すこと
+  - CSV follow-up の route lock 後に、出力形式の継続を各 runner 側でもさらに決定論的に扱うこと
+  - broad な factorize 結果と route lock の観測ログを、運用上さらに読みやすく揃えること
 
 ### 2026-06-04
 
@@ -58,7 +69,7 @@
 2. `INPUT-MODE` / `OUTPUT-MODE` ログ出力
 3. `ChatRequestGuard` による入力ガード
 4. 重複リクエストガード
-5. 会話履歴読み込み
+5. 会話履歴と成果品スナップショット読み込み
 6. 粗い質問因数分解
 7. ルーティング上書き
 8. 最終ルート決定
@@ -134,12 +145,22 @@
 
 ## 4. 会話履歴の使い方
 
-`chat.php` は `chat_history` から直近8件を取得し、`history_summary_text` として下流へ渡します。
+現行仕様では、会話履歴は「長く抱え込む主コンテキスト」ではなく、成果品を補助する短い流れ情報として扱います。
+
+`chat.php` は `chat_history` から現在スレッドの直近2〜3件相当を主コンテキストとして扱い、必要に応じて `history_summary_text` として下流へ渡します。
 
 使い道は2系統あります。
 
 - 回答生成時の会話文脈
 - CSV追い質問の文脈補完
+
+一方で、会話履歴よりも優先されるのは、現在の成果品スナップショットです。
+
+- 案件運用メモ: `ProjectContextMemory` の `ai_project_agents_md` / `ai_project_readme_md` / `ai_project_todo_md`
+- 資料: `documents` / `doc_chunks`
+- CSV: `project_csv_files` / `project_csv_rows`
+
+なお、`project_comments` は案件コメントであり、上記の運用メモとは別物として扱います。
 
 現在の文脈補完は、主に以下を引き継ぎます。
 
@@ -158,31 +179,72 @@
 
 加えて、CSV集計の follow-up では、`若い順` / `古い順`、`グラフ化してください` などの意図も直近履歴から継承する実装が入っています。
 
-### 4.1 2026-06-16 方針: 会話履歴から成果品ステートへ
+### 4.1 2026-06-16 実装: 会話履歴から成果品ステートへ
 
-次段の最優先改修では、会話履歴を「単語の補完元」ではなく、「直前に作っていた成果品の状態を復元する入力」として扱います。
+現在は、会話履歴を「単語の補完元」だけでなく、「直前に作っていた成果品の状態を復元する入力」として扱います。
 
-特に CSV follow-up では、以下のような `state packet` を復元して下流へ渡す前提に切り替えます。
+特に CSV follow-up では、`src/ChatHistoryContextResolver.php` が以下のような `state packet` を復元します。
 
 - `last_success_route`
 - `target_file_name`
 - `target_column`
+- `target_value`
 - `aggregation_mode`
+- `date_granularity`
 - `sort_order`
 - `wants_chart`
 - `chart_type`
 - `output_format`
-- 必要に応じて `base_sql` または直前の集計結果要約
+- `wants_table`
+- `base_sql`
 
-狙いは、`若い順で`、`グラフ化して`、`やっぱり逆順で` のような短い追い指示でも、
+これにより、`若い順で`、`グラフ化して`、`やっぱり逆順で` のような短い追い指示でも、
 
 - 何の成果品を編集中なのか
 - どの route を継続すべきか
 - どの出力形式を維持すべきか
 
-を忘れずに継続できるようにすることです。
+を忘れずに継続しやすくなっています。
 
-この責務は、`src/ChatHistoryContextResolver.php` 単体または `CsvFollowupContextResolver` のような専用 resolver へ寄せ、単語補完ではなく「成果品ステート復元」を主責務として扱います。
+補足:
+
+- file 指定つきの会話では、その CSV 内での列特定を優先します
+- user / assistant の両方の履歴から候補を取り、`target_column` や `base_sql` をより多く持つ側を優先して採用します
+- assistant 側の SQL ブロックから `base_sql` を抽出し、後段の再利用候補として持てる形にしています
+
+## 4.2 成果品（Artifacts）の定義とデータマッピング
+
+本システムにおける成果品は、単なるテキスト回答ではなく、明確な役割と保存先を持つ育成対象です。
+
+| 成果品種別 | システム上の位置づけ・形式 | 主な保存先 / フラグ | 育成とライフサイクルのルール |
+| --- | --- | --- | --- |
+| **運用メモ** | 案件の進行方針・AIへの指示・タスク一覧 | `ProjectContextMemory` (`ai_project_agents_md` / `ai_project_readme_md` / `ai_project_todo_md`) | チャット入口でPHPが常に最新を回収し、Systemプロンプトへ動的に注入する。AIの行動指針となる。 |
+| **資料** | PDFやレポートへ近づくための中間メモ | `documents` / `doc_chunks`（形式: Markdown を含む） | スレッド継続中は同じ資料を育てる前提を取り、必要に応じて追記・差分更新・再構成を繰り返す。 |
+| **PDF** | 確定または出荷対象の最終成果品ファイル | 物理PDFファイル + `documents` 登録 | ユーザーの依頼や `report_mode` に応じて、AI が直接生成・登録してよい。生成は一発確定に限らず、資料や回答を育てた後に段階的に行ってよい。 |
+| **CSV** | 構造化データとして抽出・集計された成果品 | `project_csv_files` / `project_csv_rows` | `csv_mode=on` や集計Runner経由で生成・登録する。AI がユーザー指示に基づいて直接出力してよい。 |
+| **ナレッジ** | 再利用価値の高いQ&Aペア | `project_faqs` | 高評価回答を資産化する。将来的に承認フローを追加できるが、現行仕様ではAIによる直接登録も許容する。 |
+
+補足:
+
+- `project_comments` は成果品本体ではなく、案件のコメント・申し送り・補助コンテキストである
+- 運用メモと案件コメントは保存先も用途も分けて扱う
+
+## 4.3 成果品（Artifacts）駆動型開発の運用方針（Ollama最適化）
+
+ローカル環境（Ollama）のコンテキスト上限と推論速度の制約の中で成果物品質を高めるため、以下の運用方針を現行仕様として採用する。
+
+1. **成果品最優先コンテキスト（Artifact-First Context）**
+   - `composeMemoryAwarePrompt` 系の組み立てでは、だらだら続く会話履歴よりも、「現在の資料」「最新の運用メモ」「直近の成果品ステート」を優先して載せる。
+   - 会話履歴は直近2〜3件の流れとインテント検知に絞り、過去会話への引っ張られ過ぎを防ぐ。
+2. **部分・差分編集（Granular Editing Pattern）**
+   - 資料や運用メモの更新では、全体を毎回作り直すのではなく、差分更新や部分リライトを優先する。
+   - 将来的には `sub_model` に局所修正を寄せ、PHP側で決定論的にマージする。
+3. **AIによる成果品生成の許可**
+   - FAQ / PDF / CSV は、ユーザーの意図が明確であれば AI が直接生成・登録してよい。
+   - ただし上書きや破壊的変更などの高リスク操作には、人間承認を追加できる設計余地を残す。
+4. **運用メモの鮮度・衝突管理**
+   - 新しい方針が入ったときは、古いタスクや矛盾した指示を残しっぱなしにしない。
+   - 将来的には専用の衝突解消ロジックでクレンジングし、Systemプロンプトには純度の高い最新方針だけを注入する。
 
 ## 5. 回答モード
 
@@ -195,7 +257,7 @@
 
 - 最優先でフル思考寄せ
 - 報告書向け構成
-- 回答後に PDF 化
+- 回答や資料を育てた後、必要な段階で PDF 化
 - `documents` / `doc_chunks` に登録
 
 ### `diagram_mode`
@@ -245,9 +307,9 @@
 - `advanced_hybrid.doc_extract` は CSV ルートで上書きしない
 - 全社横断キーワードは最上位で `global` 系へ
 
-### 6.0 2026-06-16 方針: follow-up は route より成果品ステートを優先する
+### 6.0 2026-06-16 実装: follow-up は route より成果品ステートを優先する
 
-次段の route 改修では、`ChatRouteSelector` の最上位近くに「成果品ステート継続ロック」を置きます。
+現在は、`ChatRouteSelector` の上流側で「成果品ステート継続ロック」を行います。
 
 条件:
 
@@ -263,18 +325,20 @@
 - `ChatRouteFactorizer` の広い分類結果よりも、直前の `data_analysis.csv_agg` を継続する判断を優先する
 - `CSV-OVERVIEW` や広い `csv_summary` への脱線を抑止する
 - 明示的に別ファイル・別列・別成果物へ切り替える発言が出るまでは、同じ成果品レールをロックして進める
+- route lock が発動した場合、`route_detail_override=data_analysis.csv_agg.route_lock` を返し、dispatch 側の観測ログでも follow-up 継続と分かるようにする
+- 一方で、`history_summary` / `advanced_hybrid.history_report` / `advanced_hybrid.*` / `normal_rag.*` が明示されるケースや、別資料・別CSVへの切替が明示されたケースでは lock しない
 
 ### 6.1 主要ユーザーフローと期待着地（2026-06-05 固定方針）
 
-以下は、今後の route 修正で基準にする期待動作です。現状の実装がそうなっているとは限らず、ずれている箇所は今後の改修対象として扱います。
+以下は、2026-06-16 時点での基準動作です。行ごとに「概ね安定」か「残課題あり」かを併記します。
 
 | フロー | 代表質問 | 期待 route | 引き継ぐ文脈 | mode の扱い | 現状の主なズレ |
 | --- | --- | --- | --- | --- | --- |
 | CSV 概要把握 | `登録済みのCSVデータを集計して概要を教えてください。` | `data_analysis.csv_summary` | 案件内 CSV 一覧 | `diagram_mode=on` でも軽量 route は維持し、必要なら deterministic な `json:chart` を足す | 大きなズレは少ない |
 | CSV 集計 | `YearMonth カラムの分布を集計してグラフ化してください。` | `data_analysis.csv_agg` | `target_file_name`, `target_column`, `aggregation_mode=value_distribution` | `diagram_mode=on` は route を変えず、出力へ chart を加える | 概ね安定している |
-| CSV follow-up | `若い順でグラフ化してください。` | 直前の `data_analysis.csv_agg` を route lock で継続 | 現在スレッド内の CSV 名、列名、直前の `aggregation_mode`, `sort_order`, `wants_chart`, `chart_type`, `output_format` | `diagram_mode` が未指定でも、直前がグラフ化なら chart を継続候補として扱う | 文字面だけで広い `CSV-OVERVIEW` に落とさず、成果品ステートを優先する |
-| 履歴要約 | `これまでの会話内容を簡潔にまとめてください。` | `history_summary` | 現在スレッド内の `chat_history` | `report_mode=off` なら軽量最優先 | 概ね安定している |
-| 履歴の報告書化 | `これまでの会話内容を簡潔にまとめて報告書を作成してください。` または `report_mode=on` 付きの履歴要約 | `advanced_hybrid` もしくは報告書専用フロー | 現在スレッド内の `chat_history`, 報告書モード, 章立て意図, 出荷先PDF意図 | `report_mode=on` または文面の成果品 intent は `history_summary` より優先する | 要約ではなく成果品化を優先し、軽量 route へ逃がさない |
+| CSV follow-up | `若い順でグラフ化してください。` | 直前の `data_analysis.csv_agg` を route lock で継続 | 現在スレッド内の CSV 名、列名、直前の `aggregation_mode`, `sort_order`, `wants_chart`, `chart_type`, `output_format`, `base_sql` | `diagram_mode` が未指定でも、直前がグラフ化なら chart を継続候補として扱う | route lock は実装済み。runner 側の出力継続の詰めは残課題 |
+| 履歴要約 | `これまでの会話内容を簡潔にまとめてください。` | `history_summary` | 現在スレッド内の `chat_history` の直近流れ | `report_mode=off` なら軽量最優先 | 概ね安定している |
+| 履歴の報告書化 | `これまでの会話内容を簡潔にまとめて報告書を作成してください。` または `report_mode=on` 付きの履歴要約 | `advanced_hybrid` もしくは報告書専用フロー | 現在スレッド内の `chat_history`, 報告書モード, 章立て意図, 出荷先PDF意図 | `report_mode=on` または文面の成果品 intent は `history_summary` より優先する | selector / factorizer の優先は実装済み |
 | PDF 留意点抽出 | `この案件に関連する資料PDFから主要な留意点を抽出してください。` | `advanced_hybrid.doc_extract` | project documents, `doc_chunks`, 軽量根拠整形 | `report_mode=off` なら lightweight doc final を許可 | route は安定、候補ノイズは残課題 |
 
 ### 6.2 route 優先順位の再確認ポイント
@@ -283,7 +347,7 @@
 - ただし履歴要約については、UI で `report_mode=on` が付いている時点で、文面に `報告書` がなくても `history_summary` より報告書化を優先してよい
 - 文面に `報告書` / `レポート` / `PDF化` のような成果品 intent がある場合も、`history_summary` より `advanced_hybrid` または報告書専用フローを優先する
 - `history_summary` は「成果品化 intent がなく、会話の簡潔な要約だけを求める場合」の軽量 route として扱う
-- CSV follow-up では、`target_file_name` と `target_column` だけでなく、直前の `aggregation_mode`, `sort_order`, `output_format`, `diagram_mode`, `wants_chart` まで引き継ぐ
+- CSV follow-up では、`target_file_name` と `target_column` だけでなく、直前の `aggregation_mode`, `sort_order`, `output_format`, `wants_chart`, `chart_type`, `base_sql` まで引き継ぐ
 - follow-up が追加指示・編集指示・出力変更である限り、route は再判定するより `data_analysis.csv_agg` を継続ロックする
 - スレッド導入後の follow-up と履歴要約は、案件全体ではなく現在の会話スレッドを優先して文脈継続する
 - `diagram_mode=on` は原則として route を変えず、軽量 route のまま deterministic な chart を足す方向で扱う
@@ -336,7 +400,7 @@
 - `csvのデータを月別で集計してください。` のように CSV 名や列名が省略された自然文は、まだ `advanced_hybrid` に落ちることがある
 - `Datetime` / `年月` を月単位で見たい質問でも、`value_distribution` に誤って倒れることがある
 - `2026年4月を抽出して件数` のような質問に、特定値件数ではなく上位分布一覧を返すことがある
-- 集計系の follow-up は、説明系に比べて文脈補完がまだ弱い
+- 集計系の follow-up は、route lock と成果品ステート復元までは実装済みだが、runner 側の出力継続はまだ改善余地がある
 
 現在の分割状況:
 
@@ -397,7 +461,7 @@
 
 として保存されます。
 
-## 10. 品質評価
+## 10. 品質評価と成果品の資産化
 
 関連:
 
@@ -408,19 +472,25 @@
 ### 10.1 評価モード
 
 - `real`
-  - 本審査
+  - 本審査。高品質な回答や成果品の資産化判定に使う
 - `rule`
   - 軽量ルートの rule-first な最終回答ガード
 - `fallback`
   - 審査失敗時のフェイルセーフ
 
-### 10.2 FAQ自動登録
+### 10.2 FAQ・PDF・CSV の資産化ルール
 
-FAQ 自動登録は、現在以下のみ候補にします。
+- AI は、ユーザーの依頼と route 条件が揃っていれば、FAQ / PDF / CSV を直接生成・登録してよい
+- FAQ の昇格候補は、現在以下のみを対象にする
 
 - `evaluation_mode=real`
 
 つまり、`fallback` は FAQ 候補にせず、軽量系の `lightweight_rule_guard` は FAQ へ昇格させません。
+
+補足:
+
+- 将来的に、上書きや正式公開など一部の操作へ HITL を追加してよい
+- ただし現行仕様では、成果品生成そのものを毎回人手クリック必須にはしない
 
 ## 11. 回答表示タイミング
 
@@ -461,6 +531,7 @@ FAQ 自動登録は、現在以下のみ候補にします。
 
 回答生成の参照対象には以下が入っています。
 
+- 案件運用メモ (`ProjectContextMemory`)
 - PDF (`documents`, `doc_chunks`)
 - CSV (`project_csv_files`, `project_csv_rows`)
 - コメント (`project_comments`)
@@ -469,9 +540,14 @@ FAQ 自動登録は、現在以下のみ候補にします。
 
 ただし現状の強さには差があります。
 
-- PDF / CSV: 強い
+- 案件運用メモ / PDF / CSV: 強い
 - FAQ: 一部質問で明示的に使われやすい
 - コメント: 主に補助的
+
+ここでいう `案件運用メモ` と `コメント` は別物です。
+
+- 案件運用メモ: AIの行動方針や案件の現在地を規定する主コンテキスト
+- コメント: 申し送りや補足観測のための副次コンテキスト
 
 コメント・FAQ系の質問語を明示優先ルーティングする改善は、将来候補です。
 
@@ -562,6 +638,9 @@ FAQ 自動登録は、現在以下のみ候補にします。
 - `CsvSemanticAggregationRunner` （semantic系3種）は切り出し済み
 - `CsvAggregationTargetResolver` （対象CSV解決 / 日付列候補判定）は shared helper として追加済み
 - `CsvAggregationStatePromptBuilder` （直前の成果品ステートを prompt / planner 入力へ整形）
+- `ArtifactPatchMerger` （部分差分パッチを既存の資料やメモへ決定論的にマージする）
+- `MemoConflictResolver` （新しい指示と既存の運用メモの衝突を解消する）
+- `HitlApprovalController` （必要な操作だけ人間承認を挟めるようにする）
 
 ### `chat_advanced.php`
 
@@ -647,7 +726,7 @@ FAQ 自動登録は、現在以下のみ候補にします。
    - `buildLogger`
    - 役割: 各責務群から使う補助処理を薄く提供する
 
-## 17. 分割の進め方
+## 17. 分割と改修の進め方
 
 おすすめ順:
 
@@ -661,16 +740,16 @@ FAQ 自動登録は、現在以下のみ候補にします。
 
 最初から大手術するより、挙動を変えずに責務単位で移す方が安全です。
 
-### 17.1 2026-06-16 時点の改修優先順位
+### 17.1 2026-06-16 時点の実施状況と次優先
 
 1. `src/ChatHistoryContextResolver.php`
-   - 目的: 単語補完ではなく、`aggregation_mode` / `wants_chart` / `sort_order` を含む成果品ステート復元へ拡張する
+   - 実装済み: 単語補完ではなく、`aggregation_mode` / `wants_chart` / `sort_order` / `base_sql` を含む成果品ステート復元へ拡張した
 
 2. `src/ChatRouteSelector.php`
-   - 目的: `CSV follow-up` の route lock と、`履歴の報告書化` の絶対優先を条件分岐で固定する
+   - 実装済み: `CSV follow-up` の route lock と、`履歴の報告書化` の絶対優先を条件分岐で固定した
 
 3. 各 `CsvXXXXAggregationRunner.php`
-   - 目的: 復元した直前ステートを、planner / prompt / deterministic aggregation の前提情報として綺麗に受け渡す
+   - 次優先: 復元した直前ステートを、planner / prompt / deterministic aggregation の前提情報として綺麗に受け渡す
 
 ### `chat_advanced.php` の推奨分割順
 
