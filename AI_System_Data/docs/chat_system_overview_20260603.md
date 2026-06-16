@@ -1,6 +1,6 @@
 # チャット受付・回答生成ロジック俯瞰メモ
 
-更新日: 2026-06-08
+更新日: 2026-06-16
 
 このメモは、`public/api/chat.php` を入口とするチャット受付から、各ルートの回答生成、評価、保存、図解モード、今後の分割候補までを俯瞰するための現行仕様メモです。
 
@@ -141,10 +141,13 @@
 - 回答生成時の会話文脈
 - CSV追い質問の文脈補完
 
-現在の文脈補完は、主に以下に限定されています。
+現在の文脈補完は、主に以下を引き継ぎます。
 
 - CSVファイル名
 - CSV列名
+- 直前の `aggregation_mode`
+- `sort_order`
+- `wants_chart` / `chart_type`
 
 例:
 
@@ -152,6 +155,34 @@
 - 次の質問: `どういうイベントか説明できますか`
 
 この場合、直前会話から `集計.csv` と `event_type` を補完して、軽量 `data_analysis.csv_agg` に戻します。
+
+加えて、CSV集計の follow-up では、`若い順` / `古い順`、`グラフ化してください` などの意図も直近履歴から継承する実装が入っています。
+
+### 4.1 2026-06-16 方針: 会話履歴から成果品ステートへ
+
+次段の最優先改修では、会話履歴を「単語の補完元」ではなく、「直前に作っていた成果品の状態を復元する入力」として扱います。
+
+特に CSV follow-up では、以下のような `state packet` を復元して下流へ渡す前提に切り替えます。
+
+- `last_success_route`
+- `target_file_name`
+- `target_column`
+- `aggregation_mode`
+- `sort_order`
+- `wants_chart`
+- `chart_type`
+- `output_format`
+- 必要に応じて `base_sql` または直前の集計結果要約
+
+狙いは、`若い順で`、`グラフ化して`、`やっぱり逆順で` のような短い追い指示でも、
+
+- 何の成果品を編集中なのか
+- どの route を継続すべきか
+- どの出力形式を維持すべきか
+
+を忘れずに継続できるようにすることです。
+
+この責務は、`src/ChatHistoryContextResolver.php` 単体または `CsvFollowupContextResolver` のような専用 resolver へ寄せ、単語補完ではなく「成果品ステート復元」を主責務として扱います。
 
 ## 5. 回答モード
 
@@ -190,11 +221,10 @@
 - `data_analysis.csv_export_request`
 - `advanced_hybrid.doc_extract`
 
-その後、現在は `src/ChatRouteSelector.php` が以下を見て最終候補を決めます。
+その後、現在は `src/ChatRouteSelector.php` が主に以下を見て最終候補を決めます。
 
 - `advanced_reasoning`
 - `report_mode`
-- `diagram_mode`
 - 全社横断キーワード
 - CSVファイル名の明示言及
 - 履歴要約要求
@@ -202,6 +232,7 @@
 
 補足:
 
+- `diagram_mode` は現状、主に出力形式と最終表現側で使われており、`ChatRouteSelector` の入力には直接渡していません
 - 直前の CSV 会話文脈補完は `src/ChatHistoryContextResolver.php` に切り出し済み
 - route 候補の因数分解は `src/ChatRouteFactorizer.php` に切り出し済み
 - ルート選択の判断本体は `src/ChatRouteSelector.php` に切り出し済み
@@ -214,6 +245,25 @@
 - `advanced_hybrid.doc_extract` は CSV ルートで上書きしない
 - 全社横断キーワードは最上位で `global` 系へ
 
+### 6.0 2026-06-16 方針: follow-up は route より成果品ステートを優先する
+
+次段の route 改修では、`ChatRouteSelector` の最上位近くに「成果品ステート継続ロック」を置きます。
+
+条件:
+
+- 現在スレッド内に、直前の成功した `data_analysis.csv_agg` のステートが存在する
+- 今回の発言が新規質問ではなく、追加指示・編集指示・出力変更である
+  - 例: `若い順で`
+  - 例: `グラフ化して`
+  - 例: `やっぱり逆順で`
+  - 例: `表ではなくグラフで`
+
+処理:
+
+- `ChatRouteFactorizer` の広い分類結果よりも、直前の `data_analysis.csv_agg` を継続する判断を優先する
+- `CSV-OVERVIEW` や広い `csv_summary` への脱線を抑止する
+- 明示的に別ファイル・別列・別成果物へ切り替える発言が出るまでは、同じ成果品レールをロックして進める
+
 ### 6.1 主要ユーザーフローと期待着地（2026-06-05 固定方針）
 
 以下は、今後の route 修正で基準にする期待動作です。現状の実装がそうなっているとは限らず、ずれている箇所は今後の改修対象として扱います。
@@ -222,16 +272,19 @@
 | --- | --- | --- | --- | --- | --- |
 | CSV 概要把握 | `登録済みのCSVデータを集計して概要を教えてください。` | `data_analysis.csv_summary` | 案件内 CSV 一覧 | `diagram_mode=on` でも軽量 route は維持し、必要なら deterministic な `json:chart` を足す | 大きなズレは少ない |
 | CSV 集計 | `YearMonth カラムの分布を集計してグラフ化してください。` | `data_analysis.csv_agg` | `target_file_name`, `target_column`, `aggregation_mode=value_distribution` | `diagram_mode=on` は route を変えず、出力へ chart を加える | 概ね安定している |
-| CSV follow-up | `若い順でグラフ化してください。` | 直前の `data_analysis.csv_agg` を継続 | 現在スレッド内の CSV 名、列名、直前の `aggregation_mode`, `sort_order`, 図表意図 | `diagram_mode` が未指定でも、直前がグラフ化なら chart を継続候補として扱う | 直前のグラフ意図継承を強化中 |
+| CSV follow-up | `若い順でグラフ化してください。` | 直前の `data_analysis.csv_agg` を route lock で継続 | 現在スレッド内の CSV 名、列名、直前の `aggregation_mode`, `sort_order`, `wants_chart`, `chart_type`, `output_format` | `diagram_mode` が未指定でも、直前がグラフ化なら chart を継続候補として扱う | 文字面だけで広い `CSV-OVERVIEW` に落とさず、成果品ステートを優先する |
 | 履歴要約 | `これまでの会話内容を簡潔にまとめてください。` | `history_summary` | 現在スレッド内の `chat_history` | `report_mode=off` なら軽量最優先 | 概ね安定している |
-| 履歴の報告書化 | `これまでの会話内容を簡潔にまとめて報告書を作成してください。` または `report_mode=on` 付きの履歴要約 | `advanced_hybrid` もしくは報告書専用フロー | 現在スレッド内の `chat_history`, 報告書モード, 章立て意図 | `report_mode=on` は履歴要約 intent より強く扱い、報告書化へ進める | ここを優先する方針へ修正中 |
+| 履歴の報告書化 | `これまでの会話内容を簡潔にまとめて報告書を作成してください。` または `report_mode=on` 付きの履歴要約 | `advanced_hybrid` もしくは報告書専用フロー | 現在スレッド内の `chat_history`, 報告書モード, 章立て意図, 出荷先PDF意図 | `report_mode=on` または文面の成果品 intent は `history_summary` より優先する | 要約ではなく成果品化を優先し、軽量 route へ逃がさない |
 | PDF 留意点抽出 | `この案件に関連する資料PDFから主要な留意点を抽出してください。` | `advanced_hybrid.doc_extract` | project documents, `doc_chunks`, 軽量根拠整形 | `report_mode=off` なら lightweight doc final を許可 | route は安定、候補ノイズは残課題 |
 
 ### 6.2 route 優先順位の再確認ポイント
 
 - `report_mode=on` は常に「重い route へ送る」ではなく、「報告書として保存・出荷したい依頼」で route を押し上げる
 - ただし履歴要約については、UI で `report_mode=on` が付いている時点で、文面に `報告書` がなくても `history_summary` より報告書化を優先してよい
+- 文面に `報告書` / `レポート` / `PDF化` のような成果品 intent がある場合も、`history_summary` より `advanced_hybrid` または報告書専用フローを優先する
+- `history_summary` は「成果品化 intent がなく、会話の簡潔な要約だけを求める場合」の軽量 route として扱う
 - CSV follow-up では、`target_file_name` と `target_column` だけでなく、直前の `aggregation_mode`, `sort_order`, `output_format`, `diagram_mode`, `wants_chart` まで引き継ぐ
+- follow-up が追加指示・編集指示・出力変更である限り、route は再判定するより `data_analysis.csv_agg` を継続ロックする
 - スレッド導入後の follow-up と履歴要約は、案件全体ではなく現在の会話スレッドを優先して文脈継続する
 - `diagram_mode=on` は原則として route を変えず、軽量 route のまま deterministic な chart を足す方向で扱う
 - `advanced_reasoning=on` でも、CSV 要約・CSV 集計・履歴要約の軽量 route は維持してよい
@@ -337,9 +390,10 @@
 
 資料PDF抽出では、本審査を省略する軽量最終回答ルートがあります。
 
-この場合の評価は本審査ではなく:
+この場合の評価は本審査ではなく、軽量ガードの rule-first 評価です。
 
-- `evaluation_mode=synthetic`
+- `evaluation_mode=rule`
+- `evaluation_source=lightweight_rule_guard`
 
 として保存されます。
 
@@ -355,8 +409,8 @@
 
 - `real`
   - 本審査
-- `synthetic`
-  - 軽量ルートの擬似評価
+- `rule`
+  - 軽量ルートの rule-first な最終回答ガード
 - `fallback`
   - 審査失敗時のフェイルセーフ
 
@@ -365,9 +419,8 @@
 FAQ 自動登録は、現在以下のみ候補にします。
 
 - `evaluation_mode=real`
-- `evaluation_source=lightweight_rule_guard` の高スコア軽量回答
 
-つまり、`fallback` は FAQ 候補にせず、軽量系は rule-first の決定論ガードを通ったものだけを候補にします。
+つまり、`fallback` は FAQ 候補にせず、軽量系の `lightweight_rule_guard` は FAQ へ昇格させません。
 
 ## 11. 回答表示タイミング
 
@@ -436,7 +489,7 @@ FAQ 自動登録は、現在以下のみ候補にします。
 - `[SQL-REPAIR-POLICY]`
 - `[EVAL-POLICY]`
 - `[EVAL-REAL]`
-- `[EVAL-SYNTHETIC]`
+- `[FINAL-GUARD]`
 - `[EVAL-FALLBACK]`
 - `[FINAL-ANSWER]`
 - `[FAQ-AUTO]`
@@ -492,8 +545,8 @@ FAQ 自動登録は、現在以下のみ候補にします。
 - `ChatRouteFactorizer`
 - `ChatRouteSelector`
 - `ChatRouteDispatcher`
-- `ChatHistoryContextResolver`
-- `CsvFollowupContextResolver`
+- `ChatHistoryContextResolver` （会話履歴から成果品ステートを復元）
+- `CsvFollowupContextResolver` （CSV follow-up 専用の state packet 復元）
 - `ChatModePolicy`
 
 ### `chat_analysis.php`
@@ -508,6 +561,7 @@ FAQ 自動登録は、現在以下のみ候補にします。
 - `CsvValueAggregationRunner` （distinct count / value distribution）は切り出し済み
 - `CsvSemanticAggregationRunner` （semantic系3種）は切り出し済み
 - `CsvAggregationTargetResolver` （対象CSV解決 / 日付列候補判定）は shared helper として追加済み
+- `CsvAggregationStatePromptBuilder` （直前の成果品ステートを prompt / planner 入力へ整形）
 
 ### `chat_advanced.php`
 
@@ -598,13 +652,25 @@ FAQ 自動登録は、現在以下のみ候補にします。
 おすすめ順:
 
 1. まず現行挙動をこのメモで固定
-2. `chat.php` の文脈補完と因数分解を切り出す
-3. `chat.php` のルート選択判断を切り出す
-4. `chat.php` の controller dispatch を切り出す
-5. `chat_analysis.php` の軽量CSVルート群を Runner 単位で切り出す
-6. `chat_advanced.php` は最後に小さく刻む
+2. `ChatHistoryContextResolver` / `CsvFollowupContextResolver` で成果品ステート復元を強化する
+3. `ChatRouteSelector` に follow-up route lock と報告書 intent 優先を入れる
+4. `chat_analysis.php` 側で直前ステートを runner / prompt へ渡す
+5. `chat.php` の controller dispatch を切り出す
+6. `chat_analysis.php` の軽量CSVルート群を Runner 単位で切り出す
+7. `chat_advanced.php` は最後に小さく刻む
 
 最初から大手術するより、挙動を変えずに責務単位で移す方が安全です。
+
+### 17.1 2026-06-16 時点の改修優先順位
+
+1. `src/ChatHistoryContextResolver.php`
+   - 目的: 単語補完ではなく、`aggregation_mode` / `wants_chart` / `sort_order` を含む成果品ステート復元へ拡張する
+
+2. `src/ChatRouteSelector.php`
+   - 目的: `CSV follow-up` の route lock と、`履歴の報告書化` の絶対優先を条件分岐で固定する
+
+3. 各 `CsvXXXXAggregationRunner.php`
+   - 目的: 復元した直前ステートを、planner / prompt / deterministic aggregation の前提情報として綺麗に受け渡す
 
 ### `chat_advanced.php` の推奨分割順
 
