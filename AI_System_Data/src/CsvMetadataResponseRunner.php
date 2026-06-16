@@ -39,14 +39,14 @@ class CsvMetadataResponseRunner
             return false;
         }
 
-        $this->log("[CSV-METADATA] CSV項目メタデータ即答ルートを起動します。対象ファイル数: " . count($files));
-        $this->sendStatus(2, '📋 CSVの項目一覧をメタデータから確認しています...');
+        $this->log("[CSV-METADATA] CSV成果品メタデータの即答ルートを起動します。対象ファイル数: " . count($files));
+        $this->sendStatus(2, '📋 CSV成果品の項目一覧を整理しています...');
 
         $finalResponse = $summaryFormatter->buildMetadataAnswer($files);
         ($this->setFinalResponse)($finalResponse);
-        ($this->insertReasoningStep)(1, 'CSVファイルの項目メタデータ確認', $finalResponse);
+        ($this->insertReasoningStep)(1, 'CSV成果品の項目メタデータ整理', $finalResponse);
         ($this->completeRoute)();
-        $this->log("[CSV-METADATA] CSV項目メタデータ即答ルートが完了しました。");
+        $this->log("[CSV-METADATA] CSV成果品メタデータの即答ルートが完了しました。");
         return true;
     }
 
@@ -57,14 +57,15 @@ class CsvMetadataResponseRunner
         array $files,
         CsvEvidenceReader $evidenceReader
     ): bool {
-        $this->log("[CSV-SEARCH] 検索ヒット0件のため、全件AI読解を行わずメタデータ回答へフォールバックします。terms: " . implode(', ', $terms));
-        $this->sendStatus(2, '🔎 CSVを検索しましたが該当レコードがないため、登録済みCSVの範囲を整理しています...');
+        $this->log("[CSV-SEARCH] 検索ヒット0件のため、全件AI読解を行わずCSV成果品の範囲整理へフォールバックします。terms: " . implode(', ', $terms));
+        $this->sendStatus(2, '🔎 CSV成果品を検索しましたが該当レコードがないため、登録済みCSVの範囲を整理しています...');
 
         $finalResponse = $evidenceReader->buildNoHitAnswer($terms, $files, $totalRows);
         ($this->setFinalResponse)($finalResponse);
-        ($this->insertReasoningStep)(1, 'CSVキーワード検索', "検索語: " . implode(" / ", $terms) . "\n検索ヒット: 0件\n総CSVレコード数: {$totalRows}件");
+        ($this->insertReasoningStep)(1, 'CSV成果品のキーワード検索', "検索語: " . implode(" / ", $terms) . "\n検索ヒット: 0件\n総CSVレコード数: {$totalRows}件");
+        ($this->insertReasoningStep)(90, 'CSV成果品の範囲整理', $finalResponse);
         ($this->completeRoute)();
-        $this->log("[CSV-SEARCH] 検索ヒット0件フォールバック完了。totalElapsed: " . $this->elapsed($routeStart));
+        $this->log("[CSV-SEARCH] 検索ヒット0件のCSV成果品フォールバックが完了しました。totalElapsed: " . $this->elapsed($routeStart));
         return true;
     }
 

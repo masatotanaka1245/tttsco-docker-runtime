@@ -14,6 +14,9 @@ class CsvAggregationAnswerFormatter
         $lines[] = "- 対象CSV: {$fileName}";
         $lines[] = "- 元レコード数: " . (int)($fileTarget['row_count'] ?? 0) . "件";
         $lines[] = "- 状態: 列未指定のため、まだグラフ生成は実行していません。";
+        foreach ($this->buildArtifactStateSummaryLines($plan) as $stateLine) {
+            $lines[] = $stateLine;
+        }
         if (!empty($suggestedColumns)) {
             $lines[] = "- 指定候補: " . implode(' / ', $suggestedColumns);
         }
@@ -51,6 +54,9 @@ class CsvAggregationAnswerFormatter
             $lines[] = "- 指定値: {$targetValue}";
         }
         $lines[] = "- 結果: 該当列を確認できなかったため、件数分布などの集計は実行していません。";
+        foreach ($this->buildArtifactStateSummaryLines($plan) as $stateLine) {
+            $lines[] = $stateLine;
+        }
         if (!empty($suggestions)) {
             $lines[] = "- 近い候補: " . implode(' / ', array_map(
                 static function (array $suggestion): string {
@@ -102,6 +108,9 @@ class CsvAggregationAnswerFormatter
             $lines[] = "- 確認できたCSV: " . implode(' / ', $matchedFiles);
         }
         $lines[] = "- 結果: 列の存在確認のみを行い、件数分布やランキング集計はまだ実行していません。";
+        foreach ($this->buildArtifactStateSummaryLines($plan) as $stateLine) {
+            $lines[] = $stateLine;
+        }
 
         return implode("\n", $lines);
     }
@@ -125,6 +134,9 @@ class CsvAggregationAnswerFormatter
             $lines[] = "- 元レコード数: {$rowCount}件";
         }
         $lines[] = "- ユニーク値数: " . count($rows) . "件";
+        foreach ($this->buildArtifactStateSummaryLines($plan) as $stateLine) {
+            $lines[] = $stateLine;
+        }
         $lines[] = "";
 
         if ($summary !== '') {
@@ -171,8 +183,9 @@ class CsvAggregationAnswerFormatter
         }
 
         if ($diagramMode && !empty($topRows)) {
+            $chartType = $this->resolveRequestedChartType($plan, count($topRows) <= 6 ? 'pie' : 'bar');
             $chart = [
-                'type' => count($topRows) <= 6 ? 'pie' : 'bar',
+                'type' => $chartType,
                 'title' => "{$column} 列の主要イベント件数",
                 'labels' => array_map(fn($row) => (string)($row['item'] ?? ''), $topRows),
                 'datasets' => [[
@@ -183,6 +196,7 @@ class CsvAggregationAnswerFormatter
             $fence = str_repeat("\x60", 3);
             $lines[] = "";
             $lines[] = "### グラフ";
+            $lines[] = $this->buildValueDistributionChartLeadText($chartType);
             $lines[] = $fence . "json:chart\n" . json_encode($chart, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . "\n" . $fence;
         }
 
@@ -208,6 +222,9 @@ class CsvAggregationAnswerFormatter
             $lines[] = "- 元レコード数: {$rowCount}件";
         }
         $lines[] = "- ユニーク値数: {$uniqueCount}件";
+        foreach ($this->buildArtifactStateSummaryLines($plan) as $stateLine) {
+            $lines[] = $stateLine;
+        }
         $lines[] = "";
 
         if ($summary !== '') {
@@ -259,8 +276,9 @@ class CsvAggregationAnswerFormatter
                 $data[] = $count;
             }
             if (!empty($labels)) {
+                $chartType = $this->resolveRequestedChartType($plan, count($labels) <= 5 ? 'pie' : 'bar');
                 $chart = [
-                    'type' => count($labels) <= 5 ? 'pie' : 'bar',
+                    'type' => $chartType,
                     'title' => "{$column} 列のカテゴリ別分布",
                     'labels' => $labels,
                     'datasets' => [[
@@ -270,6 +288,7 @@ class CsvAggregationAnswerFormatter
                 ];
                 $fence = str_repeat("\x60", 3);
                 $lines[] = "### グラフ";
+                $lines[] = $this->buildValueDistributionChartLeadText($chartType);
                 $lines[] = $fence . "json:chart\n" . json_encode($chart, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . "\n" . $fence;
             }
         }
@@ -294,6 +313,9 @@ class CsvAggregationAnswerFormatter
         $lines[] = "- 集計列: {$targetColumn}";
         $lines[] = "- 該当タイトル数: " . count($matchedValues) . "件";
         $lines[] = "- 該当レコード数: {$total}件";
+        foreach ($this->buildArtifactStateSummaryLines($plan) as $stateLine) {
+            $lines[] = $stateLine;
+        }
         $lines[] = "";
 
         if (!empty($matchedValues)) {
@@ -313,8 +335,9 @@ class CsvAggregationAnswerFormatter
         }
 
         if ($diagramMode && !empty($rows)) {
+            $chartType = $this->resolveRequestedChartType($plan, count($rows) <= 6 ? 'pie' : 'bar');
             $chart = [
-                'type' => count($rows) <= 6 ? 'pie' : 'bar',
+                'type' => $chartType,
                 'title' => "{$categoryLabel} に該当する {$targetColumn} 別件数",
                 'labels' => array_map(fn($row) => (string)($row['item'] ?? ''), $rows),
                 'datasets' => [[
@@ -325,6 +348,7 @@ class CsvAggregationAnswerFormatter
             $fence = str_repeat("\x60", 3);
             $lines[] = "";
             $lines[] = "### グラフ";
+            $lines[] = $this->buildValueDistributionChartLeadText($chartType);
             $lines[] = $fence . "json:chart\n" . json_encode($chart, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . "\n" . $fence;
         }
 
@@ -361,6 +385,9 @@ class CsvAggregationAnswerFormatter
         }
         if ($usesValueOrdering) {
             $lines[] = "- 並び順: " . $this->distributionSortOrderLabel((string)($plan['sort_order'] ?? 'asc'));
+        }
+        foreach ($this->buildArtifactStateSummaryLines($plan) as $stateLine) {
+            $lines[] = $stateLine;
         }
         $lines[] = "";
 
@@ -441,6 +468,9 @@ class CsvAggregationAnswerFormatter
         if (!empty($columns)) {
             $lines[] = "- 主な項目: " . implode(' / ', array_slice($columns, 0, 8));
         }
+        foreach ($this->buildArtifactStateSummaryLines($plan) as $stateLine) {
+            $lines[] = $stateLine;
+        }
 
         return implode("\n", $lines);
     }
@@ -466,6 +496,9 @@ class CsvAggregationAnswerFormatter
         if ($rowCount > 0) {
             $lines[] = "- 元レコード数: {$rowCount}件";
         }
+        foreach ($this->buildArtifactStateSummaryLines($plan) as $stateLine) {
+            $lines[] = $stateLine;
+        }
 
         return implode("\n", $lines);
     }
@@ -487,6 +520,9 @@ class CsvAggregationAnswerFormatter
         $lines[] = "- 集計対象レコード数: {$totalCount}件";
         $lines[] = "- 集計粒度: " . $this->granularityLabel($granularity);
         $lines[] = "- 並び順: " . $this->sortOrderLabel((string)($plan['sort_order'] ?? 'asc'));
+        foreach ($this->buildArtifactStateSummaryLines($plan) as $stateLine) {
+            $lines[] = $stateLine;
+        }
         $lines[] = "";
         $lines[] = "### 判定した日付列";
         foreach ($targets as $target) {
@@ -707,6 +743,48 @@ class CsvAggregationAnswerFormatter
         }
 
         return "値ごとの件数を棒グラフで可視化しました。";
+    }
+
+    private function resolveRequestedChartType(array $plan, string $fallback): string
+    {
+        $requestedChartType = (string)($plan['chart_type'] ?? '');
+        if (in_array($requestedChartType, ['bar', 'line', 'pie'], true)) {
+            return $requestedChartType;
+        }
+
+        return $fallback;
+    }
+
+    private function buildArtifactStateSummaryLines(array $plan): array
+    {
+        $lines = [];
+        if (!empty($plan['route_lock_active'])) {
+            $lines[] = "- 継続状態: 直前の成果品ステートを引き継いで再編集中";
+        }
+        if (!empty($plan['used_recent_aggregation_mode'])) {
+            $lines[] = "- 引き継ぎ集計モード: " . (string)($plan['recent_aggregation_mode'] ?? $plan['aggregation_mode'] ?? 'unknown');
+        }
+        if (!empty($plan['used_recent_output_format'])) {
+            $lines[] = "- 引き継ぎ出力形式: " . $this->outputFormatLabel((string)($plan['output_format'] ?? 'prose'));
+        } elseif (!empty($plan['output_format']) && ($plan['output_format'] ?? 'prose') !== 'prose') {
+            $lines[] = "- 出力形式: " . $this->outputFormatLabel((string)$plan['output_format']);
+        }
+        if (!empty($plan['base_sql'])) {
+            $lines[] = "- 直前SQL: あり";
+        }
+
+        return $lines;
+    }
+
+    private function outputFormatLabel(string $outputFormat): string
+    {
+        return match ($outputFormat) {
+            'chart' => 'グラフ',
+            'table' => '表',
+            'report' => '報告書',
+            'bullets' => '箇条書き',
+            default => '文章',
+        };
     }
 
     private function buildDateAggregationSummaryLines(array $plan, array $aggregatedRows): array

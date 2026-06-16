@@ -42,24 +42,24 @@ class CsvQuickResponseRunner
             return false;
         }
 
-        $this->log("[CSV-SUMMARY] 小規模CSV即答ルートを起動します。rows: " . count($rows));
-        $this->sendStatus(2, '📊 CSVの内容をデータベースレコードから直接要約しています...');
+        $this->log("[CSV-SUMMARY] 小規模CSV成果品の即答ルートを起動します。rows: " . count($rows));
+        $this->sendStatus(2, '📊 CSV成果品の内容を整理し、要約ドラフトを組み立てています...');
 
         $summaryStart = microtime(true);
         $includeChart = $diagramMode || $this->hasChartIntent($originalMessage);
         $finalResponse = $summaryFormatter->buildSmallSummaryAnswer($rows, $searchResult, $includeChart);
         ($this->setFinalResponse)($finalResponse);
-        $this->log("[CSV-SUMMARY] PHPサマリー生成完了 - responseChars: " . mb_strlen($finalResponse) . " | elapsed: " . $this->elapsed($summaryStart));
+        $this->log("[CSV-SUMMARY] CSV成果品の要約ドラフト生成完了 - responseChars: " . mb_strlen($finalResponse) . " | elapsed: " . $this->elapsed($summaryStart));
 
         $collectionSummary = $evidenceReader->buildCollectionSummary($rows, $searchResult);
-        ($this->insertReasoningStep)(1, 'CSVレコードの検索収集', $collectionSummary);
-        ($this->insertReasoningStep)(90, '小規模CSVサマリー即時生成', $finalResponse);
+        ($this->insertReasoningStep)(1, 'CSV成果品のレコード収集', $collectionSummary);
+        ($this->insertReasoningStep)(90, 'CSV成果品の要約ドラフト生成', $finalResponse);
         call_user_func($this->appendSubAnswer, $collectionSummary);
         call_user_func($this->appendSubAnswer, $finalResponse);
 
-        $this->log("[CSV-SUMMARY] 履歴保存開始 - totalElapsed: " . $this->elapsed($routeStart));
+        $this->log("[CSV-SUMMARY] CSV成果品の保存開始 - totalElapsed: " . $this->elapsed($routeStart));
         ($this->completeRoute)();
-        $this->log("[CSV-SUMMARY] 小規模CSV即答ルートが完了しました。totalElapsed: " . $this->elapsed($routeStart));
+        $this->log("[CSV-SUMMARY] 小規模CSV成果品の即答ルートが完了しました。totalElapsed: " . $this->elapsed($routeStart));
         return true;
     }
 
@@ -71,8 +71,8 @@ class CsvQuickResponseRunner
         CsvEvidenceReader $evidenceReader,
         bool $diagramMode
     ): bool {
-        $this->log("[CSV-OVERVIEW] 広域質問かつ大規模CSVのため、全件AI読解を行わず概況ルートを起動します。totalRows: {$totalRows}");
-        $this->sendStatus(2, '📊 CSV件数が多いため、メタデータと代表サンプルから概況を整理しています...');
+        $this->log("[CSV-OVERVIEW] 広域質問かつ大規模CSVのため、全件AI読解を行わずCSV成果品の概況ルートを起動します。totalRows: {$totalRows}");
+        $this->sendStatus(2, '📊 CSV成果品の件数が多いため、メタデータと代表サンプルから概況ドラフトを整理しています...');
 
         $finalResponse = $evidenceReader->buildLargeOverviewAnswer($files, $sampleRows, $totalRows, $diagramMode);
         ($this->setFinalResponse)($finalResponse);
@@ -82,11 +82,12 @@ class CsvQuickResponseRunner
             'limited' => true,
             'mode' => 'broad_overview',
         ]);
-        ($this->insertReasoningStep)(1, 'CSV広域探索', $collectionSummary);
+        ($this->insertReasoningStep)(1, 'CSV成果品の広域探索', $collectionSummary);
+        ($this->insertReasoningStep)(90, 'CSV成果品の概況ドラフト生成', $finalResponse);
         call_user_func($this->appendSubAnswer, $collectionSummary);
         call_user_func($this->appendSubAnswer, $finalResponse);
         ($this->completeRoute)();
-        $this->log("[CSV-OVERVIEW] 大規模CSV概況ルートが完了しました。totalElapsed: " . $this->elapsed($routeStart));
+        $this->log("[CSV-OVERVIEW] 大規模CSV成果品の概況ルートが完了しました。totalElapsed: " . $this->elapsed($routeStart));
         return true;
     }
 

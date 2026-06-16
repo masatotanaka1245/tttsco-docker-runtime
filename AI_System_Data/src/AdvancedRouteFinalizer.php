@@ -78,7 +78,7 @@ final class AdvancedRouteFinalizer
     {
         sendSSE('status', [
             'step' => 6,
-            'message' => '💾 最終回答の品質確認が完了しました。会話履歴・推論プロセス・評価結果を保存しています...'
+            'message' => '💾 生成した成果品を確定し、会話履歴・推論プロセス・評価結果へ保存しています...'
         ]);
         $this->log("[DEBUG] DBトランザクションを開始し、ステップ99・対話ログ・評価スコアを一元コミットします...");
 
@@ -140,7 +140,7 @@ final class AdvancedRouteFinalizer
 
             sendSSE('status', [
                 'step' => 6,
-                'message' => '📚 高評価回答のFAQ自動登録条件を確認しています...'
+                'message' => '📚 回答をナレッジ候補として評価し、FAQ登録条件を確認しています...'
             ]);
             $faqRegistrar = new FaqAutoRegistrar($this->pdo);
             $faqRegistrar->registerIfQualified(
@@ -217,7 +217,7 @@ final class AdvancedRouteFinalizer
             $this->log('[REPORT] 品質評価がrejectのため、報告書PDF生成をスキップしました。chat_history_id=' . $historyId);
             sendSSE('status', [
                 'step' => 6,
-                'message' => '⚠️ 回答が報告書として成立しない判定のため、PDF生成はスキップしました。'
+                'message' => '⚠️ 回答が報告書成果品として不足しているため、PDF出力はスキップしました。'
             ]);
             return null;
         }
@@ -225,7 +225,7 @@ final class AdvancedRouteFinalizer
         try {
             sendSSE('status', [
                 'step' => 6,
-                'message' => '📄 報告書モード: HTML/CSS報告書をPDF化し、資料PDFへ登録しています...'
+                'message' => '📄 育てた報告書成果品をPDFとして出力し、資料タブへ登録しています...'
             ]);
             $generator = new ReportGenerator(
                 $this->pdo,
@@ -245,7 +245,7 @@ final class AdvancedRouteFinalizer
             );
             sendSSE('status', [
                 'step' => 6,
-                'message' => '✅ 報告書PDFをPDFタブへ登録し、検索対象化しました。'
+                'message' => '✅ 報告書成果品をPDFタブへ登録し、検索対象へ反映しました。'
             ]);
 
             return $reportDocument;
@@ -272,7 +272,7 @@ final class AdvancedRouteFinalizer
         try {
             sendSSE('status', [
                 'step' => 6,
-                'message' => '🧾 回答内の表を生成CSVとして登録しています...'
+                'message' => '🧾 育てた表をCSV成果品として登録しています...'
             ]);
             $generator = new CsvExportGenerator(
                 $this->pdo,
@@ -288,8 +288,8 @@ final class AdvancedRouteFinalizer
             sendSSE('status', [
                 'step' => 6,
                 'message' => $csvExport !== null
-                    ? '✅ 生成CSVをCSVタブへ登録しました。'
-                    : 'ℹ️ CSV化モードは有効でしたが、保存できる表は見つかりませんでした。'
+                    ? '✅ 生成した表をCSV成果品としてCSVタブへ登録しました。'
+                    : 'ℹ️ CSV化モードは有効でしたが、成果品として保存できる表は見つかりませんでした。'
             ]);
 
             return $csvExport;

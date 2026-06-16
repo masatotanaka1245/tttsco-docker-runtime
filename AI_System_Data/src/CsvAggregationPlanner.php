@@ -89,7 +89,7 @@ class CsvAggregationPlanner
         return $this->findMentionedColumnName($question, $targetFileName) !== null;
     }
 
-    public function buildStructuredAggregationPlan(string $question, array $recentHistory = []): array
+    public function buildStructuredAggregationPlan(string $question, array $recentHistory = [], array $options = []): array
     {
         $question = $this->normalizeUtf8($question);
         $hasDateIntent = $this->hasDateIntent($question);
@@ -105,6 +105,12 @@ class CsvAggregationPlanner
             $contextSource = 'explicit_column_reference';
         }
         $recentAggregationContext = !empty($recentHistory) ? $this->findRecentAggregationContext($recentHistory) : null;
+        $recentArtifactState = is_array($options['recent_artifact_state'] ?? null)
+            ? (array)$options['recent_artifact_state']
+            : null;
+        $recentAggregationContext = $this->mergeRecentAggregationContext($recentAggregationContext, $recentArtifactState);
+        $routeDetail = trim((string)($options['route_detail'] ?? ''));
+        $routeLockActive = $routeDetail === 'data_analysis.csv_agg.route_lock';
         if (($targetFileName === null || $targetColumn === null) && $explicitColumnReference === null) {
             $columnTarget = $this->findMentionedColumnTarget($question);
             if ($columnTarget !== null) {
@@ -127,6 +133,7 @@ class CsvAggregationPlanner
         }
         $targetValue = $this->extractRequestedTargetValue($question, [$targetColumn, $explicitColumnReference]);
         $canUseRecentHistoryContext = $this->isRecentContextCarryOverIntent($question)
+            || $routeLockActive
             || (
                 $targetValue !== null
                 && $targetFileName === null
@@ -183,25 +190,60 @@ class CsvAggregationPlanner
             $hasExplicitSortIntent
             || ($isAggregationFollowUp && !empty($recentAggregationContext['uses_value_ordering']))
         );
-        $wantsChart = preg_match('/(グラフ|グラフ化|チャート|可視化)/u', $question) === 1;
+        $explicitChartIntent = preg_match('/(グラフ|グラフ化|チャート|可視化|棒グラフ|折れ線|円グラフ)/u', $question) === 1;
+        $explicitTableIntent = preg_match('/(表にして|表で|表形式|一覧にして|一覧で|テーブルで|グラフではなく表)/u', $question) === 1;
+        $explicitOutputIntent = $explicitChartIntent || $explicitTableIntent;
+        $wantsChart = $explicitChartIntent;
         if (
-            !$wantsChart
-            && $isAggregationFollowUp
+            !$explicitOutputIntent
+            && ($isAggregationFollowUp || $routeLockActive)
             && !empty($recentAggregationContext['wants_chart'])
         ) {
             $wantsChart = true;
         }
         $chartType = $this->detectRequestedChartType($question);
-        if ($chartType === null && $isAggregationFollowUp && !empty($recentAggregationContext['chart_type'])) {
+        if (
+            !$explicitTableIntent
+            && $chartType === null
+            && ($isAggregationFollowUp || $routeLockActive)
+            && !empty($recentAggregationContext['chart_type'])
+        ) {
             $chartType = (string)$recentAggregationContext['chart_type'];
         }
-        $wantsTable = preg_match('/(表|一覧)/u', $question) === 1;
+        if ($explicitTableIntent) {
+            $chartType = null;
+        }
+        $wantsTable = $explicitTableIntent;
         if (
-            !$wantsTable
-            && $isAggregationFollowUp
+            !$explicitOutputIntent
+            && ($isAggregationFollowUp || $routeLockActive)
             && !empty($recentAggregationContext['wants_table'])
         ) {
             $wantsTable = true;
+        }
+        $outputFormat = 'prose';
+        if ($wantsChart) {
+            $outputFormat = 'chart';
+        } elseif ($wantsTable) {
+            $outputFormat = 'table';
+        }
+        $usedRecentOutputFormat = false;
+        if (
+            !$explicitOutputIntent
+            && $outputFormat === 'prose'
+            && ($isAggregationFollowUp || $routeLockActive)
+            && !empty($recentAggregationContext['output_format'])
+        ) {
+            $outputFormat = (string)$recentAggregationContext['output_format'];
+            $usedRecentOutputFormat = true;
+            if ($outputFormat === 'chart') {
+                $wantsChart = true;
+                $wantsTable = false;
+            } elseif ($outputFormat === 'table') {
+                $wantsTable = true;
+                $wantsChart = false;
+                $chartType = null;
+            }
         }
 
         if ($targetColumn !== null && $hasColumnExistsIntent) {
@@ -275,8 +317,14 @@ class CsvAggregationPlanner
             'wants_chart' => $wantsChart,
             'chart_type' => $chartType,
             'wants_table' => $wantsTable,
+            'output_format' => $outputFormat,
+            'used_recent_output_format' => $usedRecentOutputFormat,
             'wants_all_values' => preg_match('/(全ての値|すべての値|各値|値ごとの件数|各レコード数|それぞれの件数|全件|全部|すべて表示|続きを表示|すべてのランキング|ランキングを表示)/u', $question) === 1,
             'wants_detail' => preg_match('/(どのような情報|内容|項目|レコードを特定)/u', $question) === 1,
+            'base_sql' => $recentAggregationContext['base_sql'] ?? null,
+            'route_lock_active' => $routeLockActive,
+            'route_detail' => $routeDetail,
+            'last_success_route' => $recentAggregationContext['last_success_route'] ?? null,
         ];
     }
 
@@ -292,7 +340,7 @@ class CsvAggregationPlanner
 
     private function isAggregationFollowUpIntent(string $question): bool
     {
-        return preg_match('/(若い順|古い順|昇順|降順|グラフ|グラフ化|チャート|棒グラフ|折れ線|円グラフ|並び替え|並べ替え|ソート|時間帯ごと|時間ごと|時刻帯|すべて表示|全件|全部|続きを表示|すべてのランキング|ランキングを表示)/iu', $question) === 1;
+        return preg_match('/(若い順|古い順|昇順|降順|グラフ|グラフ化|チャート|棒グラフ|折れ線|円グラフ|表にして|表で|一覧にして|一覧で|テーブルで|表ではなくグラフ|グラフではなく表|並び替え|並べ替え|ソート|時間帯ごと|時間ごと|時刻帯|すべて表示|全件|全部|続きを表示|すべてのランキング|ランキングを表示)/iu', $question) === 1;
     }
 
     private function findMentionedColumnName(string $question, string $targetFileName): ?string
@@ -483,9 +531,18 @@ class CsvAggregationPlanner
                 $aggregationMode = 'semantic_category_summary';
             }
 
+            $outputFormat = 'prose';
+            if ($wantsChart) {
+                $outputFormat = 'chart';
+            } elseif ($wantsTable) {
+                $outputFormat = 'table';
+            }
+
             return [
+                'last_success_route' => 'data_analysis.csv_agg',
                 'target_file_name' => $mentionedCsv,
                 'target_column' => $targetColumn,
+                'target_value' => $targetValue,
                 'aggregation_mode' => $aggregationMode,
                 'date_granularity' => $aggregationMode === 'date_histogram' ? $dateGranularity : 'none',
                 'sort_order' => $sortOrder,
@@ -493,6 +550,8 @@ class CsvAggregationPlanner
                 'wants_chart' => $wantsChart,
                 'chart_type' => $chartType,
                 'wants_table' => $wantsTable,
+                'output_format' => $outputFormat,
+                'base_sql' => $this->extractLatestSqlBlock($historyMessage),
             ];
         }
 
@@ -688,6 +747,44 @@ class CsvAggregationPlanner
         }
 
         return null;
+    }
+
+    private function extractLatestSqlBlock(string $message): ?string
+    {
+        if (preg_match_all('/```sql\s*(.*?)```/isu', $message, $matches) !== 1) {
+            return null;
+        }
+
+        $sqlBlocks = array_values(array_filter(array_map(static function ($value): string {
+            return trim((string)$value);
+        }, $matches[1])));
+
+        if (empty($sqlBlocks)) {
+            return null;
+        }
+
+        return array_pop($sqlBlocks);
+    }
+
+    private function mergeRecentAggregationContext(?array $recentAggregationContext, ?array $recentArtifactState): ?array
+    {
+        if ($recentArtifactState === null || $recentArtifactState === []) {
+            return $recentAggregationContext;
+        }
+
+        if ($recentAggregationContext === null || $recentAggregationContext === []) {
+            return $recentArtifactState;
+        }
+
+        $merged = $recentAggregationContext;
+        foreach ($recentArtifactState as $key => $value) {
+            if ($value === null || $value === '') {
+                continue;
+            }
+            $merged[$key] = $value;
+        }
+
+        return $merged;
     }
 
     private function loadMetadata(): array

@@ -26,9 +26,11 @@
   - CSV 集計 follow-up で、CSV 名 / 列名だけでなく `aggregation_mode`、`sort_order`、`wants_chart`、`output_format`、`base_sql` を含む成果品ステートを復元する
   - `若い順で`、`グラフ化して` のような短い追い指示では、`ChatRouteSelector` が直前の `data_analysis.csv_agg` を route lock で継続する
   - `これまでの会話を報告書にして`、および `report_mode=on` 付きの履歴要約では、`history_summary` より報告書化向けの重い route を優先する
+  - `chat_analysis.php` 側でも、`route_detail=data_analysis.csv_agg.route_lock` を受け取り、planner / formatter / semantic runner へ `output_format`、`chart_type`、`base_sql` を明示的に受け渡す
+  - `chat_history_summary.php` と `AdvancedRouteFinalizer` の SSE / reasoning 文言も、「軽量要約」や単なる保存ではなく、「会話履歴成果品の整理」「報告書 / CSV 成果品の出荷」という見せ方へ寄せ始めている
+  - `CsvQuickResponseRunner` / `CsvMetadataResponseRunner` の軽量CSVルートも、「CSV成果品の要約ドラフト」「CSV成果品の項目整理」「CSV成果品の範囲整理」という見せ方へ寄せ始めている
 - 現在の主な残課題は以下です。
-  - 復元した成果品ステートを `chat_analysis.php` 側の runner / planner / prompt へより明示的に受け渡すこと
-  - CSV follow-up の route lock 後に、出力形式の継続を各 runner 側でもさらに決定論的に扱うこと
+  - CSV follow-up の route lock 後に、すべての runner で `output_format` と `chart_type` の継続をさらに完全に揃えること
   - broad な factorize 結果と route lock の観測ログを、運用上さらに読みやすく揃えること
 
 ### 2026-06-04
@@ -147,7 +149,7 @@
 
 現行仕様では、会話履歴は「長く抱え込む主コンテキスト」ではなく、成果品を補助する短い流れ情報として扱います。
 
-`chat.php` は `chat_history` から現在スレッドの直近2〜3件相当を主コンテキストとして扱い、必要に応じて `history_summary_text` として下流へ渡します。
+`chat.php` は `chat_history` から現在スレッドの直近2〜3件相当を主コンテキストとして扱い、必要に応じて `history_summary_text` として下流へ渡します。2026-06-16 時点の実装では、入口と `chat_analysis.php` の両方で `recent_history` の取得件数を `3` にそろえています。
 
 使い道は2系統あります。
 
@@ -336,7 +338,7 @@
 | --- | --- | --- | --- | --- | --- |
 | CSV 概要把握 | `登録済みのCSVデータを集計して概要を教えてください。` | `data_analysis.csv_summary` | 案件内 CSV 一覧 | `diagram_mode=on` でも軽量 route は維持し、必要なら deterministic な `json:chart` を足す | 大きなズレは少ない |
 | CSV 集計 | `YearMonth カラムの分布を集計してグラフ化してください。` | `data_analysis.csv_agg` | `target_file_name`, `target_column`, `aggregation_mode=value_distribution` | `diagram_mode=on` は route を変えず、出力へ chart を加える | 概ね安定している |
-| CSV follow-up | `若い順でグラフ化してください。` | 直前の `data_analysis.csv_agg` を route lock で継続 | 現在スレッド内の CSV 名、列名、直前の `aggregation_mode`, `sort_order`, `wants_chart`, `chart_type`, `output_format`, `base_sql` | `diagram_mode` が未指定でも、直前がグラフ化なら chart を継続候補として扱う | route lock は実装済み。runner 側の出力継続の詰めは残課題 |
+| CSV follow-up | `若い順でグラフ化してください。` | 直前の `data_analysis.csv_agg` を route lock で継続 | 現在スレッド内の CSV 名、列名、直前の `aggregation_mode`, `sort_order`, `wants_chart`, `chart_type`, `output_format`, `base_sql` | `diagram_mode` が未指定でも、直前がグラフ化なら chart を継続候補として扱う | route lock と planner / formatter / semantic runner への受け渡しは実装済み。残りは実チャット確認と一部 runner の揃え込み |
 | 履歴要約 | `これまでの会話内容を簡潔にまとめてください。` | `history_summary` | 現在スレッド内の `chat_history` の直近流れ | `report_mode=off` なら軽量最優先 | 概ね安定している |
 | 履歴の報告書化 | `これまでの会話内容を簡潔にまとめて報告書を作成してください。` または `report_mode=on` 付きの履歴要約 | `advanced_hybrid` もしくは報告書専用フロー | 現在スレッド内の `chat_history`, 報告書モード, 章立て意図, 出荷先PDF意図 | `report_mode=on` または文面の成果品 intent は `history_summary` より優先する | selector / factorizer の優先は実装済み |
 | PDF 留意点抽出 | `この案件に関連する資料PDFから主要な留意点を抽出してください。` | `advanced_hybrid.doc_extract` | project documents, `doc_chunks`, 軽量根拠整形 | `report_mode=off` なら lightweight doc final を許可 | route は安定、候補ノイズは残課題 |
@@ -400,7 +402,7 @@
 - `csvのデータを月別で集計してください。` のように CSV 名や列名が省略された自然文は、まだ `advanced_hybrid` に落ちることがある
 - `Datetime` / `年月` を月単位で見たい質問でも、`value_distribution` に誤って倒れることがある
 - `2026年4月を抽出して件数` のような質問に、特定値件数ではなく上位分布一覧を返すことがある
-- 集計系の follow-up は、route lock と成果品ステート復元までは実装済みだが、runner 側の出力継続はまだ改善余地がある
+- 集計系の follow-up は、route lock と成果品ステート復元に加え、planner / formatter / semantic runner までの出力継続は実装済みだが、全 runner の完全な揃え込みと実チャット確認はまだ改善余地がある
 
 現在の分割状況:
 

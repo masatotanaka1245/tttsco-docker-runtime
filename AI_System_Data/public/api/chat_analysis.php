@@ -34,6 +34,7 @@ require_once __DIR__ . '/../../src/ProjectContextMemory.php';
 require_once __DIR__ . '/../../src/ProjectMemoryAutoUpdater.php';
 require_once __DIR__ . '/../../src/ChatModelRolePayload.php';
 require_once __DIR__ . '/../../src/ChatThreadManager.php';
+require_once __DIR__ . '/../../src/ChatHistoryContextResolver.php';
 require_once __DIR__ . '/../../src/ReportAnswerPolisher.php';
 require_once __DIR__ . '/../../src/CsvExportGenerator.php';
 require_once __DIR__ . '/../../src/RouteRuntimeCallbackFactory.php';
@@ -55,9 +56,9 @@ if (!function_exists('chatLogger')) {
  * 外部からのエントリーポイント（インターフェース引数100%完全同期維持版・Freeze Protocol）
  * ✨【関数名シンクロ統合】：名前を chat.php 側の呼び出し名 「runAdvancedReasoningRoute」 へ完全同期！
  */
-function runAdvancedReasoningRoute($pdo, $ollama_host, $projectId, $originalMessage, $mainModel, $subModel, $sqlModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false, bool $csvMode = false) {
+function runAdvancedReasoningRoute($pdo, $ollama_host, $projectId, $originalMessage, $mainModel, $subModel, $sqlModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false, bool $csvMode = false, string $routeDetail = '') {
     $processor = new AdvancedReasoningRouteProcessor(
-        $pdo, $ollama_host, $projectId, $originalMessage, $mainModel, $subModel, $sqlModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, $threadId, $reportMode, $diagramMode, $csvMode
+        $pdo, $ollama_host, $projectId, $originalMessage, $mainModel, $subModel, $sqlModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, $threadId, $reportMode, $diagramMode, $csvMode, $routeDetail
     );
     $processor->execute();
 }
@@ -78,6 +79,7 @@ class AdvancedReasoningRouteProcessor {
     private $promptKey;
     private $projectContext;
     private $historySummaryText;
+    private $routeDetail = '';
     private $user_id;
     private $role;
     private $threadId;
@@ -132,7 +134,7 @@ class AdvancedReasoningRouteProcessor {
     /**
      * コンストラクタ (完全DI化)
      */
-    public function __construct($pdo, $ollama_host, $projectId, $originalMessage, $mainModel, $subModel, $sqlModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false, bool $csvMode = false) {
+    public function __construct($pdo, $ollama_host, $projectId, $originalMessage, $mainModel, $subModel, $sqlModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false, bool $csvMode = false, string $routeDetail = '') {
         $this->pdo                = $pdo;
         $this->ollama_host        = $ollama_host;
         $this->projectId          = $projectId;
@@ -150,6 +152,7 @@ class AdvancedReasoningRouteProcessor {
         $this->reportMode         = $reportMode;
         $this->diagramMode        = $diagramMode;
         $this->csvMode            = $csvMode;
+        $this->routeDetail        = $routeDetail;
         $this->reasoningId        = 'sql-' . uniqid('reason_') . '-' . mt_rand(1000, 9999);
     }
 
@@ -440,8 +443,19 @@ class AdvancedReasoningRouteProcessor {
         }
 
         $routeStart = microtime(true);
-        $plan = $csvAggregationPlanner->buildStructuredAggregationPlan($this->originalMessage, $recentHistory);
-        $effectiveDiagramMode = $this->diagramMode || !empty($plan['wants_chart']);
+        $recentArtifactState = $this->loadRecentArtifactState($recentHistory);
+        $plan = $csvAggregationPlanner->buildStructuredAggregationPlan($this->originalMessage, $recentHistory, [
+            'recent_artifact_state' => $recentArtifactState,
+            'route_detail' => $this->routeDetail,
+        ]);
+        $outputFormat = (string)($plan['output_format'] ?? 'prose');
+        if ($outputFormat === 'table') {
+            $effectiveDiagramMode = false;
+        } elseif ($outputFormat === 'chart') {
+            $effectiveDiagramMode = true;
+        } else {
+            $effectiveDiagramMode = $this->diagramMode || !empty($plan['wants_chart']);
+        }
         $csvAggregationAnswerFormatter = $this->getCsvAggregationAnswerFormatter();
         $targetResolver = $this->getCsvAggregationTargetResolver();
         chatLogger(
@@ -457,6 +471,11 @@ class AdvancedReasoningRouteProcessor {
             . " | recent_mode: " . ($plan['recent_aggregation_mode'] ?? 'none')
             . " | wants_chart: " . (!empty($plan['wants_chart']) ? 'yes' : 'no')
             . " | chart_type: " . ($plan['chart_type'] ?? 'auto')
+            . " | wants_table: " . (!empty($plan['wants_table']) ? 'yes' : 'no')
+            . " | output_format: " . ($plan['output_format'] ?? 'prose')
+            . " | inherited_output: " . (!empty($plan['used_recent_output_format']) ? 'yes' : 'no')
+            . " | route_lock: " . (!empty($plan['route_lock_active']) ? 'yes' : 'no')
+            . " | base_sql: " . (!empty($plan['base_sql']) ? 'yes' : 'no')
             . " | effective_diagram_mode: " . ($effectiveDiagramMode ? 'on' : 'off')
             . " | target_file: " . ($plan['target_file_name'] ?? 'all')
             . " | target_column: " . ($plan['target_column'] ?? 'none')
@@ -552,12 +571,28 @@ class AdvancedReasoningRouteProcessor {
         );
     }
 
+    private function loadRecentArtifactState(array $recentHistory): ?array
+    {
+        if ($this->projectId <= 0 || empty($recentHistory)) {
+            return null;
+        }
+
+        try {
+            $resolver = new ChatHistoryContextResolver($this->pdo, (int)$this->projectId);
+            return $resolver->findRecentArtifactState($recentHistory);
+        } catch (Throwable $e) {
+            chatLogger('[CSV-AGG] 成果品ステートの読み込みに失敗しました: ' . $e->getMessage());
+            return null;
+        }
+    }
+
     private function loadRecentChatHistory(): array {
         if ($this->projectId <= 0 || $this->user_id <= 0) {
             return [];
         }
 
         try {
+            $recentHistoryLimit = 3;
             if ($this->threadId !== null) {
                 $stmt = $this->pdo->prepare(
                     "SELECT role, message
@@ -566,7 +601,7 @@ class AdvancedReasoningRouteProcessor {
                         AND thread_id = ?
                         AND user_id = ?
                    ORDER BY created_at DESC
-                      LIMIT 8"
+                      LIMIT {$recentHistoryLimit}"
                 );
                 $stmt->execute([$this->projectId, $this->threadId, $this->user_id]);
             } else {
@@ -576,7 +611,7 @@ class AdvancedReasoningRouteProcessor {
                       WHERE project_id = ?
                         AND user_id = ?
                    ORDER BY created_at DESC
-                      LIMIT 8"
+                      LIMIT {$recentHistoryLimit}"
                 );
                 $stmt->execute([$this->projectId, $this->user_id]);
             }

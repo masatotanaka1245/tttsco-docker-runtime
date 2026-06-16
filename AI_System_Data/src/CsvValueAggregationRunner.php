@@ -57,15 +57,16 @@ class CsvValueAggregationRunner
         }
         $target = $targets[0];
 
-        $this->sendStatus(2, '🧭 集計対象のCSVと列を特定しています...');
+        $this->sendStatus(2, $this->statusMessage($plan, '🧭 集計対象のCSVと列を特定しています...'));
         ($this->insertReasoningStep)(
             1,
-            'CSV distinct count プリフライト',
-            "【集計計画】\n" . json_encode($plan, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
+            $this->reasoningStepTitle($plan, 'CSV distinct count プリフライト', 'CSV distinct count の再編集プリフライト'),
+            $this->reasoningStepLead($plan)
+            . "【集計計画】\n" . json_encode($plan, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
             . "\n\n【対象CSV】\n" . json_encode($target, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
         );
 
-        $this->sendStatus(3, '📊 対象列の重複除外件数を集計しています...');
+        $this->sendStatus(3, $this->statusMessage($plan, '📊 対象列の重複除外件数を集計しています...'));
         $result = $targetResolver->executeDistinctCountQuery($target, $targetColumn);
         $distinctCount = (int)($result['distinct_count'] ?? 0);
 
@@ -74,8 +75,9 @@ class CsvValueAggregationRunner
         ($this->appendSubAnswer)($finalResponse);
         ($this->insertReasoningStep)(
             90,
-            'CSV distinct count SQL の実行結果',
-            "### {$target['file_name']} / {$targetColumn}\n```sql\n{$result['sql']}\n```\n- distinct_count: {$distinctCount}"
+            $this->reasoningStepTitle($plan, 'CSV distinct count SQL の実行結果', 'CSV distinct count の再編集結果'),
+            $this->reasoningStepLead($plan)
+            . "### {$target['file_name']} / {$targetColumn}\n```sql\n{$result['sql']}\n```\n- distinct_count: {$distinctCount}"
         );
         $this->log("[CSV-AGG] distinct_count ルート完了 - count: {$distinctCount} | elapsed: " . $this->elapsed($routeStart));
         ($this->completeRoute)();
@@ -108,15 +110,16 @@ class CsvValueAggregationRunner
             return false;
         }
 
-        $this->sendStatus(2, '🧭 集計対象のCSVと列を特定しています...');
+        $this->sendStatus(2, $this->statusMessage($plan, '🧭 集計対象のCSVと列を特定しています...'));
         ($this->insertReasoningStep)(
             1,
-            'CSV value distribution プリフライト',
-            "【集計計画】\n" . json_encode($plan, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
+            $this->reasoningStepTitle($plan, 'CSV value distribution プリフライト', 'CSV value distribution の再編集プリフライト'),
+            $this->reasoningStepLead($plan)
+            . "【集計計画】\n" . json_encode($plan, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
             . "\n\n【対象CSV】\n" . json_encode($targets, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
         );
 
-        $this->sendStatus(3, '📊 対象列の値分布を集計しています...');
+        $this->sendStatus(3, $this->statusMessage($plan, '📊 対象列の値分布を集計しています...'));
         $itemSortOrder = !empty($plan['uses_value_ordering'])
             ? (string)($plan['sort_order'] ?? 'asc')
             : null;
@@ -172,8 +175,8 @@ class CsvValueAggregationRunner
         ($this->appendSubAnswer)($finalResponse);
         ($this->insertReasoningStep)(
             90,
-            'CSV value distribution SQL の実行結果',
-            implode("\n\n", $sqlLogs)
+            $this->reasoningStepTitle($plan, 'CSV value distribution SQL の実行結果', 'CSV value distribution の再編集結果'),
+            $this->reasoningStepLead($plan) . implode("\n\n", $sqlLogs)
         );
         $this->log("[CSV-AGG] value_distribution ルート完了 - targets: " . count($targets) . " | groups: " . count($rows) . " | elapsed: " . $this->elapsed($routeStart));
         ($this->completeRoute)();
@@ -194,11 +197,12 @@ class CsvValueAggregationRunner
         }
 
         $targets = $targetResolver->findColumnTargets($targetFileName !== '' ? $targetFileName : null, $targetColumn);
-        $this->sendStatus(2, '🧭 指定された列が存在するかを確認しています...');
+        $this->sendStatus(2, $this->statusMessage($plan, '🧭 指定された列が存在するかを確認しています...'));
         ($this->insertReasoningStep)(
             1,
-            'CSV column exists プリフライト',
-            "【集計計画】\n" . json_encode($plan, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
+            $this->reasoningStepTitle($plan, 'CSV column exists プリフライト', 'CSV column exists の再編集プリフライト'),
+            $this->reasoningStepLead($plan)
+            . "【集計計画】\n" . json_encode($plan, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
             . "\n\n【対象CSV】\n" . json_encode($targets, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
         );
 
@@ -212,10 +216,12 @@ class CsvValueAggregationRunner
         ($this->appendSubAnswer)($finalResponse);
         ($this->insertReasoningStep)(
             90,
-            'CSV column exists の確認結果',
+            $this->reasoningStepTitle($plan, 'CSV column exists の確認結果', 'CSV column exists の再編集結果'),
+            $this->reasoningStepLead($plan) . (
             empty($targets)
                 ? "- result: missing\n- target_column: {$targetColumn}"
                 : "- result: exists\n- target_column: {$targetColumn}\n- files: " . implode(', ', array_map(fn(array $target): string => (string)$target['file_name'], $targets))
+            )
         );
         $this->log("[CSV-AGG] column_exists ルート完了 - matches: " . count($targets) . " | elapsed: " . $this->elapsed($routeStart));
         ($this->completeRoute)();
@@ -248,15 +254,16 @@ class CsvValueAggregationRunner
             return false;
         }
 
-        $this->sendStatus(2, '🧭 集計対象のCSV・列・抽出値を特定しています...');
+        $this->sendStatus(2, $this->statusMessage($plan, '🧭 集計対象のCSV・列・抽出値を特定しています...'));
         ($this->insertReasoningStep)(
             1,
-            'CSV exact value count プリフライト',
-            "【集計計画】\n" . json_encode($plan, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
+            $this->reasoningStepTitle($plan, 'CSV exact value count プリフライト', 'CSV exact value count の再編集プリフライト'),
+            $this->reasoningStepLead($plan)
+            . "【集計計画】\n" . json_encode($plan, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
             . "\n\n【対象CSV】\n" . json_encode($targets, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
         );
 
-        $this->sendStatus(3, '📊 指定値に一致する件数を集計しています...');
+        $this->sendStatus(3, $this->statusMessage($plan, '📊 指定値に一致する件数を集計しています...'));
         $matchedCount = 0;
         $sqlLogs = [];
         $totalRowCount = 0;
@@ -280,8 +287,8 @@ class CsvValueAggregationRunner
         ($this->appendSubAnswer)($finalResponse);
         ($this->insertReasoningStep)(
             90,
-            'CSV exact value count SQL の実行結果',
-            implode("\n\n", $sqlLogs)
+            $this->reasoningStepTitle($plan, 'CSV exact value count SQL の実行結果', 'CSV exact value count の再編集結果'),
+            $this->reasoningStepLead($plan) . implode("\n\n", $sqlLogs)
         );
         $this->log("[CSV-AGG] exact_value_count ルート完了 - targets: " . count($targets) . " | count: {$matchedCount} | elapsed: " . $this->elapsed($routeStart));
         ($this->completeRoute)();
@@ -316,5 +323,42 @@ class CsvValueAggregationRunner
         }
 
         return !empty($plan['target_value']);
+    }
+
+    private function statusMessage(array $plan, string $defaultMessage): string
+    {
+        if (empty($plan['route_lock_active'])) {
+            return $defaultMessage;
+        }
+
+        $outputFormat = (string)($plan['output_format'] ?? 'prose');
+        $modeLabel = match ($outputFormat) {
+            'chart' => 'グラフ出力',
+            'table' => '表形式出力',
+            default => '集計結果',
+        };
+
+        return "🔁 直前の成果品ステートを引き継ぎ、{$modeLabel}を再編集しています...";
+    }
+
+    private function reasoningStepTitle(array $plan, string $defaultTitle, string $followUpTitle): string
+    {
+        return !empty($plan['route_lock_active']) ? $followUpTitle : $defaultTitle;
+    }
+
+    private function reasoningStepLead(array $plan): string
+    {
+        if (empty($plan['route_lock_active'])) {
+            return '';
+        }
+
+        $outputFormat = (string)($plan['output_format'] ?? 'prose');
+        $modeLabel = match ($outputFormat) {
+            'chart' => 'グラフ中心',
+            'table' => '表中心',
+            default => '文章中心',
+        };
+
+        return "【編集モード】\n直前の成果品ステートを引き継ぎ、{$modeLabel}の再編集として処理します。\n\n";
     }
 }

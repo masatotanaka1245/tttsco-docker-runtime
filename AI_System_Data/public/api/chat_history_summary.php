@@ -50,10 +50,10 @@ class HistorySummaryRouteProcessor {
 
     public function execute(): void {
         $startedAt = microtime(true);
-        chatLogger(">>> [会話履歴要約ルート] 軽量履歴サマリーを起動します。session_id: {$this->sessionId}");
+        chatLogger(">>> [会話履歴要約ルート] 会話履歴成果品の整理ルートを起動します。session_id: {$this->sessionId}");
         sendSSE('status', [
             'step' => 1,
-            'message' => '📝 会話履歴を取得し、軽量サマリーを作成しています...'
+            'message' => '📝 会話履歴成果品を整理し、要約ドラフトを組み立てています...'
         ]);
 
         $history = $this->loadHistory();
@@ -61,17 +61,17 @@ class HistorySummaryRouteProcessor {
 
         $this->guardContext = $this->buildCollectionSummary($history);
         $this->finalResponse = $this->buildSummary($history);
-        $this->insertReasoningStep(1, '会話履歴の取得', $this->guardContext);
-        $this->insertReasoningStep(90, '会話履歴の軽量要約', $this->finalResponse);
+        $this->insertReasoningStep(1, '会話履歴成果品の収集', $this->guardContext);
+        $this->insertReasoningStep(90, '会話履歴成果品の要約ドラフト', $this->finalResponse);
         $this->runLightweightFinalAnswerGuard();
-        $this->insertReasoningStep(99, '最終回答の確定', '完了');
+        $this->insertReasoningStep(99, '会話履歴成果品の確定', '完了');
 
         $historyId = $this->saveHistory();
         $this->bindReasoningSteps($historyId);
         $this->loadReasoningSteps();
 
         $this->sendFinalResult();
-        chatLogger("[HISTORY-SUMMARY] 軽量履歴サマリー完了 - responseChars: " . mb_strlen($this->finalResponse) . " | totalElapsed: " . $this->elapsedSeconds($startedAt));
+        chatLogger("[HISTORY-SUMMARY] 会話履歴成果品の整理完了 - responseChars: " . mb_strlen($this->finalResponse) . " | totalElapsed: " . $this->elapsedSeconds($startedAt));
     }
 
     private function loadHistory(): array {
@@ -120,7 +120,7 @@ class HistorySummaryRouteProcessor {
         $lastAt = $history[count($history) - 1]['created_at'] ?? null;
 
         $lines = [];
-        $lines[] = "これまでの会話内容を簡潔にまとめます。";
+        $lines[] = "これまでの会話履歴から、現在育っている成果品の流れを整理します。";
         $lines[] = "";
         $lines[] = "- 対象履歴: 直近 " . count($history) . "件";
         $lines[] = "- ユーザー発言: " . count($userMessages) . "件";
@@ -149,8 +149,8 @@ class HistorySummaryRouteProcessor {
         }
 
         $lines[] = "### 現在の流れ";
-        $lines[] = "CSVデータ、チャット回答ロジック、デバッグログ、グラフ・Mermaid表示、仕様書更新などを順番に確認しながら、support.php のAIチャット機能を実運用に近い形へ調整しています。";
-        $lines[] = "次に見るべきポイントは、重い処理を専用の軽量ルートへ逃がすこと、ログから遅延箇所を特定できるようにすること、回答と図表がブラウザ上で安定して再表示されることです。";
+        $lines[] = "CSVデータ、チャット回答ロジック、デバッグログ、グラフ・Mermaid表示、仕様書更新などを順番に確認しながら、support.php のAIチャット機能を成果品生成システムとして実運用に近い形へ調整しています。";
+        $lines[] = "次に見るべきポイントは、会話履歴より成果品ステートを主役にした継続制御を強めること、ログから遅延箇所を特定できるようにすること、回答と図表がブラウザ上で安定して再表示されることです。";
 
         return implode("\n", $lines);
     }
@@ -214,7 +214,7 @@ class HistorySummaryRouteProcessor {
     }
 
     private function saveHistory(): ?int {
-        chatLogger("[HISTORY-SUMMARY] chat_history 保存開始");
+        chatLogger("[HISTORY-SUMMARY] 会話履歴成果品の保存を開始");
         try {
             $this->pdo->beginTransaction();
 
@@ -264,7 +264,7 @@ class HistorySummaryRouteProcessor {
             );
 
             $this->pdo->commit();
-            chatLogger("[HISTORY-SUMMARY] chat_history 保存成功。ID: {$historyId}");
+            chatLogger("[HISTORY-SUMMARY] 会話履歴成果品の保存成功。ID: {$historyId}");
             if ($this->projectId !== null) {
                 ProjectMemoryAutoUpdater::refresh(
                     $this->pdo,
@@ -279,7 +279,7 @@ class HistorySummaryRouteProcessor {
             if ($this->pdo->inTransaction()) {
                 $this->pdo->rollBack();
             }
-            chatLogger("[HISTORY-SUMMARY] chat_history 保存失敗: " . $e->getMessage());
+            chatLogger("[HISTORY-SUMMARY] 会話履歴成果品の保存失敗: " . $e->getMessage());
             return null;
         }
     }
@@ -361,7 +361,7 @@ class HistorySummaryRouteProcessor {
 
         sendSSE('status', [
             'step' => 1,
-            'message' => '⚖️ 履歴サマリーの最終回答を確認しています...'
+            'message' => '⚖️ 会話履歴成果品の最終出力を確認しています...'
         ]);
 
         $guardResult = $guard->review(

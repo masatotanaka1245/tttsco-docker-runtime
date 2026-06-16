@@ -35,7 +35,7 @@ class CsvDateAggregationRunner
         CsvAggregationAnswerFormatter $formatter,
         bool $diagramMode
     ): bool {
-        $this->sendStatus(2, '🧭 集計意図を判定し、CSVサンプルから日付列候補を探索しています...');
+        $this->sendStatus(2, $this->statusMessage($plan, '🧭 集計意図を判定し、CSVサンプルから日付列候補を探索しています...'));
 
         $targets = $targetResolver->detectDateTargets($plan);
         $this->log("[CSV-AGG] サンプル判定完了 - target_files: " . count($targets));
@@ -55,12 +55,13 @@ class CsvDateAggregationRunner
         }
         ($this->insertReasoningStep)(
             1,
-            'CSV集計プリフライト',
-            "【集計計画】\n" . json_encode($plan, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
+            $this->reasoningStepTitle($plan, 'CSV集計プリフライト', 'CSV集計の再編集プリフライト'),
+            $this->reasoningStepLead($plan)
+            . "【集計計画】\n" . json_encode($plan, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
             . "\n\n【日付列候補】\n" . json_encode($targetSummary, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
         );
 
-        $this->sendStatus(3, '📊 日付候補列ごとにSQL集計を実行しています...');
+        $this->sendStatus(3, $this->statusMessage($plan, '📊 日付候補列ごとにSQL集計を実行しています...'));
 
         $aggregatedRows = [];
         $executedSqls = [];
@@ -102,7 +103,11 @@ class CsvDateAggregationRunner
                 . "- raw groups: {$sqlInfo['raw_group_count']}\n"
                 . "```sql\n{$sqlInfo['sql']}\n```";
         }
-        ($this->insertReasoningStep)(90, 'CSV日付集計SQLの実行結果', implode("\n\n", $sqlLogLines));
+        ($this->insertReasoningStep)(
+            90,
+            $this->reasoningStepTitle($plan, 'CSV日付集計SQLの実行結果', 'CSV日付集計の再編集結果'),
+            $this->reasoningStepLead($plan) . implode("\n\n", $sqlLogLines)
+        );
         $this->log("[CSV-AGG] 構造化集計ルート完了 - rows: " . count($aggregatedRows) . " | sqls: " . count($executedSqls) . " | elapsed: " . $this->elapsed($routeStart));
         ($this->completeRoute)();
         return true;
@@ -126,5 +131,42 @@ class CsvDateAggregationRunner
         if ($this->logger !== null) {
             call_user_func($this->logger, $message);
         }
+    }
+
+    private function statusMessage(array $plan, string $defaultMessage): string
+    {
+        if (empty($plan['route_lock_active'])) {
+            return $defaultMessage;
+        }
+
+        $outputFormat = (string)($plan['output_format'] ?? 'prose');
+        $modeLabel = match ($outputFormat) {
+            'chart' => 'グラフ出力',
+            'table' => '表形式出力',
+            default => '集計結果',
+        };
+
+        return "🔁 直前の成果品ステートを引き継ぎ、{$modeLabel}を再編集しています...";
+    }
+
+    private function reasoningStepTitle(array $plan, string $defaultTitle, string $followUpTitle): string
+    {
+        return !empty($plan['route_lock_active']) ? $followUpTitle : $defaultTitle;
+    }
+
+    private function reasoningStepLead(array $plan): string
+    {
+        if (empty($plan['route_lock_active'])) {
+            return '';
+        }
+
+        $outputFormat = (string)($plan['output_format'] ?? 'prose');
+        $modeLabel = match ($outputFormat) {
+            'chart' => 'グラフ中心',
+            'table' => '表中心',
+            default => '文章中心',
+        };
+
+        return "【編集モード】\n直前の成果品ステートを引き継ぎ、{$modeLabel}の再編集として処理します。\n\n";
     }
 }

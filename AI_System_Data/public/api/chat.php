@@ -456,13 +456,14 @@ try {
     $search_query = $message;
     $history_summary_text = "";
     $recentHistory = [];
+    $recentHistoryLimit = 3;
     $projectMemoryDocs = [];
     $csvContextResolver = $project_id !== null ? new ChatHistoryContextResolver($pdo, (int)$project_id) : null;
 
     try {
         $historySql = $project_id === null
-            ? "SELECT role, message FROM chat_history WHERE project_id IS NULL AND user_id = ? ORDER BY created_at DESC LIMIT 8"
-            : "SELECT role, message FROM chat_history WHERE project_id = ? AND thread_id = ? AND user_id = ? ORDER BY created_at DESC LIMIT 8";
+            ? "SELECT role, message FROM chat_history WHERE project_id IS NULL AND user_id = ? ORDER BY created_at DESC LIMIT {$recentHistoryLimit}"
+            : "SELECT role, message FROM chat_history WHERE project_id = ? AND thread_id = ? AND user_id = ? ORDER BY created_at DESC LIMIT {$recentHistoryLimit}";
         $stmtHistory = $pdo->prepare($historySql);
         $stmtHistory->execute($project_id === null ? [$user_id] : [$project_id, $thread_id, $user_id]);
         $recentHistory = array_reverse($stmtHistory->fetchAll(PDO::FETCH_ASSOC));
