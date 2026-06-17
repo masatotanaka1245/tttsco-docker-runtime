@@ -277,7 +277,9 @@ class AdvancedReasoningRouteProcessor {
 
         try {
             require_once __DIR__ . '/../../src/ChatEvaluator.php';
+            require_once __DIR__ . '/../../src/EvaluationRecoveryCoordinator.php';
             $evaluator = new ChatEvaluator($this->ollama_host);
+            $recoveryCoordinator = new EvaluationRecoveryCoordinator($evaluator);
             
             while ($this->retryCount < $maxEvalRetries) {
                 $mergedReasoningText = implode("\n\n", $this->subAnswers);
@@ -304,50 +306,40 @@ class AdvancedReasoningRouteProcessor {
                 // 不合格（needs_revision）の場合は、評価器のverdictに応じて文章修正か追加抽出を選ぶ
                 if (isset($this->evalResult) && (($this->evalResult['needs_revision'] ?? false) === true)) {
                     $this->retryCount++;
-                    $feedback = $this->evalResult['feedback'] ?? 'ユーザーの要求を満たしていません。修正してください。';
                     $verdict = $this->evalResult['verdict'] ?? 'need_more_data';
                     $nextAction = trim((string)($this->evalResult['next_action'] ?? ''));
                     $sqlHint = trim((string)($this->evalResult['sql_hint'] ?? ''));
+                    $feedback = $this->evalResult['feedback'] ?? 'ユーザーの要求を満たしていません。修正してください。';
                     chatLogger("[EVAL-NG] 門番による差し戻し。verdict={$verdict} | next_action=" . ($nextAction !== '' ? $nextAction : 'none') . " | sql_hint=" . ($sqlHint !== '' ? $sqlHint : 'none') . " | フィードバック: {$feedback}");
 
-                    if ($evaluator->shouldAskUserClarification($this->evalResult, $this->originalMessage)) {
-                        $clarificationQuestion = $evaluator->buildClarificationQuestion($this->originalMessage, $this->evalResult);
-                        if ($clarificationQuestion !== '') {
-                            $this->finalResponse = $clarificationQuestion;
-                            $this->evalResult['needs_revision'] = false;
-                            $this->evalResult['feedback'] = $feedback . "\n[ASK-USER-CLARIFICATION] 差し戻し内容をユーザー向け確認質問へ変換し、追加情報の取得を優先しました。";
-                            chatLogger("[EVAL-ASK-USER] verdict={$verdict} のため追加抽出へ進まず、確認質問を返しました。");
-                            break;
-                        }
+                    $recoveryResult = $recoveryCoordinator->resolve(
+                        $this->originalMessage,
+                        $mergedReasoningText,
+                        $this->finalResponse,
+                        $this->model,
+                        $this->evalResult,
+                        [
+                            'clarify_feedback_suffix' => '[ASK-USER-CLARIFICATION] 差し戻し内容をユーザー向け確認質問へ変換し、追加情報の取得を優先しました。',
+                            'rewrite_feedback_suffix' => '[TEXT-ONLY-REWRITE] 既存根拠のみで最終回答を修正しました。',
+                        ]
+                    );
+
+                    if (($recoveryResult['action'] ?? 'none') === 'clarify') {
+                        $this->finalResponse = (string)($recoveryResult['response'] ?? $this->finalResponse);
+                        $this->evalResult = $recoveryResult['eval_result'] ?? $this->evalResult;
+                        chatLogger("[EVAL-ASK-USER] verdict={$verdict} のため追加抽出へ進まず、確認質問を返しました。");
+                        break;
                     }
 
-                    if (in_array($verdict, ['revise_text_only', 'reject'], true)) {
+                    if (($recoveryResult['action'] ?? 'none') === 'rewrite') {
                         sendSSE('status', [
                             'step'    => 4,
                             'message' => "📝 追加抽出は行わず、既存根拠だけで回答文を修正しています... [試行: {$this->retryCount}/{$maxEvalRetries}]"
                         ]);
-
-                        $forbiddenActions = $this->evalResult['forbidden_actions'] ?? [];
-                        if (!is_array($forbiddenActions)) {
-                            $forbiddenActions = [$forbiddenActions];
-                        }
-
-                        $rewritten = $evaluator->reviseDraftTextOnly(
-                            $this->originalMessage,
-                            $mergedReasoningText,
-                            $this->finalResponse,
-                            $feedback,
-                            $this->model,
-                            $forbiddenActions
-                        );
-
-                        if (!empty($rewritten)) {
-                            $this->finalResponse = $rewritten;
-                            $this->evalResult['needs_revision'] = false;
-                            $this->evalResult['feedback'] = $feedback . "\n[TEXT-ONLY-REWRITE] 既存根拠のみで最終回答を修正しました。";
-                            chatLogger("[EVAL-TEXT-ONLY] verdict={$verdict} のため追加SQLを行わず最終回答を文章修正しました。");
-                            break;
-                        }
+                        $this->finalResponse = (string)($recoveryResult['response'] ?? $this->finalResponse);
+                        $this->evalResult = $recoveryResult['eval_result'] ?? $this->evalResult;
+                        chatLogger("[EVAL-TEXT-ONLY] verdict={$verdict} のため追加SQLを行わず最終回答を文章修正しました。");
+                        break;
                     }
 
                     sendSSE('status', [

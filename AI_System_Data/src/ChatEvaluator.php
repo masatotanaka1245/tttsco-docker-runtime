@@ -1,6 +1,10 @@
 <?php
 
 require_once __DIR__ . '/OllamaChatHelper.php';
+require_once __DIR__ . '/AnswerAlignmentChecker.php';
+require_once __DIR__ . '/EvaluationResultHelper.php';
+require_once __DIR__ . '/QuestionTypeClassifier.php';
+require_once __DIR__ . '/ClarificationQuestionBuilder.php';
 
 /**
  * src/ChatEvaluator.php
@@ -24,8 +28,8 @@ class ChatEvaluator {
      * @return array 評価結果の連想配列
      */
     public function evaluateDraft($question, $context, $draft_answer, $model = 'gemma4:e4b') {
-        $questionType = $this->classifyQuestionType((string)$question);
-        $questionPolicy = $this->buildQuestionPolicy($questionType);
+        $questionType = QuestionTypeClassifier::classify((string)$question);
+        $questionPolicy = QuestionTypeClassifier::buildPolicy($questionType);
 
         // AIを「厳格だが、質問意図に応じて修正手段を選ぶ評価者」として振る舞わせるシステムプロンプト
         $systemPrompt = <<<EOT
@@ -143,11 +147,11 @@ EOT;
             return $this->getDefaultFallback($questionType);
         }
 
-        return $this->normalizeEvaluationResult($evalResult, $questionType);
+        return $this->normalizeEvaluationResult($evalResult, $questionType, (string)$question, (string)$draft_answer);
     }
 
     public function reviseDraftTextOnly($question, $context, $draft_answer, $feedback, $model = 'gemma4:e4b', array $forbiddenActions = []) {
-        $questionType = $this->classifyQuestionType((string)$question);
+        $questionType = QuestionTypeClassifier::classify((string)$question);
         $forbiddenText = empty($forbiddenActions) ? '追加SQL、追加検索、未要求の図表、根拠のない新情報' : implode('、', $forbiddenActions);
 
         $systemPrompt = <<<EOT
@@ -221,83 +225,11 @@ EOT;
     }
 
     public function shouldAskUserClarification(array $evalResult, string $question = ''): bool {
-        $verdict = (string)($evalResult['verdict'] ?? '');
-        if (!in_array($verdict, ['need_more_data', 'reject'], true)) {
-            return false;
-        }
-
-        $feedback = trim((string)($evalResult['feedback'] ?? ''));
-        $mustFix = $evalResult['must_fix'] ?? [];
-        if (!is_array($mustFix)) {
-            $mustFix = [$mustFix];
-        }
-        $joinedMustFix = implode("\n", array_map('strval', $mustFix));
-        $joinedText = trim($feedback . "\n" . $joinedMustFix . "\n" . (string)$question);
-
-        if ($joinedText === '') {
-            return false;
-        }
-
-        $consultationSignals = [
-            '/(具体的な.*(教えて|示して|指定して)|方向性|どの側面|どの観点|何を強調|確認応答|意図表明|相談)/u',
-            '/(対象(の)?ファイル|対象列|対象の列|期間|年月|日付|条件|集計軸|対象範囲)(を|が).*(必要|不明|不足)/u',
-            '/(質問内容|依頼内容).*(曖昧|不明|不足|特定できない)/u',
-            '/(名称|案件名|プロジェクト名).*(方向性|具体化|強調)/u',
-        ];
-
-        foreach ($consultationSignals as $pattern) {
-            if (preg_match($pattern, $joinedText)) {
-                return true;
-            }
-        }
-
-        return false;
+        return ClarificationQuestionBuilder::shouldAsk($evalResult, $question);
     }
 
     public function buildClarificationQuestion(string $question, array $evalResult): string {
-        $feedback = trim((string)($evalResult['feedback'] ?? ''));
-        $question = trim($question);
-        $mustFix = $evalResult['must_fix'] ?? [];
-        if (!is_array($mustFix)) {
-            $mustFix = [$mustFix];
-        }
-
-        if (preg_match('/(案件名|プロジェクト名|名称)/u', $question . "\n" . $feedback)) {
-            return "確認させてください。より合う名称に整えるため、何を一番強調したいか教えてください。例えば、目的・機能・対象範囲・動作確認中であること、のどれを主役にしたいですか。";
-        }
-
-        if (preg_match('/(年月|月別|日付|期間|年別|日別)/u', $question . "\n" . $feedback)) {
-            return "確認させてください。集計の解釈を合わせたいので、どの列またはどの期間を基準にしたいか教えてください。列名が分かればその名前、期間なら例えば「2025年3月」や「2025年4月〜6月」のように指定してください。";
-        }
-
-        if (preg_match('/(CSV|列名|カラム|ファイル)/u', $question . "\n" . $feedback)) {
-            return "確認させてください。取り違えを避けるため、対象にしたいCSVや列名があれば教えてください。ファイル名か列名のどちらかが分かるだけでも、その条件に合わせて回答を組み直します。";
-        }
-
-        if (preg_match('/(PDF|資料|留意点|制約|確認すべき要点)/u', $question . "\n" . $feedback)) {
-            return "確認させてください。資料から何を優先して拾うかを合わせたいので、留意点・制約事項・運用上の注意・確認項目のうち、特に重視したい観点があれば教えてください。";
-        }
-
-        $hints = [];
-        foreach ($mustFix as $item) {
-            $item = trim((string)$item);
-            if ($item === '') {
-                continue;
-            }
-            $item = preg_replace('/^(具体的に|必ず|まずは)\s*/u', '', $item);
-            if ($item !== null && $item !== '') {
-                $hints[] = $item;
-            }
-            if (count($hints) >= 2) {
-                break;
-            }
-        }
-
-        if (!empty($hints)) {
-            return "このままだと意図を取り違える可能性があるため、確認させてください。特に次のどちらを優先したいですか。 " . implode(' / ', $hints) . "。";
-        }
-
-        return "確認させてください。より正確にお答えするため、今回のご依頼で特に重視したい対象・期間・観点をもう少し具体的に教えてください。いただいた条件に合わせて、その内容で回答を組み直します。";
+        return ClarificationQuestionBuilder::build($question, $evalResult);
     }
 
     /**
@@ -326,40 +258,7 @@ EOT;
         ];
     }
 
-    private function classifyQuestionType(string $question): string {
-        $q = mb_strtolower($question);
-
-        $isSingleFact = preg_match('/(何件|件数|総件数|いくつ|何個|何名|何行|ありますか|わかりますか|教えてください)/u', $q);
-        $isBroad = preg_match('/(月別|日別|年別|推移|比較|グラフ|図|内訳|ランキング|一覧|全て|すべて|全件|傾向|分析|まとめ|要約|分類|カテゴライズ)/u', $q);
-
-        if ($isSingleFact && !$isBroad) {
-            return 'single_fact';
-        }
-        if (preg_match('/(全て|すべて|全件|全体|分類|カテゴライズ|カテゴリ|どんな項目|どのような項目|どんな内容|どのような内容)/u', $q)) {
-            return 'full_read_categorize';
-        }
-        if (preg_match('/(月別|日別|年別|推移|比較|グラフ|図|内訳|ランキング|集計|平均|合計|割合|比率|最大|最小)/u', $q)) {
-            return 'aggregate_compare';
-        }
-        if (preg_match('/(提案|改善|留意点|考察|分析|方針|課題|どうすれば|おすすめ)/u', $q)) {
-            return 'proposal_analysis';
-        }
-
-        return 'general';
-    }
-
-    private function buildQuestionPolicy(string $questionType): string {
-        $policies = [
-            'single_fact' => "- 目的は単一の答えを正確に返すこと。\n- 余計なグラフ、比較、ランキング、追加SQL、追加検索は原則禁止。\n- Contextに答えがあるのに文章が悪いだけなら verdict は revise_text_only。\n- Contextに答えそのものが存在しない場合だけ need_more_data。",
-            'aggregate_compare' => "- 集計軸、数値、比較対象が質問意図と一致しているかを重視。\n- グラフはユーザーが求めた場合、または集計比較の理解に有益で正しいデータがある場合のみ許可。\n- 必要な集計結果がContextにない場合は need_more_data。",
-            'full_read_categorize' => "- 質問意図に該当するデータ全体を対象にした説明・分類・要約を重視。\n- 件数が多い場合でも、検索・抽出済みContextの範囲と限界を明示できていれば評価する。\n- 不足が検索条件や対象範囲の問題なら need_more_data。",
-            'proposal_analysis' => "- 根拠データに基づく洞察、提案、次アクションを評価。\n- 根拠のない一般論や架空の事実は厳しく減点。\n- 根拠はあるが構成が悪い場合は revise_text_only。"
-        ];
-
-        return $policies[$questionType] ?? "- 質問に直接答えているか、Contextに忠実かを評価。\n- 追加データが本当に必要な場合だけ need_more_data。\n- 文章構成の問題だけなら revise_text_only。";
-    }
-
-    private function normalizeEvaluationResult(array $evalResult, string $questionType): array {
+    private function normalizeEvaluationResult(array $evalResult, string $questionType, string $question, string $draftAnswer): array {
         $scores = $evalResult['scores'] ?? [];
         $normalizedScores = [
             'proactivity' => $this->normalizeScore($scores['proactivity'] ?? 80),
@@ -393,23 +292,34 @@ EOT;
             $verdict = 'revise_text_only';
         }
 
-        $forbiddenActions = $evalResult['forbidden_actions'] ?? [];
-        if (!is_array($forbiddenActions)) {
-            $forbiddenActions = [$forbiddenActions];
-        }
+        $forbiddenActions = EvaluationResultHelper::normalizeStringList($evalResult['forbidden_actions'] ?? []);
         if ($questionType === 'single_fact') {
-            $forbiddenActions = array_values(array_unique(array_merge($forbiddenActions, [
+            $forbiddenActions = EvaluationResultHelper::normalizeStringList(array_merge($forbiddenActions, [
                 '未要求のグラフ生成',
                 '未要求のランキング作成',
                 '答えが既にある場合の追加SQL',
                 '答えが既にある場合の追加検索'
-            ])));
+            ]));
         }
 
-        $mustFix = $evalResult['must_fix'] ?? [];
-        if (!is_array($mustFix)) {
-            $mustFix = [$mustFix];
+        $mustFix = EvaluationResultHelper::normalizeStringList($evalResult['must_fix'] ?? []);
+
+        $alignment = AnswerAlignmentChecker::analyze($question, $draftAnswer);
+        if (($alignment['has_mismatch'] ?? false) === true) {
+            $verdict = 'reject';
+            $normalizedScores['answer_relevance'] = min($normalizedScores['answer_relevance'], 35);
+            $normalizedScores['clarity'] = min($normalizedScores['clarity'], 55);
+            $normalizedScores['proactivity'] = min($normalizedScores['proactivity'], 60);
+            $totalScore = min($totalScore, 48);
+            $feedback = EvaluationResultHelper::appendFeedback((string)($alignment['feedback'] ?? '質問と回答の対象が一致していません。'), $feedback);
+            $mustFix[] = '質問で求められた対象に回答対象を揃える';
+            $forbiddenActions[] = '別ルートの要約や別ソースの説明で質問を代用する';
+            if (function_exists('chatLogger')) {
+                chatLogger("[EVAL-ALIGNMENT-MISMATCH] expected=" . implode(',', (array)($alignment['expected_targets'] ?? [])) . " | answer=" . implode(',', (array)($alignment['answer_targets'] ?? [])));
+            }
         }
+        $mustFix = EvaluationResultHelper::normalizeStringList($mustFix);
+        $forbiddenActions = EvaluationResultHelper::normalizeStringList($forbiddenActions);
 
         $nextAction = trim((string)($evalResult['next_action'] ?? ''));
         $sqlHint = trim((string)($evalResult['sql_hint'] ?? ''));
@@ -424,8 +334,8 @@ EOT;
             'feedback' => $feedback !== '' ? $feedback : '質問意図とContextに合わせて、過不足のない最終回答に調整してください。',
             'next_action' => $nextAction,
             'sql_hint' => $sqlHint,
-            'must_fix' => array_values(array_filter(array_map('strval', $mustFix))),
-            'forbidden_actions' => array_values(array_filter(array_map('strval', $forbiddenActions))),
+            'must_fix' => $mustFix,
+            'forbidden_actions' => $forbiddenActions,
             'needs_revision' => $verdict !== 'pass',
             'allow_memory_refresh' => $verdict === 'pass' && $totalScore >= 85,
         ];
@@ -455,4 +365,5 @@ EOT;
     private function feedbackRequiresMoreData(string $feedback): bool {
         return (bool)preg_match('/(データ不足|根拠不足|追加抽出|追加検索|追加SQL|Contextに.*ない|資料不足|全件不足)/u', $feedback);
     }
+
 }

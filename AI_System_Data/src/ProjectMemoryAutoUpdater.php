@@ -114,6 +114,17 @@ final class ProjectMemoryAutoUpdater
             [$projectId]
         );
 
+        $materialDocs = self::fetchAll(
+            $pdo,
+            "SELECT id, title, file_path, created_at
+               FROM documents
+              WHERE project_id = ?
+                AND LOWER(file_path) LIKE '%.md'
+              ORDER BY created_at DESC, id DESC
+              LIMIT 12",
+            [$projectId]
+        );
+
         $threadHistory = [];
         if ($threadId !== null) {
             $threadHistory = self::fetchAll(
@@ -146,9 +157,27 @@ final class ProjectMemoryAutoUpdater
             "SELECT COUNT(*) FROM project_comments WHERE project_id = ?",
             [$projectId]
         );
+        $recentComments = self::fetchAll(
+            $pdo,
+            "SELECT comment_text, created_at
+               FROM project_comments
+              WHERE project_id = ?
+              ORDER BY created_at DESC, id DESC
+              LIMIT 5",
+            [$projectId]
+        );
         $faqCount = (int)self::fetchScalar(
             $pdo,
             "SELECT COUNT(*) FROM project_faqs WHERE project_id = ?",
+            [$projectId]
+        );
+        $recentFaqs = self::fetchAll(
+            $pdo,
+            "SELECT question_summary, answer_summary, created_at
+               FROM project_faqs
+              WHERE project_id = ?
+              ORDER BY created_at DESC, id DESC
+              LIMIT 5",
             [$projectId]
         );
 
@@ -161,12 +190,15 @@ final class ProjectMemoryAutoUpdater
             'status' => trim((string)($project['status'] ?? '')),
             'csv_files' => $csvFiles,
             'pdf_docs' => $pdfDocs,
+            'material_docs' => $materialDocs,
             'history' => $history,
             'recent_evaluations' => $recentEvaluations,
             'thread_history_count' => count($threadHistory),
             'project_recent_history_count' => count($projectRecentHistory),
             'comment_count' => $commentCount,
+            'recent_comments' => $recentComments,
             'faq_count' => $faqCount,
+            'recent_faqs' => $recentFaqs,
             'generated_at' => date('Y-m-d H:i:s'),
         ];
     }
@@ -174,15 +206,28 @@ final class ProjectMemoryAutoUpdater
     private static function buildAgentsDoc(array $snapshot): string
     {
         $topics = self::detectTopics($snapshot['history']);
+        $latestRequests = self::extractLatestUserMessages($snapshot['history'], 3);
+        $todoState = self::buildTodoState($snapshot);
+        $activeArtifact = self::resolveActiveArtifactLane($snapshot, $latestRequests);
         $lines = [];
         $lines[] = '# AGENTS';
         $lines[] = '';
         $lines[] = '> 自動更新: ' . $snapshot['generated_at'];
         $lines[] = '> この内容は案件状態と直近会話から自動生成されます。';
         $lines[] = '';
+        $lines[] = '## 現在の主成果品';
+        $lines[] = '- レーン: ' . $activeArtifact['label'];
+        $lines[] = '- 理由: ' . $activeArtifact['reason'];
+        if (!empty($todoState['current'])) {
+            $lines[] = '- 進行中タスク: ' . $todoState['current'][0];
+        }
+        $lines[] = '';
         $lines[] = '## 回答方針';
-        $lines[] = '- 現在の案件では、`CSV / PDF / DB実データ` を最優先の根拠として扱う。';
+        $lines[] = '- 現在の案件では、`資料md / CSV / PDF / コメント / FAQ / プロジェクト情報 / DB実データ` を、成果品完成のための情報源として横断参照する。';
+        $lines[] = '- 情報源ごとの役割を固定しすぎず、質問と成果品の段階に応じて必要なソースを組み合わせる。';
         $lines[] = '- 現在スレッドの文脈を優先し、follow-up や履歴要約は thread 単位で継続する。';
+        $lines[] = '- プロジェクトの方針・次アクション・優先順位は、チャット保存のたびに運用メモへ反映し直す。';
+        $lines[] = '- TODO に `進行中` がある場合は、その成果品レーンを明示的な方針変更があるまで継続する。';
         $lines[] = '- PDFを根拠に答える場合は、できるだけ資料名とページ番号を付ける。';
         $lines[] = '- CSVを扱う場合は、概要・件数分布・時系列・ランキングを混同せず切り分ける。';
         $lines[] = '- グラフ要求では `json:chart` を優先し、報告書要求では見出し構成を明確にする。';
@@ -201,6 +246,17 @@ final class ProjectMemoryAutoUpdater
         $lines[] = '- 現在スレッド: ' . ($snapshot['thread_id'] === null ? '未選択' : (string)$snapshot['thread_id']);
         $lines[] = '- FAQ件数: ' . (int)$snapshot['faq_count'] . '件 / コメント件数: ' . (int)$snapshot['comment_count'] . '件';
         $lines[] = '- 参照履歴: 現在スレッド ' . (int)($snapshot['thread_history_count'] ?? 0) . '件 / 案件全体の最近履歴 ' . (int)($snapshot['project_recent_history_count'] ?? 0) . '件';
+        if (!empty($latestRequests)) {
+            $lines[] = '- 直近依頼: ' . $latestRequests[0];
+        }
+        $sourceHighlights = self::buildSourceHighlightLines($snapshot);
+        if ($sourceHighlights !== []) {
+            $lines[] = '';
+            $lines[] = '## 参照ソースの要点';
+            foreach ($sourceHighlights as $line) {
+                $lines[] = $line;
+            }
+        }
         $improvementLines = self::buildImprovementLogLines($snapshot['recent_evaluations'] ?? []);
         if ($improvementLines !== []) {
             $lines[] = '';
@@ -217,7 +273,9 @@ final class ProjectMemoryAutoUpdater
     {
         $csvFiles = $snapshot['csv_files'];
         $pdfDocs = $snapshot['pdf_docs'];
+        $materialDocs = $snapshot['material_docs'];
         $latestRequests = self::extractLatestUserMessages($snapshot['history'], 5);
+        $activeArtifact = self::resolveActiveArtifactLane($snapshot, $latestRequests);
 
         $lines = [];
         $lines[] = '# README';
@@ -238,9 +296,23 @@ final class ProjectMemoryAutoUpdater
         foreach (array_slice($csvFiles, 0, 5) as $csv) {
             $lines[] = '  - ' . (string)($csv['file_name'] ?? '名称不明') . ' (' . (int)($csv['row_count'] ?? 0) . '行)';
         }
+        $lines[] = '- 資料メモ（Markdown）: ' . count($materialDocs) . '件';
+        foreach (array_slice($materialDocs, 0, 5) as $material) {
+            $lines[] = '  - ' . (string)($material['title'] ?? basename((string)($material['file_path'] ?? '資料メモ')));
+        }
         $lines[] = '- PDF資料: ' . count($pdfDocs) . '件';
         foreach (array_slice($pdfDocs, 0, 5) as $pdf) {
             $lines[] = '  - ' . (string)($pdf['title'] ?? basename((string)($pdf['file_path'] ?? '資料PDF')));
+        }
+        $lines[] = '- コメント: ' . (int)($snapshot['comment_count'] ?? 0) . '件';
+        $lines[] = '- FAQナレッジ: ' . (int)($snapshot['faq_count'] ?? 0) . '件';
+        $lines[] = '';
+        $lines[] = '## 現在の主レーン';
+        $lines[] = '- ' . $activeArtifact['label'] . ': ' . $activeArtifact['reason'];
+        $lines[] = '';
+        $lines[] = '## 最近の情報源';
+        foreach (self::buildSourceHighlightLines($snapshot) as $line) {
+            $lines[] = $line;
         }
         $lines[] = '';
         $lines[] = '## 直近スレッドの傾向';
@@ -253,7 +325,8 @@ final class ProjectMemoryAutoUpdater
         }
         $lines[] = '';
         $lines[] = '## 使い方の前提';
-        $lines[] = '- まずCSVで定量情報を把握し、次にPDFで留意点や制約を抽出し、最後に両者を照合する流れが取りやすい。';
+        $lines[] = '- 資料メモ / CSV / PDF / コメント / FAQ / 案件情報は、成果品完成のための並列な情報源として扱う。';
+        $lines[] = '- 運用メモは、チャットのやり取りが保存されるたびに、プロジェクトの方針・次アクション・進め方を反映して更新する。';
         $lines[] = '- 履歴要約や履歴報告書化は、案件全体ではなく現在スレッド基準で扱う。';
 
         return implode("\n", $lines);
@@ -261,39 +334,56 @@ final class ProjectMemoryAutoUpdater
 
     private static function buildTodoDoc(array $snapshot): string
     {
-        $csvFiles = $snapshot['csv_files'];
-        $pdfDocs = $snapshot['pdf_docs'];
-        $latestRequests = self::extractLatestUserMessages($snapshot['history'], 6);
+        $todoState = self::buildTodoState($snapshot);
 
         $lines = [];
         $lines[] = '# TODO';
         $lines[] = '';
         $lines[] = '> 自動更新: ' . $snapshot['generated_at'];
         $lines[] = '';
-        $lines[] = '## 直近依頼ベースの優先タスク';
-        if (empty($latestRequests)) {
-            $lines[] = '- [ ] まず現在スレッドで1〜2件やり取りし、文脈を作る';
+        $lines[] = '## 進行中';
+        foreach ($todoState['current'] as $task) {
+            $lines[] = '- [進行中] ' . $task;
+        }
+        $lines[] = '';
+        $lines[] = '## 未着手';
+        if (empty($todoState['pending'])) {
+            $lines[] = '- [未着手] 追加タスクはまだ抽出されていません。';
         } else {
-            foreach ($latestRequests as $request) {
-                $lines[] = '- [ ] ' . $request;
+            foreach ($todoState['pending'] as $task) {
+                $lines[] = '- [未着手] ' . $task;
             }
         }
         $lines[] = '';
-        $lines[] = '## 推奨の次アクション';
-        if (!empty($csvFiles)) {
-            $lines[] = '- [ ] CSV全体の概要確認、または対象CSVを1本に絞った件数分布/ランキング確認';
+        $lines[] = '## 検証中';
+        if (empty($todoState['review'])) {
+            $lines[] = '- [検証中] 直前の成果品が更新されたら、内容確認と差分修正へ進む。';
+        } else {
+            foreach ($todoState['review'] as $task) {
+                $lines[] = '- [検証中] ' . $task;
+            }
         }
-        if (!empty($pdfDocs)) {
-            $lines[] = '- [ ] PDFの留意点・制約・確認事項をページ番号付きで一覧化';
+        $lines[] = '';
+        $lines[] = '## 完了';
+        if (empty($todoState['done'])) {
+            $lines[] = '- [完了] まだ自動判定できる完了項目はありません。';
+        } else {
+            foreach ($todoState['done'] as $task) {
+                $lines[] = '- [完了] ' . $task;
+            }
         }
-        if (!empty($csvFiles) && !empty($pdfDocs)) {
-            $lines[] = '- [ ] CSVの数値結果とPDFの注意事項を照合し、運用判断に使える形へ整理';
-        }
-        if (empty($csvFiles) && empty($pdfDocs)) {
-            $lines[] = '- [ ] まずCSVまたはPDFを登録し、分析対象を用意する';
+        $lines[] = '';
+        $lines[] = '## 保留';
+        if (empty($todoState['blocked'])) {
+            $lines[] = '- [保留] 現時点で大きな保留事項はありません。';
+        } else {
+            foreach ($todoState['blocked'] as $task) {
+                $lines[] = '- [保留] ' . $task;
+            }
         }
         $lines[] = '';
         $lines[] = '## 補足';
+        $lines[] = '- 進行中は常に1件だけ自動選定する。';
         $lines[] = '- メモ生成に使った履歴件数: ' . count($snapshot['history']) . '件';
         $lines[] = '- うち現在スレッド由来: ' . (int)($snapshot['thread_history_count'] ?? 0) . '件';
         $lines[] = '- このTODOは自動生成のため、次回の会話保存時に更新される';
@@ -304,6 +394,7 @@ final class ProjectMemoryAutoUpdater
     private static function detectTopics(array $history): array
     {
         $topicPatterns = [
+            '資料メモ・Markdown編集' => '/資料メモ|markdown|md|追記|修正|見出し|章立て|ドラフト/u',
             'CSV集計・概要確認' => '/CSV|csv|集計|概要|カラム|列/u',
             'PDF抽出・RAG確認' => '/PDF|pdf|資料|留意点|図面|doc_chunks/u',
             '履歴要約・報告書化' => '/会話|履歴|チャット|報告書|レポート/u',
@@ -339,6 +430,21 @@ final class ProjectMemoryAutoUpdater
         return $messages;
     }
 
+    private static function extractLatestAssistantMessages(array $history, int $limit): array
+    {
+        $messages = [];
+        foreach (array_reverse($history) as $row) {
+            if (($row['role'] ?? '') !== 'assistant') {
+                continue;
+            }
+            $messages[] = self::compactLine((string)($row['message'] ?? ''), 160);
+            if (count($messages) >= $limit) {
+                break;
+            }
+        }
+        return $messages;
+    }
+
     private static function compactLine(string $text, int $limit): string
     {
         $text = trim((string)(preg_replace('/\s+/u', ' ', $text) ?? $text));
@@ -367,7 +473,12 @@ final class ProjectMemoryAutoUpdater
         }
 
         usort($merged, static function (array $a, array $b): int {
-            return strcmp((string)($a['created_at'] ?? ''), (string)($b['created_at'] ?? ''));
+            $createdAtCompare = strcmp((string)($a['created_at'] ?? ''), (string)($b['created_at'] ?? ''));
+            if ($createdAtCompare !== 0) {
+                return $createdAtCompare;
+            }
+
+            return ((int)($a['id'] ?? 0) <=> (int)($b['id'] ?? 0));
         });
 
         if (count($merged) <= $limit) {
@@ -603,6 +714,537 @@ final class ProjectMemoryAutoUpdater
         $severity += max(0, 95 - $relevance);
         $severity += max(0, 95 - $faithfulness);
         return $severity;
+    }
+
+    private static function buildTodoState(array $snapshot): array
+    {
+        $latestRequests = self::extractLatestUserMessages($snapshot['history'], 6);
+        $activeArtifact = self::resolveActiveArtifactLane($snapshot, $latestRequests);
+        $todoSignals = self::buildTodoSignals($snapshot['history'], (array)($snapshot['recent_evaluations'] ?? []));
+        $currentTask = self::buildCurrentTodoTask($snapshot, $activeArtifact, $todoSignals);
+
+        $pending = [];
+        foreach ($todoSignals['open_interactions'] as $interaction) {
+            $pending[] = self::normalizeTodoTask((string)($interaction['user_message'] ?? ''));
+            if (count($pending) >= 3) {
+                break;
+            }
+        }
+        foreach (self::buildRecommendedPendingTasks($snapshot, $activeArtifact) as $task) {
+            if (count($pending) >= 4) {
+                break;
+            }
+            $pending[] = $task;
+        }
+
+        return [
+            'current' => [$currentTask],
+            'pending' => self::uniqueNonEmptyLines($pending, [$currentTask]),
+            'review' => self::buildReviewTasks($snapshot, $activeArtifact, $todoSignals),
+            'done' => self::buildCompletedTasks($snapshot, $todoSignals),
+            'blocked' => self::buildBlockedTasks($snapshot, $activeArtifact, $todoSignals),
+        ];
+    }
+
+    private static function resolveActiveArtifactLane(array $snapshot, array $latestRequests): array
+    {
+        $latestText = trim((string)($latestRequests[0] ?? ''));
+        $materialDocs = $snapshot['material_docs'] ?? [];
+        $csvFiles = $snapshot['csv_files'] ?? [];
+        $pdfDocs = $snapshot['pdf_docs'] ?? [];
+
+        if ($latestText !== '') {
+            if (preg_match('/資料メモ|markdown|md|追記|修正|見出し|章立て|ドラフト|たたき台|資料に追加/u', $latestText)) {
+                return ['key' => 'material_note', 'label' => '資料メモ', 'reason' => '直近依頼が資料メモの作成・追記・修正を示している。'];
+            }
+            if (preg_match('/todo|タスク|進捗|ステータス|aiエージェント|運用メモ|方針/u', mb_strtolower($latestText))) {
+                return ['key' => 'operating_memory', 'label' => '運用メモ', 'reason' => '直近依頼が案件運用メモやタスク整理を主題にしている。'];
+            }
+            if (preg_match('/報告書|レポート|pdf|pdf化/u', $latestText)) {
+                return ['key' => 'report', 'label' => '報告書/PDF', 'reason' => '直近依頼が報告書化またはPDF成果品の作成を示している。'];
+            }
+            if (preg_match('/csv|集計|グラフ|件数|ランキング|列|カラム/u', mb_strtolower($latestText))) {
+                return ['key' => 'csv', 'label' => 'CSV分析', 'reason' => '直近依頼がCSV集計やグラフ化を主題にしている。'];
+            }
+        }
+
+        if (!empty($materialDocs)) {
+            return ['key' => 'material_note', 'label' => '資料メモ', 'reason' => '既存のMarkdown資料メモがあり、作業用成果品として継続育成しやすい。'];
+        }
+        if (!empty($csvFiles) && !empty($pdfDocs)) {
+            return ['key' => 'hybrid_analysis', 'label' => 'CSV+PDF照合', 'reason' => 'CSVとPDFが揃っており、複数ソースを照合しながら成果品を進めやすい。'];
+        }
+        if (!empty($csvFiles)) {
+            return ['key' => 'csv', 'label' => 'CSV分析', 'reason' => 'CSVが登録済みで、集計や可視化から着手しやすい。'];
+        }
+        if (!empty($pdfDocs)) {
+            return ['key' => 'pdf', 'label' => 'PDF確認', 'reason' => 'PDFが登録済みで、資料本文や図表を情報源として成果品化を進めやすい。'];
+        }
+
+        return ['key' => 'operating_memory', 'label' => '運用メモ', 'reason' => 'まだ主要成果品が少ないため、方針整理から始めるのが安全。'];
+    }
+
+    private static function buildCurrentTodoTask(array $snapshot, array $activeArtifact, array $todoSignals): string
+    {
+        foreach ($todoSignals['open_interactions'] as $interaction) {
+            $assistantMessage = trim((string)($interaction['assistant_message'] ?? ''));
+            if ($assistantMessage === '' || !self::looksLikeClarificationAssistantAction($assistantMessage)) {
+                return self::normalizeTodoTask((string)($interaction['user_message'] ?? ''));
+            }
+        }
+        if (!empty($todoSignals['review_interactions'][0])) {
+            return self::buildReviewCurrentTask($activeArtifact, $todoSignals['review_interactions'][0]);
+        }
+
+        return self::buildDefaultCurrentTask($snapshot, $activeArtifact);
+    }
+
+    private static function buildDefaultCurrentTask(array $snapshot, array $activeArtifact): string
+    {
+        $materialDocs = $snapshot['material_docs'] ?? [];
+
+        return match ($activeArtifact['key']) {
+            'material_note' => !empty($materialDocs)
+                ? '既存の資料メモを開き、次の追記・修正ポイントを反映する'
+                : '資料メモを新規作成し、今回の成果品の土台を作る',
+            'csv' => '対象CSVを1本に絞り、集計軸と出力形式を確定する',
+            'report' => '報告書の見出し構成と根拠を整理し、成果品ドラフトを組み立てる',
+            'hybrid_analysis' => 'CSV・PDF・資料メモなど複数ソースを照合し、判断材料をまとめる',
+            default => '案件運用メモを更新し、次に作る成果品レーンを1つに絞る',
+        };
+    }
+
+    private static function buildRecommendedPendingTasks(array $snapshot, array $activeArtifact): array
+    {
+        $tasks = [];
+        $materialDocs = $snapshot['material_docs'] ?? [];
+        $csvFiles = $snapshot['csv_files'] ?? [];
+        $pdfDocs = $snapshot['pdf_docs'] ?? [];
+
+        if ($activeArtifact['key'] !== 'material_note') {
+            if (!empty($materialDocs)) {
+                $tasks[] = '既存の資料メモを確認し、今回の依頼に近い章や見出しを再利用する';
+            } else {
+                $tasks[] = '資料メモが未作成なら、先に叩き台Markdownを1本用意する';
+            }
+        }
+        if (!empty($csvFiles)) {
+            $tasks[] = 'CSV側で必要な件数・分布・時系列のどれを見るかを明示する';
+        }
+        if (!empty($pdfDocs)) {
+            $tasks[] = 'PDFや関連資料から必要な根拠ページ・関連記述を抜き出して、成果品へ反映する';
+        }
+        if ((int)($snapshot['comment_count'] ?? 0) > 0) {
+            $tasks[] = '案件コメントに最新の申し送りや方針変更があれば、成果品へ反映する';
+        }
+        if ((int)($snapshot['faq_count'] ?? 0) > 0) {
+            $tasks[] = '既存FAQに再利用できる解決策があれば、今回の成果品へ転用する';
+        }
+        if (empty($csvFiles) && empty($pdfDocs) && empty($materialDocs)) {
+            $tasks[] = '分析対象のCSV / PDF / 資料メモを追加し、成果品の起点を作る';
+        }
+
+        return $tasks;
+    }
+
+    private static function buildReviewTasks(array $snapshot, array $activeArtifact, array $todoSignals): array
+    {
+        $tasks = [];
+        if (!empty($todoSignals['review_interactions'][0])) {
+            $tasks[] = self::buildReviewCurrentTask($activeArtifact, $todoSignals['review_interactions'][0]);
+        } elseif (!empty($todoSignals['completed_interactions'][0])) {
+            $tasks[] = match ($activeArtifact['key']) {
+                'material_note' => '更新した資料メモの章立てと追記内容を確認し、必要なら差分修正する',
+                'csv' => '直前の集計結果を確認し、列・並び順・グラフ形式の再指定が必要か確認する',
+                'report' => '報告書ドラフトの結論・根拠・出典の並びを確認し、確定前に調整する',
+                default => '直前の成果品ドラフトを確認し、追加の差分修正が必要か判断する',
+            };
+        }
+
+        return self::uniqueNonEmptyLines($tasks);
+    }
+
+    private static function buildSourceHighlightLines(array $snapshot): array
+    {
+        $lines = [];
+        foreach (array_slice((array)($snapshot['material_docs'] ?? []), 0, 1) as $material) {
+            $title = self::compactLine((string)($material['title'] ?? basename((string)($material['file_path'] ?? '資料メモ'))), 70);
+            if ($title !== '') {
+                $lines[] = '- 資料メモ: ' . $title;
+            }
+        }
+        foreach (array_slice((array)($snapshot['csv_files'] ?? []), 0, 2) as $csv) {
+            $name = self::compactLine((string)($csv['file_name'] ?? '名称不明のCSV'), 70);
+            if ($name !== '') {
+                $lines[] = '- CSV: ' . $name . ' (' . (int)($csv['row_count'] ?? 0) . '行)';
+            }
+        }
+        foreach (array_slice((array)($snapshot['pdf_docs'] ?? []), 0, 1) as $pdf) {
+            $title = self::compactLine((string)($pdf['title'] ?? basename((string)($pdf['file_path'] ?? '資料PDF'))), 70);
+            if ($title !== '') {
+                $lines[] = '- PDF: ' . $title;
+            }
+        }
+        foreach (array_slice((array)($snapshot['recent_comments'] ?? []), 0, 2) as $comment) {
+            $text = self::compactLine((string)($comment['comment_text'] ?? ''), 90);
+            if ($text !== '') {
+                $lines[] = '- コメント: ' . $text;
+            }
+        }
+        foreach (array_slice((array)($snapshot['recent_faqs'] ?? []), 0, 2) as $faq) {
+            $question = self::compactLine((string)($faq['question_summary'] ?? ''), 60);
+            $answer = self::compactLine((string)($faq['answer_summary'] ?? ''), 80);
+            if ($question !== '' || $answer !== '') {
+                $lines[] = '- FAQ: ' . trim($question . ($answer !== '' ? ' => ' . $answer : ''));
+            }
+        }
+        if (($snapshot['description'] ?? '') !== '') {
+            $lines[] = '- 案件情報: ' . self::compactLine((string)$snapshot['description'], 90);
+        }
+
+        return self::uniqueNonEmptyLines($lines);
+    }
+
+    private static function buildCompletedTasks(array $snapshot, array $todoSignals): array
+    {
+        $tasks = [];
+        if (!empty($snapshot['material_docs'] ?? [])) {
+            $tasks[] = '資料メモの保存基盤は用意済み';
+        }
+        if (!empty($snapshot['csv_files'] ?? [])) {
+            $tasks[] = '分析対象CSVの登録は完了済み';
+        }
+        if (!empty($snapshot['pdf_docs'] ?? [])) {
+            $tasks[] = '参照用PDFの登録は完了済み';
+        }
+        foreach (array_slice($todoSignals['completed_interactions'], 0, 3) as $interaction) {
+            $task = self::normalizeTodoTask((string)($interaction['user_message'] ?? ''));
+            if ($task !== '') {
+                $tasks[] = '対応済み: ' . $task;
+            }
+        }
+
+        return self::uniqueNonEmptyLines($tasks);
+    }
+
+    private static function buildBlockedTasks(array $snapshot, array $activeArtifact, array $todoSignals): array
+    {
+        $materialDocs = $snapshot['material_docs'] ?? [];
+        $csvFiles = $snapshot['csv_files'] ?? [];
+        $pdfDocs = $snapshot['pdf_docs'] ?? [];
+        $tasks = [];
+
+        if ($activeArtifact['key'] === 'material_note' && empty($materialDocs)) {
+            $tasks[] = '資料メモを主レーンにしたいが、まだMarkdown成果品が存在しない';
+        }
+        if (empty($materialDocs) && empty($csvFiles) && empty($pdfDocs)) {
+            $tasks[] = '主要成果品が未登録のため、まず資料md / CSV / PDF のいずれかを用意する必要がある';
+        }
+        foreach (array_slice($todoSignals['waiting_interactions'], 0, 2) as $interaction) {
+            $tasks[] = self::buildWaitingTask((string)($interaction['user_message'] ?? ''), (string)($interaction['assistant_message'] ?? ''));
+        }
+        foreach (array_slice($todoSignals['open_interactions'], 0, 1) as $interaction) {
+            $userMessage = (string)($interaction['user_message'] ?? '');
+            if ($userMessage !== '' && empty($csvFiles) && preg_match('/csv|集計|グラフ|列|カラム/u', mb_strtolower($userMessage))) {
+                $tasks[] = 'CSV分析の依頼があるが、対象CSVが未登録または不足している';
+            }
+            if ($userMessage !== '' && empty($pdfDocs) && preg_match('/pdf|資料|図面|報告書/u', mb_strtolower($userMessage))) {
+                $tasks[] = '資料読解や報告書化の依頼があるが、参照できるPDF資料が不足している';
+            }
+        }
+
+        return self::uniqueNonEmptyLines($tasks);
+    }
+
+    private static function buildTodoSignals(array $history, array $recentEvaluations): array
+    {
+        $interactions = array_reverse(self::extractRecentInteractions($history, 10));
+        $evaluationIndex = self::indexRecentEvaluations($recentEvaluations);
+        $open = [];
+        $waiting = [];
+        $review = [];
+        $completed = [];
+
+        foreach ($interactions as $interaction) {
+            $assistantMessage = trim((string)($interaction['assistant_message'] ?? ''));
+            if ($assistantMessage === '') {
+                $open[] = $interaction;
+                continue;
+            }
+            if (self::looksLikeClarificationAssistantAction($assistantMessage)) {
+                $waiting[] = $interaction;
+                continue;
+            }
+            $interaction['evaluation'] = self::matchEvaluationForInteraction($interaction, $evaluationIndex);
+            if (self::shouldReviewInteraction($interaction)) {
+                $review[] = $interaction;
+                continue;
+            }
+            if (self::isCompletedInteraction($interaction)) {
+                $completed[] = $interaction;
+                continue;
+            }
+            $open[] = $interaction;
+        }
+
+        return [
+            'open_interactions' => $open,
+            'waiting_interactions' => $waiting,
+            'review_interactions' => $review,
+            'completed_interactions' => $completed,
+        ];
+    }
+
+    private static function extractRecentInteractions(array $history, int $limit): array
+    {
+        $interactions = [];
+        $current = null;
+
+        foreach ($history as $row) {
+            $role = (string)($row['role'] ?? '');
+            $message = trim((string)($row['message'] ?? ''));
+            if ($message === '') {
+                continue;
+            }
+
+            if ($role === 'user') {
+                if ($current !== null) {
+                    $interactions[] = $current;
+                }
+                $current = [
+                    'user_message' => $message,
+                    'user_created_at' => (string)($row['created_at'] ?? ''),
+                    'assistant_message' => '',
+                    'assistant_created_at' => '',
+                ];
+                continue;
+            }
+
+            if ($role === 'assistant' && $current !== null) {
+                $current['assistant_message'] = trim(
+                    $current['assistant_message'] === ''
+                        ? $message
+                        : ($current['assistant_message'] . "\n\n" . $message)
+                );
+                $current['assistant_created_at'] = (string)($row['created_at'] ?? '');
+            }
+        }
+
+        if ($current !== null) {
+            $interactions[] = $current;
+        }
+
+        if (count($interactions) <= $limit) {
+            return $interactions;
+        }
+
+        return array_slice($interactions, -$limit);
+    }
+
+    private static function isCompletedInteraction(array $interaction): bool
+    {
+        $assistantMessage = trim((string)($interaction['assistant_message'] ?? ''));
+        if ($assistantMessage === '') {
+            return false;
+        }
+
+        if (self::looksLikeIncompleteOrUnsafeAnswer($assistantMessage)) {
+            return false;
+        }
+
+        if (self::looksLikeClarificationAssistantAction($assistantMessage)) {
+            return false;
+        }
+
+        $evaluation = (array)($interaction['evaluation'] ?? []);
+        if ($evaluation !== [] && !self::isHighConfidenceEvaluation($evaluation)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static function shouldReviewInteraction(array $interaction): bool
+    {
+        $assistantMessage = trim((string)($interaction['assistant_message'] ?? ''));
+        if ($assistantMessage === '') {
+            return false;
+        }
+
+        $evaluation = (array)($interaction['evaluation'] ?? []);
+        if ($evaluation === []) {
+            return false;
+        }
+
+        if (self::isHighConfidenceEvaluation($evaluation)) {
+            return false;
+        }
+
+        return !self::looksLikeClarificationAssistantAction($assistantMessage);
+    }
+
+    private static function isHighConfidenceEvaluation(array $evaluation): bool
+    {
+        return (int)($evaluation['total_score'] ?? 0) >= 90
+            && (int)($evaluation['relevance_score'] ?? 0) >= 90
+            && (int)($evaluation['faithfulness_score'] ?? 0) >= 90;
+    }
+
+    private static function buildReviewCurrentTask(array $activeArtifact, array $interaction): string
+    {
+        $task = self::normalizeTodoTask((string)($interaction['user_message'] ?? ''));
+
+        return match ($activeArtifact['key']) {
+            'csv' => $task !== ''
+                ? '直前のCSV回答を見直し、必要なら再集計・並び順・出力形式を補正する: ' . $task
+                : '直前のCSV回答を見直し、必要なら再集計・並び順・出力形式を補正する',
+            'report' => $task !== ''
+                ? '直前の報告書/PDF回答を見直し、根拠と構成を補正する: ' . $task
+                : '直前の報告書/PDF回答を見直し、根拠と構成を補正する',
+            'material_note' => $task !== ''
+                ? '直前の資料メモ回答を見直し、追記内容と章立てを補正する: ' . $task
+                : '直前の資料メモ回答を見直し、追記内容と章立てを補正する',
+            default => $task !== ''
+                ? '直前回答の精度を確認し、必要なら根拠・結論・次アクションを補強する: ' . $task
+                : '直前回答の精度を確認し、必要なら根拠・結論・次アクションを補強する',
+        };
+    }
+
+    private static function indexRecentEvaluations(array $recentEvaluations): array
+    {
+        $index = [];
+        foreach ($recentEvaluations as $evaluation) {
+            $question = trim((string)($evaluation['question_message'] ?? ''));
+            if ($question === '') {
+                continue;
+            }
+            $key = self::buildInteractionLookupKey($question);
+            $index[$key][] = $evaluation;
+        }
+
+        return $index;
+    }
+
+    private static function matchEvaluationForInteraction(array $interaction, array $evaluationIndex): array
+    {
+        $userMessage = trim((string)($interaction['user_message'] ?? ''));
+        if ($userMessage === '') {
+            return [];
+        }
+
+        $key = self::buildInteractionLookupKey($userMessage);
+        $candidates = $evaluationIndex[$key] ?? [];
+        if ($candidates === []) {
+            return [];
+        }
+
+        $assistantMessage = trim((string)($interaction['assistant_message'] ?? ''));
+        $assistantCreatedAt = (string)($interaction['assistant_created_at'] ?? '');
+        foreach ($candidates as $candidate) {
+            $candidateAnswer = trim((string)($candidate['answer_message'] ?? ''));
+            $candidateCreatedAt = (string)($candidate['created_at'] ?? '');
+            if (
+                $assistantCreatedAt !== ''
+                && $candidateCreatedAt !== ''
+                && $assistantCreatedAt === $candidateCreatedAt
+            ) {
+                return $candidate;
+            }
+            if ($assistantMessage !== '' && $candidateAnswer !== '' && self::messagesRoughlyMatch($assistantMessage, $candidateAnswer)) {
+                return $candidate;
+            }
+        }
+
+        return (array)$candidates[0];
+    }
+
+    private static function buildInteractionLookupKey(string $message): string
+    {
+        $message = mb_strtolower(trim($message));
+        $message = preg_replace('/\s+/u', ' ', $message) ?? $message;
+        return $message;
+    }
+
+    private static function messagesRoughlyMatch(string $left, string $right): bool
+    {
+        $left = self::buildInteractionLookupKey(self::compactLine($left, 80));
+        $right = self::buildInteractionLookupKey(self::compactLine($right, 80));
+
+        return $left !== '' && $right !== '' && ($left === $right || str_starts_with($left, $right) || str_starts_with($right, $left));
+    }
+
+    private static function buildWaitingTask(string $userMessage, string $assistantMessage): string
+    {
+        $userMessage = trim($userMessage);
+        $assistantMessage = trim($assistantMessage);
+        $combined = mb_strtolower($userMessage . "\n" . $assistantMessage);
+
+        if (preg_match('/csv|集計|グラフ|列|カラム/u', $combined)) {
+            return 'CSV依頼は追加条件待ちのため、対象ファイル・列・出力形式の確定が必要';
+        }
+        if (preg_match('/報告書|レポート|pdf|図面|資料/u', $combined)) {
+            return '報告書/PDF依頼は追加条件待ちのため、対象範囲や根拠ソースの確定が必要';
+        }
+
+        return '追加条件や確認事項の返答待ちのため、次の処理に進めていない依頼がある';
+    }
+
+    private static function looksLikeCompletedAssistantAction(string $message): bool
+    {
+        if ($message === '' || self::looksLikeIncompleteOrUnsafeAnswer($message)) {
+            return false;
+        }
+
+        return preg_match('/完了|保存|登録|作成|生成|整理|反映|まとめ/u', $message) === 1;
+    }
+
+    private static function looksLikeClarificationAssistantAction(string $message): bool
+    {
+        if ($message === '') {
+            return false;
+        }
+
+        return preg_match('/どの(?:列|カラム|項目|資料)|指定してください|教えてください|確認させてください|補足してください|もう少し詳しく|対象を教えて/u', $message) === 1;
+    }
+
+    private static function normalizeTodoTask(string $text): string
+    {
+        $text = trim($text);
+        if ($text === '') {
+            return '';
+        }
+
+        $normalized = preg_replace('/^[>\-\[\]\d\.\s]+/u', '', $text) ?? $text;
+        $normalized = preg_replace('/\s+/u', ' ', trim($normalized)) ?? trim($normalized);
+        if ($normalized === '') {
+            return '';
+        }
+
+        return self::compactLine($normalized, 110);
+    }
+
+    private static function uniqueNonEmptyLines(array $lines, array $exclude = []): array
+    {
+        $results = [];
+        $seen = [];
+
+        foreach ($exclude as $line) {
+            $line = trim((string)$line);
+            if ($line !== '') {
+                $seen[$line] = true;
+            }
+        }
+
+        foreach ($lines as $line) {
+            $line = trim((string)$line);
+            if ($line === '' || isset($seen[$line])) {
+                continue;
+            }
+            $seen[$line] = true;
+            $results[] = $line;
+        }
+
+        return $results;
     }
 
     private static function fetchOne(PDO $pdo, string $sql, array $params): array

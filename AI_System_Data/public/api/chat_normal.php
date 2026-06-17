@@ -154,7 +154,9 @@ class NormalStreamingRouteProcessor {
 
         try {
             require_once __DIR__ . '/../../src/ChatEvaluator.php';
+            require_once __DIR__ . '/../../src/EvaluationRecoveryCoordinator.php';
             $evaluator = new ChatEvaluator($this->ollama_host);
+            $recoveryCoordinator = new EvaluationRecoveryCoordinator($evaluator);
 
             sendSSE('status', ['message' => '⚖️ 回答の品質確認を実行中...']);
             $contextForEval = trim((string)$this->contextText);
@@ -173,39 +175,31 @@ class NormalStreamingRouteProcessor {
 
             if (($this->evalResult['needs_revision'] ?? false) === true) {
                 $verdict = $this->evalResult['verdict'] ?? 'revise_text_only';
-                $feedback = $this->evalResult['feedback'] ?? '既存根拠に基づいて回答を修正してください。';
-                $forbiddenActions = $this->evalResult['forbidden_actions'] ?? [];
-                if (!is_array($forbiddenActions)) {
-                    $forbiddenActions = [$forbiddenActions];
-                }
-
-                if ($evaluator->shouldAskUserClarification($this->evalResult, $this->originalMessage)) {
-                    $clarificationQuestion = $evaluator->buildClarificationQuestion($this->originalMessage, $this->evalResult);
-                    if ($clarificationQuestion !== '') {
-                        $this->fullResponse = $clarificationQuestion;
-                        $this->evalResult['needs_revision'] = false;
-                        $this->evalResult['feedback'] = $feedback . "\n[ASK-USER-CLARIFICATION] 差し戻し内容をユーザー向け確認質問へ変換し、追加情報の取得を優先しました。";
-                        chatLogger("[JUDGE-NORMAL-CLARIFY] verdict={$verdict} のため回答再生成へ進まず、確認質問を返しました。");
-                        chatLogger("[JUDGE-NORMAL-EVAL] 通常RAG回答品質管理審査結果マトリクス:\n" . print_r($this->evalResult, true));
-                        chatLogger("[DEBUG] ChatEvaluator による通常RAG最終回答品質審査が正常開通しました。");
-                        return;
-                    }
-                }
-
-                sendSSE('status', ['message' => '📝 品質確認の指摘を反映し、既存根拠だけで回答を整えています...']);
-                $rewritten = $evaluator->reviseDraftTextOnly(
+                $recoveryResult = $recoveryCoordinator->resolve(
                     $this->originalMessage,
                     $contextForEval,
                     $this->fullResponse,
-                    $feedback,
                     $this->model,
-                    $forbiddenActions
+                    $this->evalResult,
+                    [
+                        'clarify_feedback_suffix' => '[ASK-USER-CLARIFICATION] 差し戻し内容をユーザー向け確認質問へ変換し、追加情報の取得を優先しました。',
+                        'rewrite_feedback_suffix' => '[TEXT-ONLY-REWRITE] 通常RAGルートでは追加検索を行わず、既存根拠のみで最終回答を修正しました。',
+                    ]
                 );
 
-                if (!empty($rewritten)) {
-                    $this->fullResponse = $rewritten;
-                    $this->evalResult['needs_revision'] = false;
-                    $this->evalResult['feedback'] = $feedback . "\n[TEXT-ONLY-REWRITE] 通常RAGルートでは追加検索を行わず、既存根拠のみで最終回答を修正しました。";
+                if (($recoveryResult['action'] ?? 'none') === 'clarify') {
+                    $this->fullResponse = (string)($recoveryResult['response'] ?? $this->fullResponse);
+                    $this->evalResult = $recoveryResult['eval_result'] ?? $this->evalResult;
+                    chatLogger("[JUDGE-NORMAL-CLARIFY] verdict={$verdict} のため回答再生成へ進まず、確認質問を返しました。");
+                    chatLogger("[JUDGE-NORMAL-EVAL] 通常RAG回答品質管理審査結果マトリクス:\n" . print_r($this->evalResult, true));
+                    chatLogger("[DEBUG] ChatEvaluator による通常RAG最終回答品質審査が正常開通しました。");
+                    return;
+                }
+
+                if (($recoveryResult['action'] ?? 'none') === 'rewrite') {
+                    sendSSE('status', ['message' => '📝 品質確認の指摘を反映し、既存根拠だけで回答を整えています...']);
+                    $this->fullResponse = (string)($recoveryResult['response'] ?? $this->fullResponse);
+                    $this->evalResult = $recoveryResult['eval_result'] ?? $this->evalResult;
                     chatLogger("[JUDGE-NORMAL-REWRITE] verdict={$verdict} のため通常RAG回答を文章修正しました。");
                 }
             }
@@ -336,38 +330,57 @@ class NormalStreamingRouteProcessor {
             }
 
             $pdf_hits = [];
+            $material_hits = [];
             $csv_hits_by_doc = [];
 
             $preferAdviceContext = $this->isProposalOrWritingAdviceQuestion();
+            $preferMaterialContext = $this->isMaterialDraftingQuestion();
             if ($preferAdviceContext) {
                 chatLogger("[RAG-CONTEXT-FILTER] 提案・文章改善相談としてノイズ抑制フィルタを有効化しました。");
+            }
+            if ($preferMaterialContext) {
+                chatLogger("[MATERIAL-RAG] 資料メモ優先モードを有効化しました。Markdown成果品を先に探索します。");
             }
 
             foreach ($all_hits as $hit) {
                 $imageDescription = (string)($hit['image_description'] ?? '');
                 $is_csv = mb_strpos($imageDescription, 'CSVデータ行レコード') === 0;
+                $sourceType = (string)($hit['source_type'] ?? '');
                 if ($is_csv) {
                     if ($hit['score'] >= 0.50) {
                         $csv_hits_by_doc[$hit['document_id']][] = $hit;
                     }
                 } else {
+                    if ($preferMaterialContext && $sourceType === 'material_note') {
+                        if ($hit['score'] >= 0.22) {
+                            $material_hits[] = $hit;
+                        }
+                        continue;
+                    }
                     if ($hit['score'] >= 0.35 && !$this->shouldSkipPdfHitForAdvice($hit, $preferAdviceContext)) {
                         $pdf_hits[] = $hit;
                     }
                 }
             }
 
-            if ($this->referAllMode) {
+            if ($preferMaterialContext) {
+                $pdf_hits = $this->mergeMaterialFirstHits($material_hits, $pdf_hits, 6);
+            } elseif ($this->referAllMode) {
                 $pdf_hits = $this->rebalanceReferAllPdfHits($pdf_hits, 6);
             } else {
                 $pdf_hits = array_slice($pdf_hits, 0, 6);
             }
-            chatLogger("トリアージ完了。PDF適合チャンク(score>=0.35): " . count($pdf_hits) . "件 | 適合CSVファイル(score>=0.50): " . count($csv_hits_by_doc) . "件");
+            chatLogger("トリアージ完了。資料/PDF適合チャンク: " . count($pdf_hits) . "件 | 資料メモ候補: " . count($material_hits) . "件 | 適合CSVファイル(score>=0.50): " . count($csv_hits_by_doc) . "件");
 
             $suppressedImageDescriptionCount = 0;
             foreach ($pdf_hits as $hit) {
                 $pNum = $hit['page_number'];
-                $label = ($pNum == 0) ? "【資料全体の構成・要約（目次情報）】" : "【参考資料: {$hit['title']} P.{$pNum}】";
+                $sourceType = (string)($hit['source_type'] ?? '');
+                if ($sourceType === 'material_note') {
+                    $label = "【資料メモ: {$hit['title']}】";
+                } else {
+                    $label = ($pNum == 0) ? "【資料全体の構成・要約（目次情報）】" : "【参考資料: {$hit['title']} P.{$pNum}】";
+                }
                 $this->contextText .= "{$label}\n[本文テキスト]:\n{$hit['content']}\n";
                 $imageDescriptionForContext = $this->prepareImageDescriptionForContext((string)($hit['image_description'] ?? ''));
                 if ($imageDescriptionForContext !== '') {
@@ -440,6 +453,12 @@ class NormalStreamingRouteProcessor {
                             . "\n- 回答は 400文字程度までを目安にすること"
                             . "\n- 案件名や表現の相談では、まず強調したい観点を2〜3個に整理する"
                             . "\n- 直前のAI回答を引きずりすぎず、現在の質問にだけ素直に答える";
+        }
+        if ($this->isMaterialDraftingQuestion()) {
+            $system_prompt .= "\n【資料メモ優先モード】この質問は、Markdown資料メモを育てる相談として扱ってください。"
+                            . "\n- 既存の資料メモが見つかった場合は、PDF全体要約より先にその内容を確認すること"
+                            . "\n- 回答は、資料メモへどの差分を入れるか分かる形で具体化すること"
+                            . "\n- PDFは補助根拠として使ってよいが、資料メモの章立て・追記・修正文案を主役にすること";
         }
         return $system_prompt;
     }
@@ -880,6 +899,19 @@ class NormalStreamingRouteProcessor {
         return $hasAdviceIntent && $hasWritingContext && !$hasStrongAggregationIntent;
     }
 
+    private function isMaterialDraftingQuestion(): bool
+    {
+        $message = trim((string)$this->originalMessage);
+        if ($message === '') {
+            return false;
+        }
+
+        $hasMaterialIntent = preg_match('/(資料メモ|markdown|md|資料に追加|追記|修正|書き換え|章立て|見出し|ドラフト|たたき台|下書き|構成)/u', $message) === 1;
+        $hasStrongAggregationIntent = preg_match('/(集計|件数|分布|ランキング|上位|何件|何種類|ユニーク|distinct|グラフ|チャート|一覧にして|表にして)/iu', $message) === 1;
+
+        return $hasMaterialIntent && !$hasStrongAggregationIntent;
+    }
+
     private function shouldSkipPdfHitForAdvice(array $hit, bool $preferAdviceContext): bool
     {
         $content = trim((string)($hit['content'] ?? ''));
@@ -960,6 +992,20 @@ class NormalStreamingRouteProcessor {
         }
 
         chatLogger("[RAG-CONTEXT-FILTER] referAllMode で資料全体要約=" . count($summaryHits) . "件 / 本文ページ=" . count($detailHits) . "件 を再配分し、本文優先で " . count($selected) . "件を採用しました。");
+        return array_slice($selected, 0, $limit);
+    }
+
+    private function mergeMaterialFirstHits(array $materialHits, array $pdfHits, int $limit = 6): array
+    {
+        $selected = [];
+        foreach (array_slice($materialHits, 0, min(4, $limit)) as $hit) {
+            $selected[] = $hit;
+        }
+        foreach (array_slice($pdfHits, 0, max(0, $limit - count($selected))) as $hit) {
+            $selected[] = $hit;
+        }
+
+        chatLogger("[MATERIAL-RAG] 資料メモ=" . count($materialHits) . "件 / PDF=" . count($pdfHits) . "件 から、資料メモ優先で " . count($selected) . "件を採用しました。");
         return array_slice($selected, 0, $limit);
     }
 }

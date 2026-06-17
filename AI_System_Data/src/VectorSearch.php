@@ -316,7 +316,33 @@ class VectorSearch {
             }
         }
 
-        return min(0.08, $score);
+        if ($this->hasMaterialAuthoringIntent($terms)) {
+            $score += 0.08;
+        }
+
+        return min(0.16, $score);
+    }
+
+    private function hasMaterialAuthoringIntent(array $terms): bool
+    {
+        $authoringTerms = [
+            '資料メモ', 'markdown', 'md', '追記', '修正', '見出し',
+            '章', '章立て', 'ドラフト', 'たたき台', '下書き', '構成',
+        ];
+
+        foreach ($terms as $term) {
+            $term = mb_strtolower((string)$term);
+            if ($term === '') {
+                continue;
+            }
+            foreach ($authoringTerms as $authoringTerm) {
+                if (mb_stripos($term, mb_strtolower($authoringTerm)) !== false) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private function resolveSourceType(string $title, string $filePath): string

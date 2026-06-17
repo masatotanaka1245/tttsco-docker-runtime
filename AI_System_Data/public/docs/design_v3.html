@@ -160,11 +160,17 @@
 
       <h2 class="text-xl font-semibold sub-section text-slate-800">1.1 システムの目的</h2>
       <p class="text-slate-700 text-sm md:text-base leading-relaxed">
-        社会インフラのライフサイクルを支える総合コンサルティング業務を、Windows本番サーバー上の Apache 2.4.57、PHP 8.2.8、MySQL 8.0.33、Ollamaを組み合わせたオンプレミス型Webアプリとして支援する。案件、資料、CSVデータ、コメント、FAQ、担当メンバーを一元管理し、PDF・CSVをRAG化してAIチャットから検索、要約、集計、分析できる業務支援基盤を構築する。
+        社会インフラのライフサイクルを支える総合コンサルティング業務を、Windows本番サーバー上の Apache 2.4.57、PHP 8.2.8、MySQL 8.0.33、Ollamaを組み合わせたオンプレミス型Webアプリとして支援する。案件、資料、CSVデータ、コメント、FAQ、担当メンバーを一元管理し、PDF・CSVに加えて Markdown 資料メモも成果品として育てながら、AIチャットから検索、要約、集計、分析、追記支援できる業務支援基盤を構築する。
       </p>
       <p class="text-slate-800 font-bold mt-4 mb-2 text-sm md:text-base">1.2 機能要件（資料・データ統合範囲の拡張）</p>
       <p class="text-slate-700 text-sm leading-relaxed mb-4">
         本システムは、PDF等の報告書ドキュメントの意味解析に加え、ボーリングN値、気象観測値、材料試験結果といったCSV/TSV由来の<strong>構造化データの取り込み、表形式プレビュー、自然言語RAG化、Text-to-SQL分析</strong>を提供する。認証、CSRF、案件権限、project_membersによるアサイン制御を組み込み、案件単位で資料とナレッジを安全に扱う。
+      </p>
+      <p class="text-slate-700 text-sm leading-relaxed mb-4">
+        2026-06-17 時点では、中央「資料」タブで育てる Markdown 資料メモを PDF とは別の作業用成果品として扱い、資料作成・追記・修正の相談では、PDF要約より先に既存の資料メモを検索対象として優先参照する。また、案件運用メモの TODO は <strong>進行中 / 未着手 / 検証中 / 完了 / 保留</strong> の状態で自動整理し、`進行中` の1件を follow-up の主レーンとして扱う。
+      </p>
+      <p class="text-slate-700 text-sm leading-relaxed mb-4">
+        あわせて、<strong>CSV / PDF / Markdown資料メモ / コメント / FAQ / 案件情報 / DB実データ</strong> は、成果品を完成させるための情報源として横断参照する。特定の情報源だけを固定的に優先するのではなく、質問内容と成果品の段階に応じて、必要な情報を組み合わせて使う。
       </p>
       <p class="text-slate-800 font-bold mb-2 text-sm">対象分野：</p>
       <div class="bg-slate-50 border border-slate-200 rounded-2xl p-6 mb-4">

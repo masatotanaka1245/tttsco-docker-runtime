@@ -1,6 +1,9 @@
 <?php
 
 require_once __DIR__ . '/ChatEvaluator.php';
+require_once __DIR__ . '/AnswerAlignmentChecker.php';
+require_once __DIR__ . '/EvaluationRecoveryCoordinator.php';
+require_once __DIR__ . '/EvaluationResultHelper.php';
 
 class LightweightFinalAnswerGuard
 {
@@ -22,34 +25,39 @@ class LightweightFinalAnswerGuard
         $safeContext = trim($context) !== '' ? $context : '軽量ルートの根拠コンテキストは空です。既存ドラフトのみを確認してください。';
         $policy = $this->buildPolicy($question, $safeContext, $draftAnswer, $routeLabel, $options);
         $finalAnswer = trim($draftAnswer);
+        $evaluator = null;
+        $recoveryCoordinator = null;
 
         if (($policy['use_llm_judge'] ?? false) !== true) {
             $evalResult = $this->buildRuleBasedResult($question, $safeContext, $finalAnswer, $routeLabel, $policy);
         } else {
             $evaluator = new ChatEvaluator($this->ollamaHost);
+            $recoveryCoordinator = new EvaluationRecoveryCoordinator($evaluator);
             $evalResult = $evaluator->evaluateDraft($question, $safeContext, $finalAnswer, $model);
+        }
 
-            if (($evalResult['needs_revision'] ?? false) === true && ($policy['allow_llm_rewrite'] ?? true)) {
-                $feedback = (string)($evalResult['feedback'] ?? '既存根拠だけで最終回答を調整してください。');
-                $forbiddenActions = $evalResult['forbidden_actions'] ?? [];
-                if (!is_array($forbiddenActions)) {
-                    $forbiddenActions = [$forbiddenActions];
-                }
+        if (($evalResult['needs_revision'] ?? false) === true) {
+            $evaluator = $evaluator instanceof ChatEvaluator ? $evaluator : new ChatEvaluator($this->ollamaHost);
+            $recoveryCoordinator = $recoveryCoordinator instanceof EvaluationRecoveryCoordinator
+                ? $recoveryCoordinator
+                : new EvaluationRecoveryCoordinator($evaluator);
 
-                $rewritten = $evaluator->reviseDraftTextOnly(
-                    $question,
-                    $safeContext,
-                    $finalAnswer,
-                    $feedback,
-                    $model,
-                    $forbiddenActions
-                );
+            $recoveryResult = $recoveryCoordinator->resolve(
+                $question,
+                $safeContext,
+                $finalAnswer,
+                $model,
+                $evalResult,
+                [
+                    'allow_text_rewrite' => ($policy['allow_llm_rewrite'] ?? true) === true,
+                    'clarify_feedback_suffix' => '[LIGHTWEIGHT-FINAL-GUARD] 質問と回答対象の不一致または条件不足を検知したため、確認質問へ切り替えました。',
+                    'rewrite_feedback_suffix' => '[LIGHTWEIGHT-FINAL-GUARD] 軽量ルートで既存根拠のみを使って最終回答を修正しました。',
+                ]
+            );
 
-                if ($rewritten !== '') {
-                    $finalAnswer = $rewritten;
-                    $evalResult['needs_revision'] = false;
-                    $evalResult['feedback'] = $feedback . "\n[LIGHTWEIGHT-FINAL-GUARD] 軽量ルートで既存根拠のみを使って最終回答を修正しました。";
-                }
+            if (($recoveryResult['action'] ?? 'none') !== 'none') {
+                $finalAnswer = (string)($recoveryResult['response'] ?? $finalAnswer);
+                $evalResult = $recoveryResult['eval_result'] ?? $evalResult;
             }
         }
 
@@ -161,6 +169,18 @@ class LightweightFinalAnswerGuard
             $forbiddenActions[] = '法規名や設計方針の推測追加';
         }
 
+        $alignment = AnswerAlignmentChecker::analyze($question, $draftAnswer);
+        if (($alignment['has_mismatch'] ?? false) === true) {
+            $verdict = 'reject';
+            $totalScore = min($totalScore, 45);
+            $relevance = min($relevance, 35);
+            $faithfulness = min($faithfulness, 70);
+            $clarity = min($clarity, 60);
+            $feedback[] = (string)($alignment['feedback'] ?? '質問と回答の対象が一致していません。');
+            $mustFix[] = '質問で求められた対象に回答対象を揃える';
+            $forbiddenActions[] = '別ソースの要約で質問を代用する';
+        }
+
         if (trim($draftAnswer) === '') {
             $verdict = 'revise_text_only';
             $totalScore = min($totalScore, 70);
@@ -189,8 +209,8 @@ class LightweightFinalAnswerGuard
             'feedback' => implode(' ', $feedback),
             'next_action' => $verdict === 'pass' ? '' : '既存根拠だけで出力形式と質問適合性を再確認する',
             'sql_hint' => '',
-            'must_fix' => array_values(array_unique($mustFix)),
-            'forbidden_actions' => array_values(array_unique($forbiddenActions)),
+            'must_fix' => EvaluationResultHelper::normalizeStringList($mustFix),
+            'forbidden_actions' => EvaluationResultHelper::normalizeStringList($forbiddenActions),
             'needs_revision' => $verdict !== 'pass',
         ];
     }

@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/ChatEvaluator.php';
+require_once __DIR__ . '/EvaluationRecoveryCoordinator.php';
 
 final class AdvancedCriticLoop
 {
@@ -57,6 +58,7 @@ final class AdvancedCriticLoop
         $evalResult = null;
         $this->log("[EVAL-POLICY] maxEvalRetries={$maxEvalRetries} | report_mode=" . ($this->reportMode ? 'on' : 'off') . " | diagram_mode=" . ($this->diagramMode ? 'on' : 'off'));
         $evaluator = new ChatEvaluator($this->ollamaHost);
+        $recoveryCoordinator = new EvaluationRecoveryCoordinator($evaluator);
 
         while ($retryCount < $maxEvalRetries) {
             $mergedReasoningText = $this->buildMergedReasoningText(4000);
@@ -86,33 +88,34 @@ final class AdvancedCriticLoop
             $verdict = (string)($evalResult['verdict'] ?? 'need_more_data');
             $this->log("[CRITIC-NG] 門番による差し戻し執行。verdict={$verdict} | 作戦指示: {$feedback}");
 
-            if (in_array($verdict, ['revise_text_only', 'reject'], true)) {
+            $recoveryResult = $recoveryCoordinator->resolve(
+                $this->originalMessage,
+                $mergedReasoningText,
+                $currentDraft,
+                $this->synthesisModel,
+                $evalResult,
+                [
+                    'clarify_feedback_suffix' => '[ASK-USER-CLARIFICATION] 差し戻し内容をユーザー向け確認質問へ変換し、追加情報の取得を優先しました。',
+                    'rewrite_feedback_suffix' => '[TEXT-ONLY-REWRITE] 既存根拠のみで最終回答を修正しました。',
+                ]
+            );
+
+            if (($recoveryResult['action'] ?? 'none') === 'clarify') {
+                $currentDraft = (string)($recoveryResult['response'] ?? $currentDraft);
+                $evalResult = $recoveryResult['eval_result'] ?? $evalResult;
+                $this->log("[CRITIC-CLARIFY] verdict={$verdict} のため追加再探索へ進まず、確認質問を返しました。");
+                break;
+            }
+
+            if (($recoveryResult['action'] ?? 'none') === 'rewrite') {
                 sendSSE('status', [
                     'step' => 4,
                     'message' => "📝 追加再探索は行わず、既存根拠だけで回答文を修正しています... [反省周回: {$retryCount}/{$maxEvalRetries}]"
                 ]);
-
-                $forbiddenActions = $evalResult['forbidden_actions'] ?? [];
-                if (!is_array($forbiddenActions)) {
-                    $forbiddenActions = [$forbiddenActions];
-                }
-
-                $rewritten = $evaluator->reviseDraftTextOnly(
-                    $this->originalMessage,
-                    $mergedReasoningText,
-                    $currentDraft,
-                    $feedback,
-                    $this->synthesisModel,
-                    $forbiddenActions
-                );
-
-                if (!empty($rewritten)) {
-                    $currentDraft = trim((string)$rewritten);
-                    $evalResult['needs_revision'] = false;
-                    $evalResult['feedback'] = $feedback . "\n[TEXT-ONLY-REWRITE] 既存根拠のみで最終回答を修正しました。";
-                    $this->log("[CRITIC-TEXT-ONLY] verdict={$verdict} のためdoc_chunks追加探索を行わず最終回答を文章修正しました。");
-                    break;
-                }
+                $currentDraft = trim((string)($recoveryResult['response'] ?? $currentDraft));
+                $evalResult = $recoveryResult['eval_result'] ?? $evalResult;
+                $this->log("[CRITIC-TEXT-ONLY] verdict={$verdict} のためdoc_chunks追加探索を行わず最終回答を文章修正しました。");
+                break;
             }
 
             sendSSE('status', [
