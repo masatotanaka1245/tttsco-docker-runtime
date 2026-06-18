@@ -19,11 +19,11 @@ Tailwind CSS	3.x
 
 現行仕様サマリー（2026/06/03時点・最新実装反映）
 
-本システムは、Windows本番環境（PHP 8.2.8 / MySQL 8.0.33 / Apache 2.4.57）上で動作する、案件単位のAI業務支援プラットフォームです。`AI_System_Data/public` をWeb公開ルートとし、PDF資料、Markdownベースの資料メモ、CSV/TSVデータ、案件コメント、FAQ、メンバー情報をMySQLに保存します。AI推論はOllama APIを利用し、ユーザーごとに接続先URL、既定モデル、サブモデル、SQLモデル、Embeddingモデルを設定できます。
+本システムは、Windows本番環境（PHP 8.2.8 / MySQL 8.0.33 / Apache 2.4.57）上で動作する、案件単位のAI業務支援プラットフォームです。単なる一問一答チャットではなく、「会話しながら成果品を育てて出荷する」ことを主目的とし、`AI_System_Data/public` をWeb公開ルートとして、PDF資料、Markdownベースの資料メモ、CSV/TSVデータ、案件コメント、FAQ、メンバー情報をMySQLに保存します。AI推論はOllama APIを利用し、ユーザーごとに接続先URL、既定モデル、サブモデル、SQLモデル、Embeddingモデルを設定できます。
 
 ## 資料メモ層（2026-06-08）
 
-案件ごとに、PDFとは別に育てていく Markdown 資料メモを `support.php` の中央 `資料` タブから扱えるようにした。資料メモは `.md` ファイルとして保存されるだけでなく、`documents` / `doc_chunks` にも同期登録され、PDFと同じく案件資料の一部として再参照できる。
+案件ごとに、PDFとは別に育てていく Markdown 資料メモを `support.php` の中央 `資料` タブから扱えるようにした。資料メモは `.md` ファイルとして保存されるだけでなく、`documents` / `doc_chunks` にも同期登録され、PDFと同じく案件資料の一部として再参照できる。2026-06-17 時点では、資料作成・追記・修正・章立て相談では、この資料メモを PDF より先に確認する「資料メモ優先モード」を通常RAGに導入している。
 
 - 画面仕様
   - `support.php?project_id=...&tab=materials`
@@ -43,10 +43,11 @@ Tailwind CSS	3.x
 - 運用メモとの違い
   - `AGENTS / README / TODO` は `project_meta` に保持する補助コンテキスト
   - `資料` タブの Markdown は、案件資料そのものとして保存し、チャット回答から追記できる作業用ドキュメント
+  - チャット側では、資料メモは「作業中の主成果品」として扱える。PDFは補助根拠、資料メモは差分編集対象という役割分担を取る
 
 ## 案件運用メモ層（2026-06-04）
 
-案件ごとに、`AGENTS / README / TODO` 相当の補助メモを `project_meta` に保持し、回答生成前の補助コンテキストとして参照する仕組みを追加した。現在は `support.php` からの手動保存に加えて、案件チャット保存後に案件状態と直近会話から自動再生成する。加えて `chat.php` の入口では、粗い質問因数分解の時点でも `README / AGENTS / TODO` をまとめて読み込み、曖昧な相談系質問の route 安定化に補助利用する。
+案件ごとに、`AGENTS / README / TODO` 相当の補助メモを `project_meta` に保持し、回答生成前の補助コンテキストとして参照する仕組みを追加した。現在は `support.php` からの手動保存に加えて、案件チャット保存後に案件状態と直近会話から自動再生成する。加えて `chat.php` の入口では、粗い質問因数分解の時点でも `README / AGENTS / TODO` をまとめて読み込み、曖昧な相談系質問の route 安定化に補助利用する。2026-06-15 時点では、自動生成メモを優先参照し、手動メモは補助・補正として扱う方針へ寄せている。
 
 - 保存先キー
   - `ai_project_agents_md`
@@ -59,7 +60,19 @@ Tailwind CSS	3.x
   - `chat_normal.php`
   - `chat_analysis.php`
   - `chat_advanced.php`
-  - `chat_history_summary.php`
+- `chat_history_summary.php`
+
+運用上の優先順位は次の通り。
+
+- 自動生成メモ
+  - 現在スレッド優先 + 案件全体の最近会話を薄く補助参照して作る
+  - 次回回答の方針へ優先反映してよい
+- 手動メモ
+  - 補助・補正用
+  - 必要な補足や修正を人が入れる場所
+  - 自動生成メモと矛盾するときは、まず自動生成メモを主仮説として扱う
+
+`AIエージェント` の自動生成メモには、通常の要約に加えて `改善ログ` を含めることがある。ここには、低スコア回答から抽出した `質問 / 評価 / 改善策 / 次回ルール` を最大数付きで保持し、次回の回答改善に使う。
 
 自動更新のタイミングは次の通り。
 
@@ -75,6 +88,7 @@ Tailwind CSS	3.x
   - 案件背景、用語、前提、構造メモ
 - `TODO`
   - 現在の課題、既知の論点、次に見るべき点
+  - 自動生成時は `進行中` 1件、`未着手`、`検証中`、`完了`、`保留` に分ける
 
 因数分解での使い方は次の通り。
 
@@ -83,6 +97,9 @@ Tailwind CSS	3.x
 - 明示的な `CSV` / `PDF` / 履歴要約要求を上書きしない
 - 曖昧な相談、言い換え、案件名検討、動作確認の強調のような質問で normal ルートへ寄せる補助ヒントとして使う
 - 特に案件名変更やアプリ動作確認の打ち出し相談では、`normal_rag.project_memory_consultation` として扱い、通常RAGでも資料ベクトル検索を主役にしない
+- ただし `TODO` の `進行中` は、現在の主成果品レーンとして follow-up 継続の判断に使ってよい
+- `TODO` の `進行中` は、直近発話の単純な引用ではなく、未完了のユーザー依頼を優先して選ぶ。すでに応答済みの依頼は `検証中` または `完了` へ寄せる
+- 応答済みでも評価スコアが低い依頼は `完了` にせず、`検証中` として再確認対象に残す
 
 このメモ層は、資料本文やDB実データの代替ではない。AIには補助コンテキストとして渡すが、根拠の優先順位は次の通りとする。
 
@@ -90,7 +107,35 @@ Tailwind CSS	3.x
 2. FAQ、コメント、既存の `ai_database_memory`
 3. 案件運用メモ（`AGENTS / README / TODO`）
 
-したがって、`TODO` に書かれた仮説や作業メモを、そのまま事実として断定してはいけない。自動更新されたメモも同様で、資料本文やDB実データより優先しない。
+したがって、`TODO` に書かれた仮説や作業メモを、そのまま事実として断定してはいけない。`改善ログ` の `次回ルール` も、回答の振る舞い改善には使ってよいが、資料本文やDB実データより優先しない。一方で、`TODO` の `進行中` は「次に育てる成果品」の行動レーンとして扱ってよい。
+
+## 成果品駆動方針（2026-06-16）
+
+現在は、会話履歴そのものよりも「成果品の現在地」を主役として扱う。
+
+- 主な成果品
+  - `運用メモ`
+    - `ProjectContextMemory` の `ai_project_agents_md` / `ai_project_readme_md` / `ai_project_todo_md`
+  - `資料`
+    - `documents` / `doc_chunks` に同期される Markdown 資料メモ
+  - `PDF`
+    - `report_mode` や明示依頼で生成される最終成果品
+  - `CSV`
+    - `project_csv_files` / `project_csv_rows` に登録される構造化成果品
+  - `ナレッジ`
+    - `project_faqs` に昇格する再利用Q&A
+- `project_comments` は案件コメントであり、運用メモとは別物として扱う
+- 会話履歴は長く抱え込まず、現在スレッドの直近2〜3件を主にインテント把握と follow-up 判定へ使う。2026-06-16 時点では、入口と `chat_analysis.php` の `recent_history` 取得は `3件` にそろえている
+- 一方で、運用メモ、資料、CSV、直前の集計ステートなどの「成果品スナップショット」は優先的にプロンプトへ載せる
+- `ProjectMemoryAutoUpdater` の自動生成メモでも、`documents` 上の Markdown 資料メモを独立した成果品として収集し、`README / AGENTS / TODO` に反映する
+- FAQ / PDF / CSV は、ユーザーの意図が明確で route 条件が揃っていれば、AI が直接生成・登録してよい
+- 資料や運用メモは、全文作り直しより差分更新・部分リライトを優先する方針で進める
+- `CSV / PDF / 資料メモ / コメント / FAQ / 案件情報 / DB実データ` は、成果品を完成させるための情報源として横断参照する
+- `chat_history_summary.php` の status / reasoning 表示や、`AdvancedRouteFinalizer` の報告書・CSV保存時の文言も、単なる要約・保存ではなく「成果品を整理して出荷する」見せ方へ寄せている
+- `CsvQuickResponseRunner` / `CsvMetadataResponseRunner` の軽量CSVルートでも、`CSV-SUMMARY` / `CSV-OVERVIEW` / `CSV-METADATA` / no-hit フォールバックを「CSV成果品の整理・ドラフト生成」として見せる方向へ寄せている
+- 2026-06-16 の追加補正として、`advanced_hybrid.multi_source_advice` の意図は `route_detail` 経由で advanced 側へ引き渡し、案件要約や「次はどう進めるか」のような相談を PDF抽出へ誤転倒させにくくする
+- あわせて、`グラフ化` を含む単一CSV依頼は `CSV-EVIDENCE` へ落とすより先に `CSV-AGG` を優先し、列未指定なら確認質問へ止める方針へ寄せる
+- assistant 回答本文から follow-up 用の列名を拾う場合は、見出し語ではなく実在カラムと一致する候補だけを採用する
 
 ## モデル責務の再設計方針（2026-06-04）
 
@@ -133,7 +178,7 @@ Tailwind CSS	3.x
 - 2026-06-04 の時点で、`callOllamaChat()` は `[OLLAMA-PAYLOAD]` と `[OLLAMA-THINK]` ログを出し、Gemma 系モデルで `<|think|>` を自動付与したか、応答に思考トレースが含まれたかを追える
 - `diagram_mode=on` の小規模CSV概要は、`CSV-SUMMARY` の軽量ルートでも deterministic に `json:chart` を返す
 - `登録済みCSVの概要` のような広域要約は、直前履歴の `recent_history` だけで `CSV-AGG` に誤進入しないよう抑制する
-- 現状の実装では、`これまでの会話内容を簡潔にまとめてください` のような履歴要約は、`report_mode=on` でも `history_summary` を優先することがある
+- 2026-06-16 時点の方針では、`これまでの会話内容を簡潔にまとめてください` のような履歴要約は、`report_mode=off` なら `history_summary` を優先し、`report_mode=on` や `報告書` / `レポート` の明示がある場合は報告書化フローを優先する
 - `CSV-SUMMARY`、`history_summary`、資料PDF向け軽量最終回答は、出荷前に rule-first の軽量最終回答ガードを通し、deterministic 出力を壊さずに質問適合性を確認する
 - 資料PDF向け軽量最終回答は、`doc_chunks` の `資料名 / ページ / 本文抜粋 / 図表説明` を優先根拠として使い、資料名・ページ番号付きの箇条書きを deterministic に整形し、根拠にない一般論や法規名を足さない
 
@@ -144,8 +189,38 @@ Tailwind CSS	3.x
 - `これまでの会話内容を簡潔にまとめてください` は、`report_mode=off` なら `history_summary` に入ることを確認する
 - `これまでの会話内容を簡潔にまとめてください` でも、`report_mode=on` なら軽量 `history_summary` より報告書化フローを優先する
 - `これまでの会話内容を簡潔にまとめて報告書を作成してください` は、当然 `report_mode=on` なら報告書化フローへ進む
+- CSV follow-up では、直前の `target_file_name` / `target_column` だけでなく、`aggregation_mode` / `sort_order` / `wants_chart` / `output_format` を含む `成果品ステート` を復元し、短い追い指示でも route を継続できることを確認する
 - `data_analysis` の第二段として、残る AI 補助工程があれば `main` / `sub` の責務境界を再点検する
 - `sql_model` / `embedding_model` / `vision_model` 列を本番DBへ反映した環境で、セッション暫定設定から永続設定へ移行できるか確認する
+
+## 成果品ステート継続方針（2026-06-16）
+
+CSV集計や報告書化の follow-up では、会話履歴を単なる単語補完元ではなく、「直前に編集中だった成果品の状態」を復元する入力として扱う。
+
+- 復元対象の基本単位
+  - `last_success_route`
+  - `target_file_name`
+  - `target_column`
+  - `aggregation_mode`
+  - `sort_order`
+  - `wants_chart`
+  - `chart_type`
+  - `output_format`
+  - 必要に応じて `base_sql` や直前集計結果の要約
+- CSV follow-up の扱い
+  - `若い順で`
+  - `グラフ化して`
+  - `やっぱり逆順で`
+  - `表ではなくグラフで`
+  のような短い追加指示では、新規質問として route を考え直すより、直前の `data_analysis.csv_agg` を継続する
+- 履歴の報告書化の扱い
+  - `report_mode=on`
+  - `報告書`
+  - `レポート`
+  - `PDF化`
+  のいずれかがある場合は、軽量 `history_summary` より報告書化フローを優先する
+
+この方針により、成果品の途中編集を続けている最中に `CSV-OVERVIEW` や単純な履歴要約へ脱線しないことを優先する。
 
 ### モデル責務の確認観点
 
@@ -215,7 +290,7 @@ Tailwind CSS	3.x
 PDF登録・RAG化	PDFを案件配下に保存し、テキスト抽出、必要に応じた画像/VLM解析、チャンク化、Embedding生成、`doc_chunks` 登録を実行	public/api/upload.php, src/EmbeddingEngine.php
 CSV/TSV登録	CSV/TSVを `project_csv_files` / `project_csv_rows` に保存。DB登録を先に確定し、その後にRAG用自然言語チャンクとEmbeddingを作成。大規模CSVでは複数行をまとめてチャンク化し、Embedding連続失敗時もCSV本体登録は維持	public/api/upload_csv.php, public/api/get_csv_data.php, public/api/delete_csv.php
 外部PostgreSQL取込	外部PostgreSQLの抽出結果をCSV同等の構造で案件DBへ登録	public/api/import_postgresql.php
-AIチャット	`chat.php` を入口に、粗い質問因数分解で通常RAG、`advanced_hybrid.doc_extract`、CSV構造化集計 (`CSV-AGG`)、CSV証拠読解、CSV要約、admin向け全社横断調査へスマートルーティング	public/api/chat.php, chat_normal.php, chat_advanced.php, chat_analysis.php, chat_global.php
+AIチャット	`chat.php` を入口に、通常RAG、`advanced_hybrid.doc_extract`、CSV構造化集計 (`CSV-AGG`)、CSV証拠読解、CSV要約、admin向け全社横断調査へスマートルーティングする。会話しながら `運用メモ`、`資料`、`PDF`、`CSV`、`ナレッジ` を育てる成果品駆動型の動線を取る。	public/api/chat.php, chat_normal.php, chat_advanced.php, chat_analysis.php, chat_global.php
 資料メモ管理	中央 `資料` タブで Markdown 資料を作成・プレビュー・モーダル編集・削除できる。保存内容は `.md` として保持しつつ `documents` / `doc_chunks` に同期し、AI回答からの追記にも対応	public/support.php, public/templates/modals.php, public/api/save_material.php, public/api/get_material.php, public/api/delete_material.php, public/api/save_material_note.php, src/ProjectMaterialDocumentService.php
 入力ガード	空入力、挨拶、誤送信に近い短文、報告書モードに不十分な指示を事前判定し、重い推論・SQL・PDF生成へ入る前に確認応答へ切替	src/ChatRequestGuard.php, public/api/chat.php
 図解・報告書モード	図解モードでは必要に応じてChart.jsやMermaid図表を回答に含め、CSV日付集計では deterministic な `json:chart` を優先生成する。報告書モードでは最終回答を報告書向け構成へ整形してPDF化し、PDFタブへ登録し、RAG検索対象にも追加する	public/support.php, public/assets/js/modules/chat.js, src/ReportGenerator.php
@@ -224,7 +299,7 @@ CSV生成	回答モードの `CSV化` が有効な場合、AI回答内の Markdo
 CSV高速サマリー	小規模CSV（100行以下）の「内容まとめ」「概要」「要約」系質問は、Ollamaを呼ばずDBレコードから即時サマリーを生成	public/api/chat_analysis.php
 CSV検索先行読解	CSV証拠読解では、質問文から検索語を抽出し、`row_data`・ファイル名・列ヘッダーをSQL検索してから読解対象を決定。ヒットなしや検索語が弱い大規模CSVでは、全件AI読解せず概況回答へ切替	public/api/chat_analysis.php
 Text-to-SQL分析	AI生成SQLを `SqlExecutionEngine` で監査し、実在テーブル・カラム、案件スコープ、SELECT系SQLのみ実行。失敗時はモード別上限（通常1回、図解・報告書2回）で修復し、定番SQLフォールバックで正解へ誘導	src/SqlExecutionEngine.php, public/api/chat_analysis.php, public/api/chat_advanced.php
-回答品質評価	LLM-as-a-Judgeで回答を評価し、必要に応じて追加抽出・再生成を行い、評価結果を `chat_evaluations` に保存。通常RAGは必要性判定により軽量回答の評価を省略し、高評価かつ重複なしの回答は要点化して `project_faqs` に自動登録する。FAQ自動登録はスキップ理由も `chat_debug.log` に出力する	src/ChatEvaluator.php, src/ChatEvaluationPolicy.php, src/FaqAutoRegistrar.php, public/api/chat_normal.php, public/api/chat_advanced.php, public/api/chat_analysis.php
+回答品質評価	LLM-as-a-Judgeで回答を評価し、必要に応じて追加抽出・再生成を行い、評価結果を `chat_evaluations` に保存する。通常RAGは必要性判定により軽量回答の評価を省略し、高評価かつ重複なしの回答は要点化して `project_faqs` に自動登録する。FAQ自動登録はスキップ理由も `chat_debug.log` に出力する。評価直前には、質問が `会話履歴 / CSV / PDF / 報告書` のどれを求めているかと、回答が実際にどの対象を説明しているかを突き合わせ、対象がずれている場合は高スコアでも `pass` にせず、確認質問または差し戻しへ寄せる。	src/ChatEvaluator.php, src/ChatEvaluationPolicy.php, src/FaqAutoRegistrar.php, public/api/chat_normal.php, public/api/chat_advanced.php, public/api/chat_analysis.php
 チャットUI描画	SSEストリームで回答を逐次表示し、Markdown、Chart.js用 `json:chart`、Mermaid図をチャット内に描画。ブラウザ更新後も推論プロセスを再表示し、生成中の詳細ステータスは折りたたみで確認可能	public/assets/js/modules/chat.js, public/assets/js/modules/aiRenderer.js, public/support.php
 詳細ログ	`chat_debug.log` にルート判定、DB収集、Ollama呼び出し、SQL修復、評価、保存処理の詳細ログを出力。support.php上でリアルタイムtail表示可能	logs/chat_debug.log, public/api/chat_debug_tail.php, src/AppLogger.php
 
@@ -233,7 +308,7 @@ Text-to-SQL分析	AI生成SQLを `SqlExecutionEngine` で監査し、実在テ�
 1. `public/api/chat.php` が質問文、案件ID、モデル、プロンプト、回答モード（フル思考・図解・報告書・CSV化）を受け取る。
 2. `ChatRequestGuard.php` が誤送信・不明瞭入力・報告書モードに不十分な指示を事前判定し、必要なら軽量な確認応答で終了する。
 3. `chat.php` が質問を粗く因数分解し、通常RAG、`advanced_hybrid.doc_extract`、CSV構造化集計 (`CSV-AGG`)、CSV検索先行読解、CSV要約、フル思考、全社横断調査へ分岐する。
-4. PDF/CSV/コメント/FAQ/会話履歴などの関連データをMySQLから取得する。
+4. 運用メモ、PDF/CSV、コメント、FAQ、会話履歴などの関連データを取得し、成果品スナップショットを優先して文脈化する。
 5. 必要に応じてOllamaで回答生成、推論統合、SQL生成、品質評価を行う。CSV日付集計はAI生成SQLに頼らず、日付列検出と定番SQLで構造化集計し、図解モードでは `json:chart` を deterministic に組み立てる。SQL自己修復と品質評価の差し戻しは、通常は短く、図解・報告書モードでは少し厚めに実行する。
 6. 回答本文、推論ステップ、評価スコアを `chat_history`、`chat_reasoning_steps`、`chat_evaluations` に保存する。高評価回答は必要に応じて `project_faqs` に自動登録する。
 7. フロントエンドはSSEで受信した本文をリアルタイム描画し、Chart.js / Mermaid の図表も描画する。生成中ステータスは入力欄上の小さなバーに表示し、詳細ログは回答完了後に折りたたみで確認できる。
@@ -243,7 +318,7 @@ Text-to-SQL分析	AI生成SQLを `SqlExecutionEngine` で監査し、実在テ�
 現行の補足ポイント
 
 - `advanced_hybrid` では、資料中心質問を `advanced_hybrid.doc_extract` として因数分解し、`doc-only semantic_extract` の場合はシーケンス1のSQL分析とPlannerを省略して資料RAGへ寄せる。
-- `chat_advanced.php` の資料PDF抽出では、PDF優先の定番SQL、軽量最終回答ルート、最終回答本文ログ（`[FINAL-ANSWER-*]`）を使って、速度と観測性を両立している。軽量最終回答ルートは `ChatEvaluator` の本審査を省略するため、評価結果には `evaluation_mode=synthetic` を付与して本審査結果と区別する。
+- `chat_advanced.php` の資料PDF抽出では、PDF優先の定番SQL、軽量最終回答ルート、最終回答本文ログ（`[FINAL-ANSWER-*]`）を使って、速度と観測性を両立している。軽量最終回答ルートは `ChatEvaluator` の本審査を省略し、`evaluation_mode=rule` / `evaluation_source=lightweight_rule_guard` の rule-first 評価で保存する。
 - `chat_analysis.php` の `CSV-AGG` は、日付列候補をサンプル判定してから構造化集計し、図解モードでは単一CSVは折れ線、複数CSVは棒グラフを基本に `json:chart` を出力する。
 - `CSV-AGG` の日付系は `CsvDateAggregationRunner`、distinct / 分布系は `CsvValueAggregationRunner`、semantic 系は `CsvSemanticAggregationRunner` に切り出し済みで、対象CSV解決は `CsvAggregationTargetResolver` に寄せている。
 - `CSV-AGG` の value 系には、重複除外件数だけでなく、特定値を抽出して件数を返す exact count も含める方針で整備を進めている。
@@ -252,14 +327,17 @@ Text-to-SQL分析	AI生成SQLを `SqlExecutionEngine` で監査し、実在テ�
 - 特に次の 2 点を優先課題として扱う。
   - CSV 集計の follow-up で、CSV 名と列名だけでなく直前の `aggregation_mode` と `sort_order` まで引き継ぎ、`CSV-OVERVIEW` へ落とさない
   - `これまでの会話内容をまとめて報告書化` のような依頼では、`history_summary` より報告書化 intent を優先する
+- 2026-06-16 時点では、直前の `aggregation_mode` / `sort_order` / `wants_chart` / `chart_type` / `output_format` / `base_sql` を含む `成果品ステート` を復元し、follow-up route lock に使う実装が入っている。
+- あわせて `chat_analysis.php` では、`route_detail=data_analysis.csv_agg.route_lock` を受け取り、planner / formatter / semantic runner まで `output_format` / `chart_type` / `base_sql` を引き継ぐ実装が入っている。
 - 2026-06-05 のスレッド導入後は、履歴要約と CSV follow-up の文脈継続は「案件全体」ではなく「現在の会話スレッド」単位で扱う。
 - CSV follow-up では、CSV 名・列名・`aggregation_mode`・`sort_order` に加え、直前にグラフ化していたかどうかも引き継ぎ、短い追い質問でも図表意図を落としにくくする。
+- 2026-06-16 の方針では、短い follow-up が追加指示・編集指示・出力変更である限り、`ChatRouteSelector` で route lock をかけ、`data_analysis.csv_agg` の成果品レールを継続する。
 - 同じく、月別・年月系の追い質問では、直前会話から `target_file_name` と `target_column` を補完し、`Datetime` や `年月日` のような日時列は月粒度に丸めて deterministic な date histogram を優先する。
 - CSV 集計では、`ユニーク件数` と `各値ごとの件数分布` を別物として扱う。`何種類` / `ユニーク件数` は distinct count、`全ての値の件数` / `各レコード数` / `値ごとの件数` は value distribution を正とする。
 - 特定値件数は、引用符の有無に依らず自然文から抽出する。たとえば `2025年3月の総件数` は、全体分布ではなく exact value count を優先する。
 - 全社横断のブリーフィング系質問は `global_no_project` / `global_cross` を正規ルートとし、前段ログに重い経路の文言が出ても、最終 route と実処理の一貫性を優先して扱う。
 - 案件未選択 (`project_id = NULL`) の汎用質問では、たとえ `advanced_reasoning=on` や長文の複雑質問であっても、原則として `global_no_project` / `global_cross` を優先し、`advanced_hybrid` を示唆する前段ログは出さない方向で整備する。
-- `FaqAutoRegistrar.php` は、高評価回答のみをFAQ候補として扱い、`chat_history_id`・質問要約・回答要約の重複を避けながら保存する。現在は `evaluation_mode=real` の本審査結果に加え、`evaluation_source=lightweight_rule_guard` の決定論寄り軽量評価も候補に含める。保存されなかった場合も理由を `[FAQ-AUTO]` ログで追える。
+- `FaqAutoRegistrar.php` は、高評価回答のみをFAQ候補として扱い、`chat_history_id`・質問要約・回答要約の重複を避けながら保存する。現状の候補は `evaluation_mode=real` の本審査結果に限定し、`lightweight_rule_guard` や `fallback` 系は候補に含めない。保存されなかった場合も理由を `[FAQ-AUTO]` ログで追える。
 - `project_comments` / `project_faqs` は回答生成ルートの参照対象には入っているが、現状は PDF / CSV より前面には出にくい。FAQ は一部質問で明示的に参照しやすい一方、コメントは主にスキーマ文脈やSQL到達時の補助ソースとして使われる。コメント・FAQ 系の質問語を優先ルーティングする改善は将来候補として扱う。
 
 チャット受付・ルーティング現行メモ（2026/06/03整理）
@@ -268,7 +346,8 @@ Text-to-SQL分析	AI生成SQLを `SqlExecutionEngine` で監査し、実在テ�
 - 入口は `public/api/chat.php`。ここで `project_id`、メッセージ本文、`advanced_reasoning`、`report_mode`、`diagram_mode` を受け取る。
 - 受付直後に `[INPUT-MODE]` を `chat_debug.log` へ出力し、回答モードの実入力を追えるようにしている。
 - `ChatRequestGuard.php` が空入力、挨拶、誤送信に近い短文、報告書モードに不十分な依頼を先に弾く。
-- 直近8件の `chat_history` を読み、`history_summary_text` を下流へ渡す。案件内スレッド機能導入後は、案件単位ではなく現在の会話スレッド単位で直近履歴を見る。加えて、CSV追い質問の補完用に直近会話から対象CSV名・列名・直前の集計意図も再利用する。
+- 現在スレッドの直近2〜3件相当の `chat_history` を主に使い、`history_summary_text` を下流へ渡す。案件内スレッド機能導入後は、案件単位ではなく現在の会話スレッド単位で直近履歴を見る。加えて、CSV追い質問の補完用に直近会話から対象CSV名・列名・直前の集計意図に加え、`aggregation_mode` / `sort_order` / `wants_chart` / `output_format` / `base_sql` などの成果品ステートも再利用する。
+- `やっぱり表で` / `棒グラフで` のような follow-up では、今回の明示指示を優先しつつ、`route_lock` 中の成果品ステートを planner と answer formatter が引き継ぐ。
 
 2. ルーティングの大枠
 - `chat.php` は粗い質問因数分解を行い、まず `data_analysis.csv_agg` / `data_analysis.csv_summary` / `advanced_hybrid.doc_extract` のような軽量な route 候補を作る。
@@ -302,15 +381,15 @@ Text-to-SQL分析	AI生成SQLを `SqlExecutionEngine` で監査し、実在テ�
 
 5. 会話文脈の補完
 - 追い質問でCSV名や列名が消えても、直前会話に `集計.csv / event_type` のような文脈があれば、`chat.php` 側で補完して `data_analysis.csv_agg` に戻す。
-- 今後の期待動作としては、CSV follow-up では CSV 名と列名だけでなく、直前の `aggregation_mode`、`sort_order`、図表意図も引き継ぐ。
-- 現状の補完対象は主に「CSV名」「列名」で、より広い意味的な会話参照はまだ限定的。
+- 現在は、CSV follow-up では CSV 名と列名だけでなく、直前の `aggregation_mode`、`sort_order`、`wants_chart`、`output_format`、`base_sql` を含む成果品ステートも引き継ぐ。
+- ただし runner 側での出力継続はまだ改善余地がある。
 
 6. 回答表示と品質審査
 - ブラウザへ本文を見せるのは最終 `result` のみ。内部では生成途中ドラフトを作るが、本文 `chunk` は出さない。
 - `advanced_hybrid` と一部 `data_analysis` は回答生成後に品質評価を行う。結果は `chat_evaluations` に保存される。
 - 2026-06-04 時点で、`history_summary` と軽量CSV概要、資料PDF向け軽量最終回答も、rule-first の軽量最終回答ガードを通してから保存・出荷する。
-- 評価結果は `evaluation_mode=real / synthetic / fallback / rule` で区別する。
-- FAQ自動登録は、`evaluation_mode=real` の本審査通過系を主対象としつつ、`evaluation_source=lightweight_rule_guard` の高スコア軽量回答も候補に含める。`fallback` 系は引き続き除外する。
+- 評価結果は、現行では主に `evaluation_mode=real / rule / fallback` で区別する。
+- FAQ自動登録は、`evaluation_mode=real` の本審査通過系のみを対象とし、`lightweight_rule_guard` と `fallback` 系は除外する。
 
 7. 図解モードの現状
 - `diagram_mode=on` では、軽量CSV集計結果は PHP側で deterministic に `json:chart` を組み立てる。
