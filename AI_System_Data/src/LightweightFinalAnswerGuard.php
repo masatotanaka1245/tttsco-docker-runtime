@@ -170,6 +170,7 @@ class LightweightFinalAnswerGuard
         }
 
         $alignment = AnswerAlignmentChecker::analyze($question, $draftAnswer);
+        $mismatchPair = is_array($alignment['mismatch_pair'] ?? null) ? $alignment['mismatch_pair'] : null;
         if (($alignment['has_mismatch'] ?? false) === true) {
             $verdict = 'reject';
             $totalScore = min($totalScore, 45);
@@ -211,6 +212,7 @@ class LightweightFinalAnswerGuard
             'sql_hint' => '',
             'must_fix' => EvaluationResultHelper::normalizeStringList($mustFix),
             'forbidden_actions' => EvaluationResultHelper::normalizeStringList($forbiddenActions),
+            'mismatch_pair' => $mismatchPair,
             'needs_revision' => $verdict !== 'pass',
         ];
     }

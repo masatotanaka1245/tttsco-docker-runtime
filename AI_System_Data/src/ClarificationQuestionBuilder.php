@@ -5,6 +5,12 @@ final class ClarificationQuestionBuilder
     public static function shouldAsk(array $evalResult, string $question = ''): bool
     {
         $verdict = (string)($evalResult['verdict'] ?? '');
+        $mismatchPair = self::normalizeMismatchPair($evalResult['mismatch_pair'] ?? null);
+
+        if ($mismatchPair !== null && self::shouldAskByMismatchPair($mismatchPair)) {
+            return true;
+        }
+
         if (!in_array($verdict, ['need_more_data', 'reject'], true)) {
             return false;
         }
@@ -43,8 +49,16 @@ final class ClarificationQuestionBuilder
         $feedback = trim((string)($evalResult['feedback'] ?? ''));
         $question = trim($question);
         $mustFix = $evalResult['must_fix'] ?? [];
+        $mismatchPair = self::normalizeMismatchPair($evalResult['mismatch_pair'] ?? null);
         if (!is_array($mustFix)) {
             $mustFix = [$mustFix];
+        }
+
+        if ($mismatchPair !== null) {
+            $pairQuestion = self::buildMismatchPairQuestion($mismatchPair);
+            if ($pairQuestion !== '') {
+                return $pairQuestion;
+            }
         }
 
         if (preg_match('/(案件名|プロジェクト名|名称)/u', $question . "\n" . $feedback)) {
@@ -87,5 +101,57 @@ final class ClarificationQuestionBuilder
         }
 
         return "確認させてください。より正確にお答えするため、今回のご依頼で特に重視したい対象・期間・観点をもう少し具体的に教えてください。いただいた条件に合わせて、その内容で回答を組み直します。";
+    }
+
+    private static function normalizeMismatchPair($value): ?array
+    {
+        if (!is_array($value) || count($value) !== 2) {
+            return null;
+        }
+
+        $expected = trim((string)($value[0] ?? ''));
+        $actual = trim((string)($value[1] ?? ''));
+        if ($expected === '' || $actual === '') {
+            return null;
+        }
+
+        return [$expected, $actual];
+    }
+
+    private static function shouldAskByMismatchPair(array $mismatchPair): bool
+    {
+        $clarifyPairs = [
+            'consult:aggregate',
+            'aggregate:consult',
+            'material:pdf',
+            'report:history',
+            'history:report',
+        ];
+
+        return in_array($mismatchPair[0] . ':' . $mismatchPair[1], $clarifyPairs, true);
+    }
+
+    private static function buildMismatchPairQuestion(array $mismatchPair): string
+    {
+        [$expected, $actual] = $mismatchPair;
+        $pairKey = $expected . ':' . $actual;
+
+        if ($pairKey === 'consult:aggregate') {
+            return "確認させてください。今回はCSVの集計結果そのものより、次にどう進めるかや改善案の整理を求めていますか。それとも実際に件数集計やグラフ作成まで進めたいですか。";
+        }
+
+        if ($pairKey === 'aggregate:consult') {
+            return "確認させてください。今回は進め方の相談ではなく、実際の集計結果やグラフ出力を返す理解でよいですか。よければ対象CSVや列名、見たい指標があればあわせて教えてください。";
+        }
+
+        if ($pairKey === 'material:pdf') {
+            return "確認させてください。今回はPDFの内容説明ではなく、資料メモのMarkdownを更新したい意図でよいですか。追記したい章や見出し、反映したい内容があればそのまま指定してください。";
+        }
+
+        if ($pairKey === 'report:history' || $pairKey === 'history:report') {
+            return "確認させてください。今回は会話の簡単な要約ではなく、報告書やレポートとして整えた成果品を作る意図でよいですか。問題なければ、簡潔版か詳細版かも教えてください。";
+        }
+
+        return '';
     }
 }

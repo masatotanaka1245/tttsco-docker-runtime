@@ -305,6 +305,7 @@ EOT;
         $mustFix = EvaluationResultHelper::normalizeStringList($evalResult['must_fix'] ?? []);
 
         $alignment = AnswerAlignmentChecker::analyze($question, $draftAnswer);
+        $mismatchPair = is_array($alignment['mismatch_pair'] ?? null) ? $alignment['mismatch_pair'] : null;
         if (($alignment['has_mismatch'] ?? false) === true) {
             $verdict = 'reject';
             $normalizedScores['answer_relevance'] = min($normalizedScores['answer_relevance'], 35);
@@ -336,6 +337,7 @@ EOT;
             'sql_hint' => $sqlHint,
             'must_fix' => $mustFix,
             'forbidden_actions' => $forbiddenActions,
+            'mismatch_pair' => $mismatchPair,
             'needs_revision' => $verdict !== 'pass',
             'allow_memory_refresh' => $verdict === 'pass' && $totalScore >= 85,
         ];
