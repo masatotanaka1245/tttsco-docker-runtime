@@ -182,7 +182,91 @@ $resolveCategoryToCandidate = static function (string $rawCategory, array $candi
         }
     }
 
-    return $candidateCategories[0];
+    return '未分類';
+};
+
+$normalizeCellText = static function ($value, int $maxLength = 180): string {
+    $text = preg_replace('/\s+/u', ' ', trim((string)$value)) ?? trim((string)$value);
+    if ($text === '') {
+        return '';
+    }
+
+    return mb_strimwidth($text, 0, $maxLength, '...', 'UTF-8');
+};
+
+$buildCompactRowData = static function (array $headers, array $rowData, string $targetColumn, int $maxFields = 10) use ($normalizeCellText): array {
+    $priorityPattern = '/(分類|カテゴリ|区分|種別|状態|ステータス|担当|部署|部門|顧客|取引先|案件|件名|タイトル|名称|日付|日時|年月|備考|内容|説明|摘要|メモ)/u';
+    $selected = [];
+    $seen = [];
+
+    $pushField = static function (string $header) use (&$selected, &$seen, $rowData, $normalizeCellText): void {
+        if ($header === '' || isset($seen[$header])) {
+            return;
+        }
+        $value = $normalizeCellText($rowData[$header] ?? '');
+        if ($value === '') {
+            return;
+        }
+        $selected[$header] = $value;
+        $seen[$header] = true;
+    };
+
+    $pushField($targetColumn);
+
+    foreach ($headers as $header) {
+        $header = (string)$header;
+        if ($header === $targetColumn || preg_match($priorityPattern, $header) !== 1) {
+            continue;
+        }
+        $pushField($header);
+        if (count($selected) >= $maxFields) {
+            return $selected;
+        }
+    }
+
+    foreach ($headers as $header) {
+        $header = (string)$header;
+        if ($header === $targetColumn) {
+            continue;
+        }
+        $pushField($header);
+        if (count($selected) >= $maxFields) {
+            return $selected;
+        }
+    }
+
+    foreach (array_keys($rowData) as $header) {
+        $header = (string)$header;
+        if ($header === $targetColumn) {
+            continue;
+        }
+        $pushField($header);
+        if (count($selected) >= $maxFields) {
+            break;
+        }
+    }
+
+    return $selected;
+};
+
+$buildRowContextSummary = static function (array $compactRowData, string $targetColumn): string {
+    $lines = [];
+    foreach ($compactRowData as $header => $value) {
+        if ((string)$header === $targetColumn) {
+            continue;
+        }
+        $lines[] = "- {$header}: {$value}";
+    }
+
+    return $lines === [] ? '（補助列に有効な値はありません）' : implode("\n", $lines);
+};
+
+$buildCategorizeCacheKey = static function (string $targetValue, string $rowContextSummary): string {
+    $normalizedValue = preg_replace('/\s+/u', ' ', trim($targetValue)) ?? trim($targetValue);
+    $normalizedContext = preg_replace('/\s+/u', ' ', trim($rowContextSummary)) ?? trim($rowContextSummary);
+    $normalizedValue = mb_strtolower($normalizedValue, 'UTF-8');
+    $normalizedContext = mb_strtolower($normalizedContext, 'UTF-8');
+    return $normalizedValue . '||' . $normalizedContext;
 };
 
 $markCanceled = static function (int $current, int $total, int $outputCsvFileId = 0, string $reason = 'cancel requested') use ($jobService, $jobId, $writeStatus, $job, $logJob): never {
@@ -305,12 +389,16 @@ try {
 
     $system = $analysisMode === 'summarize'
         ? "あなたはCSVデータの行要約アシスタントです。\n"
-            . "対象列の値と行全体の文脈を読んで、業務で役立つ短い要約を1〜2文で返してください。\n"
+            . "対象列の値と行コンテキストを読み、対象値が業務上何を意味するかを1〜2文で簡潔に要約してください。\n"
+            . "推測で話を広げず、行内の情報だけで説明してください。\n"
             . "出力はJSONのみで、必ず {\"summary\":\"...\"} の形式にしてください。"
         : "あなたはCSVデータのカテゴリ分類アシスタントです。\n"
             . "対象列の値を1つの短いカテゴリ名へ分類し、理由も1文で返してください。\n"
+            . "候補カテゴリが提示されている場合は、必ずその候補の中から最も近い1つを選んでください。\n"
+            . "理由では、対象値と補助列のどれを根拠にしたかが分かるようにしてください。\n"
             . "出力はJSONのみで、必ず {\"category\":\"...\",\"reason\":\"...\"} の形式にしてください。";
     $candidateCategories = [];
+    $categorizeCache = [];
 
     if ($analysisMode === 'categorize' && trim((string)$job['instructions']) === '') {
         $valueCounts = [];
@@ -416,22 +504,51 @@ try {
             $reason = '対象列の値が空です。';
             $summary = '対象列の値が空です。';
         } else {
-            $user = "【対象列】\n{$job['target_column']}\n\n"
-                . "【対象値】\n{$targetValue}\n\n"
-                . "【行データ(JSON)】\n" . json_encode($rowData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-            $result = $callAiRowAnalyzer((string)$job['ollama_host'], (string)$job['model'], $system, $user);
+            $compactRowData = $buildCompactRowData($headers, $rowData, (string)$job['target_column']);
+            $rowContextSummary = $buildRowContextSummary($compactRowData, (string)$job['target_column']);
+            $cacheKey = $analysisMode === 'categorize'
+                ? $buildCategorizeCacheKey($targetValue, $rowContextSummary)
+                : '';
+
+            if ($analysisMode === 'categorize' && $cacheKey !== '' && isset($categorizeCache[$cacheKey])) {
+                $result = $categorizeCache[$cacheKey];
+                $logJob('categorize cache hit', [
+                    'target_column' => (string)$job['target_column'],
+                    'target_value' => mb_strimwidth($targetValue, 0, 120, '...', 'UTF-8'),
+                ]);
+            } else {
+                $user = "【元CSV】\n" . (string)($job['source_file_name'] ?? '') . "\n\n"
+                    . "【対象列】\n{$job['target_column']}\n\n"
+                    . "【対象値】\n" . $normalizeCellText($targetValue) . "\n\n"
+                    . "【行コンテキスト（補助列）】\n{$rowContextSummary}\n\n"
+                    . "【AIへ渡す行データ（厳選JSON）】\n" . json_encode($compactRowData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                $result = $callAiRowAnalyzer((string)$job['ollama_host'], (string)$job['model'], $system, $user);
+                if ($analysisMode === 'categorize' && $cacheKey !== '') {
+                    $categorizeCache[$cacheKey] = $result;
+                }
+            }
+
             $category = $result['category'] !== '' ? $result['category'] : '未分類';
             $reason = $result['reason'] !== '' ? $result['reason'] : '理由は返却されませんでした。';
             $summary = $result['summary'] !== '' ? $result['summary'] : '要約は返却されませんでした。';
             if ($analysisMode === 'categorize' && $candidateCategories !== []) {
                 $resolvedCategory = $resolveCategoryToCandidate($category, $candidateCategories);
                 if ($resolvedCategory !== $category) {
-                    $logJob('category normalized to candidate', [
-                        'target_column' => (string)$job['target_column'],
-                        'target_value' => mb_strimwidth($targetValue, 0, 160, '...', 'UTF-8'),
-                        'raw_category' => $category,
-                        'resolved_category' => $resolvedCategory,
-                    ]);
+                    if ($resolvedCategory === '未分類') {
+                        $logJob('category fell back to uncategorized', [
+                            'target_column' => (string)$job['target_column'],
+                            'target_value' => mb_strimwidth($targetValue, 0, 160, '...', 'UTF-8'),
+                            'raw_category' => $category,
+                            'candidate_categories' => $candidateCategories,
+                        ]);
+                    } else {
+                        $logJob('category normalized to candidate', [
+                            'target_column' => (string)$job['target_column'],
+                            'target_value' => mb_strimwidth($targetValue, 0, 160, '...', 'UTF-8'),
+                            'raw_category' => $category,
+                            'resolved_category' => $resolvedCategory,
+                        ]);
+                    }
                 }
                 $category = $resolvedCategory;
             }
