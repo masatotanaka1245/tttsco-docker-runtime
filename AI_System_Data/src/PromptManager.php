@@ -210,6 +210,58 @@ class PromptManager {
              . implode("\n\n", $sections) . "\n";
     }
 
+    public static function buildResponsePriorityHeader(
+        string $question,
+        string $routeDetail = '',
+        string $operation = '',
+        string $projectMemoryText = '',
+        string $primaryEvidenceType = ''
+    ): string {
+        $artifact = self::extractActiveArtifactFields($projectMemoryText);
+        $lines = ['【回答優先ガイド】'];
+
+        $question = self::clipText(trim($question), 160);
+        if ($question !== '') {
+            $lines[] = '- 質問: ' . $question;
+        }
+
+        $routeDetail = self::clipText(trim($routeDetail), 120);
+        if ($routeDetail !== '') {
+            $lines[] = '- route/detail: ' . $routeDetail;
+        }
+
+        $operation = self::clipText(trim($operation), 80);
+        if ($operation !== '') {
+            $lines[] = '- operation: ' . $operation;
+        }
+
+        $artifactLane = trim((string)($artifact['lane'] ?? ''));
+        $artifactTarget = trim((string)($artifact['target'] ?? ''));
+        if ($artifactLane !== '') {
+            $mainArtifact = $artifactLane;
+            if ($artifactTarget !== '') {
+                $mainArtifact .= ' / ' . $artifactTarget;
+            }
+            $lines[] = '- 主成果品: ' . self::clipText($mainArtifact, 140);
+        }
+
+        $currentTask = self::clipText(trim((string)($artifact['current_task'] ?? '')), 140);
+        if ($currentTask !== '') {
+            $lines[] = '- 進行中タスク: ' . $currentTask;
+        }
+
+        $primaryEvidenceType = self::clipText(trim($primaryEvidenceType), 60);
+        if ($primaryEvidenceType !== '') {
+            $lines[] = '- 主根拠: ' . $primaryEvidenceType;
+        }
+
+        if (count($lines) <= 1) {
+            return '';
+        }
+
+        return implode("\n", $lines) . "\n\n";
+    }
+
     private static function buildActiveArtifactHighlight(array $memoryDocs): string
     {
         $candidateTexts = [
@@ -259,15 +311,18 @@ class PromptManager {
 
         $artifact = [];
         $map = [
-            'lane' => 'レーン',
-            'target' => '主対象',
-            'reason' => '理由',
-            'current_task' => '進行中タスク',
+            'lane' => ['レーン', '現在の主成果品'],
+            'target' => ['主対象'],
+            'reason' => ['理由'],
+            'current_task' => ['進行中タスク'],
         ];
 
-        foreach ($map as $key => $label) {
-            if (preg_match('/^- ' . preg_quote($label, '/') . ':\s*(.+)$/mu', $text, $matches) === 1) {
-                $artifact[$key] = self::clipText(trim((string)($matches[1] ?? '')), self::PROJECT_MEMORY_HIGHLIGHT_VALUE_MAX_CHARS);
+        foreach ($map as $key => $labels) {
+            foreach ($labels as $label) {
+                if (preg_match('/^- ' . preg_quote($label, '/') . ':\s*(.+)$/mu', $text, $matches) === 1) {
+                    $artifact[$key] = self::clipText(trim((string)($matches[1] ?? '')), self::PROJECT_MEMORY_HIGHLIGHT_VALUE_MAX_CHARS);
+                    break;
+                }
             }
         }
 

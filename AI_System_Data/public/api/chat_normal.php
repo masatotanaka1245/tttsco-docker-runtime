@@ -531,7 +531,8 @@ class NormalStreamingRouteProcessor {
         $system_prompt = $this->buildSystemPrompt();
         $dialogue_context_prompt = $this->buildDialogueContextPrompt();
         $project_context_prompt = $this->buildProjectContextPrompt();
-        $prompt_user = $project_context_prompt . $dialogue_context_prompt;
+        $priority_header_prompt = $this->buildPriorityHeaderPrompt();
+        $prompt_user = $priority_header_prompt . $project_context_prompt . $dialogue_context_prompt;
         $reference_context_prompt = '';
         if ($this->isProjectMemoryConsultationRoute()) {
             $reference_context_prompt = $this->contextText . "\n";
@@ -544,6 +545,7 @@ class NormalStreamingRouteProcessor {
 
         $this->logPromptBudget('final_generate', [
             'system' => $system_prompt,
+            'priority' => $priority_header_prompt,
             'project' => $project_context_prompt,
             'history' => $dialogue_context_prompt,
             'context' => $reference_context_prompt,
@@ -838,6 +840,89 @@ class NormalStreamingRouteProcessor {
         }
 
         return $this->projectContext . "\n";
+    }
+
+    private function buildPriorityHeaderPrompt(): string
+    {
+        require_once __DIR__ . '/../../src/PromptManager.php';
+
+        return PromptManager::buildResponsePriorityHeader(
+            $this->originalMessage,
+            (string)$this->routeDetail,
+            $this->inferPriorityOperation(),
+            (string)$this->projectOperatingMemoryPrompt,
+            $this->detectPrimaryEvidenceType()
+        );
+    }
+
+    private function inferPriorityOperation(): string
+    {
+        $message = trim((string)$this->originalMessage);
+        if ($message === '') {
+            return '';
+        }
+
+        if ($this->isMaterialDraftingQuestion()) {
+            return 'material_workflow';
+        }
+
+        if (
+            $this->isProjectMemoryConsultationRoute()
+            && preg_match('/(進行中タスク|現在のタスク|現在の主成果品|次に何をすべき|次に何をすれば|現在地|今の状況|優先タスク|次アクション)/u', $message) === 1
+        ) {
+            return 'status_alignment';
+        }
+
+        return '';
+    }
+
+    private function detectPrimaryEvidenceType(): string
+    {
+        if ($this->isMaterialDraftingQuestion()) {
+            return 'material_note';
+        }
+
+        if ($this->isProjectMemoryConsultationRoute()) {
+            return 'project_memory';
+        }
+
+        $types = [];
+        foreach ($this->sourceDocs as $doc) {
+            $type = trim((string)($doc['source_type'] ?? ''));
+            if ($type === 'material_note') {
+                $types['material_note'] = true;
+                continue;
+            }
+            if ($type === 'csv') {
+                $types['csv'] = true;
+                continue;
+            }
+            if ($type !== '') {
+                $types['pdf'] = true;
+            }
+        }
+
+        if (!empty($types['material_note']) && (count($types) > 1 || !empty($types['pdf']) || !empty($types['csv']))) {
+            return 'mixed';
+        }
+        if (!empty($types['csv']) && !empty($types['pdf'])) {
+            return 'mixed';
+        }
+        if (!empty($types['material_note'])) {
+            return 'material_note';
+        }
+        if (!empty($types['csv'])) {
+            return 'csv';
+        }
+        if (!empty($types['pdf'])) {
+            return 'pdf';
+        }
+
+        if ($this->historySummaryText !== '') {
+            return 'history';
+        }
+
+        return 'unknown';
     }
 
     private function buildDialogueContextPrompt(): string
