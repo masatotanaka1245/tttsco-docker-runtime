@@ -265,6 +265,23 @@ function normalizeAiText(value) {
     return String(value);
 }
 
+function buildSourceBadgeHtml(source) {
+    const safeTitle = escapeHTML(source?.title || '');
+    const page = Number(source?.page || 0);
+    const sourceType = String(source?.source_type || '').trim();
+    const isMaterialNote = sourceType === 'material_note';
+    const label = isMaterialNote
+        ? `📝 ${safeTitle}`
+        : (page === 0 ? `📖 ${safeTitle} (全体要約)` : `📖 ${safeTitle} (P.${page})`);
+    const escapedTitle = String(source?.title || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    const sourceTypeJs = sourceType.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const openTarget = isMaterialNote
+        ? `openSourceDocumentTab(${source.doc_id}, '${escapedTitle}', 1, '${sourceTypeJs}')`
+        : `openSourceDocumentTab(${source.doc_id}, '${escapedTitle}', ${page === 0 ? 1 : page}, '${sourceTypeJs}')`;
+
+    return `<div class="source-badge shadow-xs text-[10px] font-semibold" onclick="${openTarget}">${label}</div>`;
+}
+
 function summarizeMaterialTitle(base, fallback) {
     const normalized = normalizeAiText(base)
         .replace(/\s+/g, ' ')
@@ -1381,12 +1398,7 @@ function handleChat(e) {
                                         bubbleContainer.insertBefore(reasoningFragment, bubbleContainer.children[1] || null);
                                     }
                                     if (sseData.sources && sseData.sources.length > 0) {
-                                        const sHtml = '<div class="flex flex-wrap mt-2.5 gap-1.5">' + sseData.sources.map(s => {
-                                            const safeTitle = escapeHTML(s.title);
-                                            const label = (s.page == 0) ? `📖 ${safeTitle} (全体要約)` : `📖 ${safeTitle} (P.${s.page})`;
-                                            const escapedTitle = s.title.replace(/'/g, "\\'").replace(/"/g, "&quot;");
-                                            return `<div class="source-badge shadow-xs text-[10px] font-semibold" onclick="openPdfTab(${s.doc_id}, '${escapedTitle}', ${s.page == 0 ? 1 : s.page})">${label}</div>`;
-                                        }).join('') + '</div>';
+                                        const sHtml = '<div class="flex flex-wrap mt-2.5 gap-1.5">' + sseData.sources.map(buildSourceBadgeHtml).join('') + '</div>';
                                         bubbleContainer.insertAdjacentHTML('beforeend', sHtml);
                                     }
                                     if (sseData.report_document && sseData.report_document.document_id) {
@@ -1497,12 +1509,7 @@ function appendMsg(role, text, sources = [], reasoningSteps = [], createdAt = nu
     const div = document.createElement('div');
     div.className = `flex gap-3 items-start ${role === 'assistant' ? '' : 'flex-row-reverse'} animate-fadeIn`;
     
-    const sourceHtml = sources && sources.length ? '<div class="flex flex-wrap mt-2.5 gap-1.5">' + sources.map(s => {
-        const safeTitle = escapeHTML(s.title);
-        const label = (s.page == 0) ? `📖 ${safeTitle} (全体要約)` : `📖 ${safeTitle} (P.${s.page})`;
-        const escapedTitle = s.title.replace(/'/g, "\\'").replace(/"/g, "&quot;");
-        return `<div class="source-badge shadow-xs text-[10px] font-semibold" onclick="openPdfTab(${s.doc_id}, '${escapedTitle}', ${s.page == 0 ? 1 : s.page})">${label}</div>`;
-    }).join('') + '</div>' : '';
+    const sourceHtml = sources && sources.length ? '<div class="flex flex-wrap mt-2.5 gap-1.5">' + sources.map(buildSourceBadgeHtml).join('') + '</div>' : '';
     
     let reasoningHtml = '';
     if (reasoningSteps && reasoningSteps.length > 0) {

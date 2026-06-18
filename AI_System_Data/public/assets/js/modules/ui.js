@@ -333,6 +333,19 @@ function switchTab(tabId) {
 }
 
 // 資料PDFタブまたはCSVデータプレビュー画面の動的展開
+async function openSourceDocumentTab(docId, title, pageNumber = 1, sourceType = 'pdf') {
+    const normalizedSourceType = String(sourceType || '').trim().toLowerCase();
+    if (normalizedSourceType === 'material_note') {
+        switchTab('tab-materials');
+        if (typeof window.loadMaterialDocument === 'function') {
+            await window.loadMaterialDocument(docId);
+        }
+        return;
+    }
+
+    return openPdfTab(docId, title, pageNumber);
+}
+
 async function openPdfTab(docId, title, pageNumber = 1) {
     if (title.startsWith('[CSVデータ]') || title.includes('[CSVデータ]')) {
         try {
@@ -382,16 +395,17 @@ async function openPdfTab(docId, title, pageNumber = 1) {
 }
 
 // ★最末尾エクスポートへ完全一本化一括出荷
-export { 
-    openAppModal, 
-    closeProjectModal, 
-    closeEditModal, 
-    bindModalEvents, 
-    closeTab, 
-    scrollToBottom, 
-    initChatInput, 
-    injectPdfLoadingMask, 
-    switchTab, 
+export {
+    openAppModal,
+    closeProjectModal,
+    closeEditModal,
+    bindModalEvents,
+    closeTab,
+    scrollToBottom,
+    initChatInput,
+    injectPdfLoadingMask,
+    switchTab,
+    openSourceDocumentTab,
     openPdfTab,
     initResizer
 };

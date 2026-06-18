@@ -422,7 +422,12 @@ class NormalStreamingRouteProcessor {
                     $suppressedImageDescriptionCount++;
                 }
                 $this->contextText .= "\n";
-                $this->sourceDocs[] = ["title" => $hit['title'], "page" => $pNum, "doc_id" => $hit['document_id']];
+                $this->sourceDocs[] = [
+                    "title" => $hit['title'],
+                    "page" => $pNum,
+                    "doc_id" => $hit['document_id'],
+                    "source_type" => $sourceType !== '' ? $sourceType : 'document',
+                ];
             }
 
             if ($suppressedImageDescriptionCount > 0) {
@@ -440,7 +445,12 @@ class NormalStreamingRouteProcessor {
                     $tableMarkdown = aggregateCsvChunksToMarkdown($c_hits, $fileName);
                     $this->contextText .= "【構造化データテーブル: {$fileName}】\n{$tableMarkdown}\n\n";
                 }
-                $this->sourceDocs[] = ["title" => "[CSVデータ] " . $fileName, "page" => 1, "doc_id" => $doc_id];
+                $this->sourceDocs[] = [
+                    "title" => "[CSVデータ] " . $fileName,
+                    "page" => 1,
+                    "doc_id" => $doc_id,
+                    "source_type" => 'csv',
+                ];
             }
 
             $max_pdf_ctx_length = 4000;

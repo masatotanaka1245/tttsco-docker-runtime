@@ -9,9 +9,9 @@
  * 6. 【完全閉塞】：生コード内からバッククォートのハードコードを100%排除。
  */
 
-import { openAppModal, closeProjectModal, closeEditModal, bindModalEvents, closeTab, scrollToBottom, initChatInput, injectPdfLoadingMask, switchTab, openPdfTab, initResizer } from './modules/ui.js?v=9';
+import { openAppModal, closeProjectModal, closeEditModal, bindModalEvents, closeTab, scrollToBottom, initChatInput, injectPdfLoadingMask, switchTab, openSourceDocumentTab, openPdfTab, initResizer } from './modules/ui.js?v=10';
 import { handleCsvUpload, loadCsvData, handleDeleteCsv, handlePostgresImport, openCsvPreviewByDocId, handleCreateManualCsv, handleAppendCsvRow, openCsvCreateModal, closeCsvCreateModal, openCsvAppendModal, closeCsvAppendModal, openCsvColumnEditModal, closeCsvColumnEditModal, handleUpdateCsvColumns, handleAddCsvColumnDraft, handleRemoveCsvColumnDraft, handleStartCsvAiCategorizeJob, openCsvAiCategorizeModal, closeCsvAiCategorizeModal } from './modules/csv.js?v=9';
-import { handleChat, appendMsg, initExistingCharts, initMaterialMemoActions, initDebugLogViewer } from './modules/chat.js?v=20';
+import { handleChat, appendMsg, initExistingCharts, initMaterialMemoActions, initDebugLogViewer } from './modules/chat.js?v=21';
 import { checkUploadOnLoad as checkUploadOnLoadModule, handleUpload as handleUploadModule } from './modules/upload.js?v=7';
 import * as Project from './modules/project.js?v=6';
 // ★最終繋ぎ込み要件1: 100点満点でクレンジングが完了した map.js から回線を引き受ける
@@ -1085,6 +1085,7 @@ function bindGlobalFunctions() {
     // リサイザ初期化 (ui.jsからインポートした関数を直接マウント)
     window.initResizer = initResizer; 
     window.injectPdfLoadingMask = typeof injectPdfLoadingMask !== 'undefined' ? injectPdfLoadingMask : window.injectPdfLoadingMask;
+    window.openSourceDocumentTab = openSourceDocumentTab;
 }
 
 function runSupportInitializer(label, fn) {
@@ -1168,6 +1169,7 @@ export {
     initChatInput,
     injectPdfLoadingMask,
     switchTab,
+    openSourceDocumentTab,
     openPdfTab,
     initResizer
 };

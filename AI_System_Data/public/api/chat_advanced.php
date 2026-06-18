@@ -368,6 +368,7 @@ class AdvancedReasoningRouteProcessor {
                     "title" => $title,
                     "page" => $page,
                     "doc_id" => $docId,
+                    "source_type" => $this->inferSourceTypeForEvidenceRow($row, (string)$title),
                 ];
             },
             function (string $subAnswer): void {
@@ -414,6 +415,7 @@ class AdvancedReasoningRouteProcessor {
                     'title' => $source['title'] ?? '追加反省抽出エビデンス',
                     'page' => $page,
                     'doc_id' => $docId,
+                    'source_type' => $this->inferSourceTypeForEvidenceRow($source, (string)($source['title'] ?? '')),
                 ];
             },
             fn(string $message) => chatLogger($message)
@@ -466,6 +468,30 @@ class AdvancedReasoningRouteProcessor {
 
     private function maxEvalRetries(): int {
         return $this->hasExtendedOutputMode() ? 2 : 1;
+    }
+
+    private function inferSourceTypeForEvidenceRow(array $row, string $title = ''): string
+    {
+        $filePath = strtolower(trim((string)($row['file_path'] ?? '')));
+        $normalizedTitle = strtolower(trim($title));
+
+        if ($filePath !== '') {
+            if (str_ends_with($filePath, '.md')) {
+                return 'material_note';
+            }
+            if (str_ends_with($filePath, '.pdf')) {
+                return 'pdf';
+            }
+            if (str_ends_with($filePath, '.csv')) {
+                return 'csv';
+            }
+        }
+
+        if (str_starts_with($normalizedTitle, '[csvデータ]')) {
+            return 'csv';
+        }
+
+        return 'document';
     }
 
     private function normalizeUtf8(string $text): string {
