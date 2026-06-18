@@ -20,6 +20,7 @@ class ChatRouteSelector
         $recentHistory = (array)($context['recent_history'] ?? []);
         $factorizedQuery = (array)($context['factorized_query'] ?? []);
         $factorizedRoute = (string)($factorizedQuery['route'] ?? '');
+        $factorizedOperation = (string)($factorizedQuery['operation'] ?? '');
         $explicitAdvanced = (bool)($context['explicit_advanced'] ?? false);
         $reportMode = (bool)($context['report_mode'] ?? false);
 
@@ -112,6 +113,12 @@ class ChatRouteSelector
             } elseif ($allowCsvRouteOverride && ($factorizedQuery['route'] ?? null) === 'data_analysis.csv_summary') {
                 $isAnalysisMode = true;
                 $this->log("[SMART-ROUTER] CSV要約系の質問は軽量分析を優先します。explicit_advanced=" . ($explicitAdvanced ? 'on' : 'off') . " | target=" . ($factorizedQuery['target'] ?? 'unknown'));
+
+            } elseif ($projectId !== null && $this->shouldPreferProjectMemoryConsultation($message, $factorizedRoute, $factorizedOperation)) {
+                $preferNormalRag = true;
+                $advancedReasoning = false;
+                $isAnalysisMode = false;
+                $this->log("[SMART-ROUTER] 成果品相談・現在地確認の意図を検知。案件運用メモを踏まえた相談ルートを優先します。route=normal_rag.project_memory_consultation | operation=" . ($factorizedOperation !== '' ? $factorizedOperation : 'unknown'));
 
             } elseif ($explicitAdvanced && $projectId !== null) {
                 $advancedReasoning = true;
@@ -263,6 +270,41 @@ class ChatRouteSelector
     private function isExplicitReportOrDocumentRequest(string $message): bool
     {
         return preg_match('/(報告書|レポート|PDF|資料|文書).*(作成|作って|出力|生成|まとめ)|((作成|作って|出力|生成|まとめ).*(報告書|レポート|PDF|資料|文書))/u', $message) === 1;
+    }
+
+    private function shouldPreferProjectMemoryConsultation(
+        string $message,
+        string $factorizedRoute,
+        string $factorizedOperation
+    ): bool {
+        if ($factorizedRoute === 'advanced_hybrid.history_report' || $factorizedRoute === 'data_analysis.csv_agg' || $factorizedRoute === 'advanced_hybrid.doc_extract') {
+            return false;
+        }
+
+        if ($this->hasStrongCsvAggregationIntent($message) || $this->hasStrongHistoryReportIntent($message) || $this->hasStrongDocExtractIntent($message)) {
+            return false;
+        }
+
+        if ($factorizedRoute === 'normal_rag.project_memory_consultation') {
+            return true;
+        }
+
+        return in_array($factorizedOperation, ['material_workflow', 'status_alignment'], true);
+    }
+
+    private function hasStrongCsvAggregationIntent(string $message): bool
+    {
+        return preg_match('/(集計|件数|グラフ|チャート|ランキング)/u', $message) === 1;
+    }
+
+    private function hasStrongHistoryReportIntent(string $message): bool
+    {
+        return preg_match('/(会話履歴|会話の履歴|これまでの会話|チャット履歴|報告書化|構成案)/u', $message) === 1;
+    }
+
+    private function hasStrongDocExtractIntent(string $message): bool
+    {
+        return preg_match('/(PDF|pdf|資料|文書).*(抽出|抜き出|引用|根拠|ページ)|((抽出|抜き出|引用|根拠|ページ).*(PDF|pdf|資料|文書))/u', $message) === 1;
     }
 
     private function log(string $message): void

@@ -42,7 +42,10 @@ class ChatRouteFactorizer
         $hasDocActionIntent = preg_match('/(留意点|注意点|確認すべき|確認事項|法規|基準|安全面|設計上|施工前|不明点|見落とし|箇条書きで抽出|箇条書きで|抽出してください)/u', $message) === 1;
         $hasRecommendationIntent = preg_match('/(おすすめ|オススメ|提案|良い案|よい案|案はありますか|どう書|どう表現|言い換え|追加したい|追加する項目|分析方法|集計方法|どう分析|どう集計|どのように.*分析|分析したら.*よい|どう進め|見るべき|観点|切り口|方針)/u', $message) === 1;
         $hasProjectSummaryIntent = preg_match('/(案件|プロジェクト).*(内容|概要|全体像|まとめ|要約|詳細)|((内容|概要|全体像|まとめ|要約|詳細).*(案件|プロジェクト))/u', $message) === 1;
-        $hasMaterialWorkflowIntent = preg_match('/((資料|資料メモ|メモ|markdown|Markdown|mdファイル|MDファイル).*(追加|追記|作成|作って|作っていく|育て|更新|整理|まとめ))|((どのような流れ|どういう流れ|どう進め|進め方).*(資料|資料メモ|メモ))|((資料|資料メモ|メモ).*(どのような流れ|どういう流れ|どう進め|進め方))/u', $message) === 1;
+        $hasMaterialReference = preg_match('/(資料メモ|markdown|Markdown|mdファイル|MDファイル|(?:^|[^A-Za-z])md(?:$|[^A-Za-z]))/u', $message) === 1;
+        $hasMaterialActionIntent = preg_match('/(開いて|開く|追加|追記|追記ポイント|作成|作って|作っていく|育て|更新|修正|整理|まとめ|章立て|見出し|ドラフト|たたき台|下書き|構成)/u', $message) === 1;
+        $hasMaterialWorkflowIntent = $hasMaterialReference && $hasMaterialActionIntent;
+        $hasTaskStatusIntent = preg_match('/(進行中タスク|現在のタスク|現在の主成果品|次に何をすべき|次に何をすれば|現在地|今の状況|優先タスク|次アクション)/u', $message) === 1;
         $hasCsvOperationIntent = preg_match('/((転記|統合|結合|マージ|取り込|追加|反映|上書き).*(できますか|可能|したい|方法|手順|どうやって|どうすれば))|((できますか|可能|したい|方法|手順|どうやって|どうすれば).*(転記|統合|結合|マージ|取り込|追加|反映|上書き))/u', $message) === 1;
         $hasBroadDetailIntent = preg_match('/(詳細|詳しく|内訳|全体像|全体の傾向|どんなデータ|何がある)/u', $message) === 1;
         $hasCsvExportIntent = preg_match('/(csv化|CSV化|csvにしてください|CSVにしてください|csvファイルにしてください|CSVファイルにしてください|csvファイルを作成|CSVファイルを作成|csvで出力|CSVで出力|一つのcsv|1つのcsv|一つのCSV|1つのCSV)/u', $message) === 1;
@@ -125,10 +128,16 @@ class ChatRouteFactorizer
             $route = 'advanced_hybrid.multi_source_advice';
         } elseif ($hasMaterialWorkflowIntent) {
             $intent = 'consult';
-            $target = 'project_assets';
+            $target = 'project_memory';
             $scope = 'project_wide';
             $operation = 'material_workflow';
-            $route = 'advanced_hybrid.multi_source_advice';
+            $route = 'normal_rag.project_memory_consultation';
+        } elseif ($hasTaskStatusIntent) {
+            $intent = 'consult';
+            $target = 'project_memory';
+            $scope = 'project_wide';
+            $operation = 'status_alignment';
+            $route = 'normal_rag.project_memory_consultation';
         } elseif ($hasRecommendationIntent && ($hasCsvContext || $hasDocReference || $this->hasRecentProjectAssetContext($recentHistory))) {
             $intent = 'analyze';
             $target = 'project_assets';
@@ -272,7 +281,11 @@ class ChatRouteFactorizer
     {
         $parts = [];
         foreach (['readme', 'agents', 'todo'] as $memoryType) {
+            $autoContent = trim((string)($projectMemoryDocs[$memoryType]['auto_content'] ?? ''));
             $content = trim((string)($projectMemoryDocs[$memoryType]['content'] ?? ''));
+            if ($autoContent !== '') {
+                $parts[] = $autoContent;
+            }
             if ($content !== '') {
                 $parts[] = $content;
             }
