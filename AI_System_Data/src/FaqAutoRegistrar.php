@@ -88,6 +88,34 @@ class FaqAutoRegistrar {
             return ['qualified' => false, 'reason' => 'missing_project_or_eval'];
         }
 
+        $verdict = trim((string)($evalResult['verdict'] ?? ''));
+        if ($verdict !== 'pass') {
+            return ['qualified' => false, 'reason' => 'verdict_not_pass'];
+        }
+
+        if ($this->hasMismatchPair($evalResult)) {
+            return ['qualified' => false, 'reason' => 'mismatch_pair'];
+        }
+
+        $feedback = $this->normalizeText((string)($evalResult['feedback'] ?? ''));
+        $answerText = $this->normalizeText($answer);
+
+        if (str_contains($feedback, '[ASK-USER-CLARIFICATION]')) {
+            return ['qualified' => false, 'reason' => 'clarification_marker'];
+        }
+
+        if (str_contains($feedback, '[TEXT-ONLY-REWRITE]')) {
+            return ['qualified' => false, 'reason' => 'rewrite_marker'];
+        }
+
+        if ($this->containsInsufficientEvidenceText($feedback, $answerText)) {
+            return ['qualified' => false, 'reason' => 'insufficient_evidence_text'];
+        }
+
+        if ($this->isOperationalOnlyAnswer($answerText)) {
+            return ['qualified' => false, 'reason' => 'operation_notice_text'];
+        }
+
         if (($evalResult['needs_revision'] ?? true) === true) {
             return ['qualified' => false, 'reason' => 'needs_revision'];
         }
@@ -102,7 +130,6 @@ class FaqAutoRegistrar {
             return ['qualified' => false, 'reason' => 'lightweight_guard_not_promotable'];
         }
 
-        $feedback = (string)($evalResult['feedback'] ?? '');
         if (preg_match('/評価プロセス|タイムアウト|フェイルセーフ|初期ドラフトを採用/u', $feedback)) {
             return ['qualified' => false, 'reason' => 'fallback_or_timeout_feedback'];
         }
@@ -127,7 +154,6 @@ class FaqAutoRegistrar {
         }
 
         $questionText = $this->normalizeText($question);
-        $answerText = $this->normalizeText($answer);
         if (mb_strlen($questionText) < 8 || mb_strlen($answerText) < 120) {
             return ['qualified' => false, 'reason' => 'question_or_answer_too_short'];
         }
@@ -146,6 +172,58 @@ class FaqAutoRegistrar {
         }
 
         return ['qualified' => true, 'reason' => 'qualified'];
+    }
+
+    private function hasMismatchPair(array $evalResult): bool {
+        $mismatchPair = $evalResult['mismatch_pair'] ?? null;
+        if (!is_array($mismatchPair) || count($mismatchPair) !== 2) {
+            return false;
+        }
+
+        $expected = trim((string)($mismatchPair[0] ?? ''));
+        $actual = trim((string)($mismatchPair[1] ?? ''));
+        return $expected !== '' && $actual !== '';
+    }
+
+    private function containsInsufficientEvidenceText(string $feedback, string $answerText): bool {
+        $combined = trim($feedback . "\n" . $answerText);
+        if ($combined === '') {
+            return false;
+        }
+
+        return preg_match(
+            '/(確認させてください|指定してください|追加情報|追加の情報|もう少し詳しく|根拠不足|判断できません|情報がありません|見つかりません|情報が不足|追加検索|追加抽出|追加SQL|必要な情報.*不足|対象.*教えてください)/u',
+            $combined
+        ) === 1;
+    }
+
+    private function isOperationalOnlyAnswer(string $answerText): bool {
+        if ($answerText === '') {
+            return false;
+        }
+
+        if (
+            preg_match('/(報告書|レポート|PDF).*(作成|生成|出力).*(完了|しました)|((作成|生成|出力).*(完了|しました).*(報告書|レポート|PDF))/u', $answerText) === 1
+            && mb_strlen($answerText) <= 220
+        ) {
+            return true;
+        }
+
+        if (
+            preg_match('/(アップロード|保存しました|保存してください|クリック|ボタン|画面|モーダル|タブ|ダウンロード|インポート|エクスポート)/u', $answerText) === 1
+            && preg_match('/(結論|理由|根拠|概要|分析|要約|件数|集計|推奨|補足)/u', $answerText) !== 1
+        ) {
+            return true;
+        }
+
+        if (
+            preg_match('/(CSV).*(作成|保存|出力|ダウンロード|アップロード)|((作成|保存|出力|ダウンロード|アップロード).*(CSV))/u', $answerText) === 1
+            && preg_match('/(対象CSV|対象行数|値ごとの件数|集計結果|結論|概要|分析)/u', $answerText) !== 1
+        ) {
+            return true;
+        }
+
+        return false;
     }
 
     private function isEligibleEvaluationMode(string $evaluationMode, string $evaluationSource): bool {
