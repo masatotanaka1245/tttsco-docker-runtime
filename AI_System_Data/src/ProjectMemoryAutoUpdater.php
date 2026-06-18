@@ -6,28 +6,30 @@ final class ProjectMemoryAutoUpdater
 {
     public static function shouldRefreshFromEvaluation(?array $evalResult, string $finalResponse = ''): bool
     {
+        $skipReason = self::detectAutoRefreshSkipReason($evalResult, $finalResponse);
+        if ($skipReason !== null) {
+            self::logAutoRefreshSkip($skipReason, $evalResult, $finalResponse);
+            return false;
+        }
+
         if (empty($evalResult)) {
-            return !self::looksLikeIncompleteOrUnsafeAnswer($finalResponse);
+            return true;
         }
 
         if (array_key_exists('allow_memory_refresh', $evalResult)) {
-            return (bool)$evalResult['allow_memory_refresh'];
+            $allowed = (bool)$evalResult['allow_memory_refresh'];
+            if (!$allowed) {
+                self::logAutoRefreshSkip('allow_memory_refresh_false', $evalResult, $finalResponse);
+            }
+            return $allowed;
         }
 
-        $evaluationSource = (string)($evalResult['evaluation_source'] ?? '');
-        $evaluationMode = (string)($evalResult['evaluation_mode'] ?? '');
-        $verdict = (string)($evalResult['verdict'] ?? '');
-        $totalScore = (int)($evalResult['total_score'] ?? 0);
-
-        if ($evaluationSource === 'judge_fallback' || $evaluationMode === 'fallback') {
+        if ((int)($evalResult['total_score'] ?? 0) < 85) {
+            self::logAutoRefreshSkip('score_below_threshold', $evalResult, $finalResponse);
             return false;
         }
 
-        if ($verdict === 'reject' || $totalScore < 85) {
-            return false;
-        }
-
-        return !self::looksLikeIncompleteOrUnsafeAnswer($finalResponse);
+        return true;
     }
 
     public static function refresh(PDO $pdo, int $projectId, ?int $threadId, int $userId, ?callable $logger = null): array
@@ -86,6 +88,193 @@ final class ProjectMemoryAutoUpdater
         }
 
         return false;
+    }
+
+    private static function detectAutoRefreshSkipReason(?array $evalResult, string $finalResponse): ?string
+    {
+        if (!empty($evalResult)) {
+            $evaluationSource = (string)($evalResult['evaluation_source'] ?? '');
+            $evaluationMode = (string)($evalResult['evaluation_mode'] ?? '');
+            $verdict = trim((string)($evalResult['verdict'] ?? ''));
+            $feedback = self::normalizeAutoRefreshText((string)($evalResult['feedback'] ?? ''));
+
+            if ($evaluationSource === 'judge_fallback' || $evaluationMode === 'fallback') {
+                return 'evaluation_fallback';
+            }
+
+            if ($verdict !== '' && $verdict !== 'pass') {
+                return 'verdict_not_pass';
+            }
+
+            if (self::hasMismatchPair($evalResult)) {
+                return 'mismatch_pair';
+            }
+
+            $markerReason = self::detectFeedbackMarkerReason($feedback);
+            if ($markerReason !== null) {
+                return $markerReason;
+            }
+        }
+
+        return self::detectAutoRefreshSkipReasonFromText($finalResponse);
+    }
+
+    private static function detectFeedbackMarkerReason(string $feedback): ?string
+    {
+        if ($feedback === '') {
+            return null;
+        }
+
+        $markers = [
+            '[ASK-USER-CLARIFICATION]' => 'clarification_marker',
+            '[TEXT-ONLY-REWRITE]' => 'rewrite_marker',
+            '[FINAL-GUARD-OPERATION-NOTICE]' => 'operation_notice_marker',
+            '[FINAL-GUARD-INSUFFICIENT-EVIDENCE]' => 'insufficient_evidence_marker',
+            '[FINAL-GUARD-INTENT-DRIFT]' => 'intent_drift_marker',
+        ];
+
+        foreach ($markers as $marker => $reason) {
+            if (str_contains($feedback, $marker)) {
+                return $reason;
+            }
+        }
+
+        return null;
+    }
+
+    private static function detectAutoRefreshSkipReasonFromText(string $text): ?string
+    {
+        $normalized = self::normalizeAutoRefreshText($text);
+        if ($normalized === '') {
+            return 'empty_response';
+        }
+
+        if (self::looksLikeIncompleteOrUnsafeAnswer($normalized)) {
+            return 'unsafe_answer';
+        }
+
+        if (self::looksLikeClarificationHeavyAnswer($normalized)) {
+            return 'clarification_text';
+        }
+
+        if (self::looksLikeOperationOnlyAnswer($normalized)) {
+            return 'operation_notice_text';
+        }
+
+        if (self::looksLikeInsufficientEvidenceAnswer($normalized)) {
+            return 'insufficient_evidence_text';
+        }
+
+        if (self::looksLikeErrorNoticeAnswer($normalized)) {
+            return 'error_notice_text';
+        }
+
+        if (self::looksLikeCompletionNoticeOnlyAnswer($normalized)) {
+            return 'completion_notice_text';
+        }
+
+        return null;
+    }
+
+    private static function hasMismatchPair(array $evalResult): bool
+    {
+        $mismatchPair = $evalResult['mismatch_pair'] ?? null;
+        if (!is_array($mismatchPair) || count($mismatchPair) !== 2) {
+            return false;
+        }
+
+        $expected = trim((string)($mismatchPair[0] ?? ''));
+        $actual = trim((string)($mismatchPair[1] ?? ''));
+        return $expected !== '' && $actual !== '';
+    }
+
+    private static function looksLikeClarificationHeavyAnswer(string $text): bool
+    {
+        $hasClarificationMarkers = preg_match(
+            '/(確認させてください|指定してください|追加情報|追加の情報|もう少し詳しく|教えてください|補足してください|対象を教えてください|どの(?:列|カラム|項目|資料)|何を対象にするか)/u',
+            $text
+        ) === 1;
+
+        return $hasClarificationMarkers && !self::containsSubstantiveAnswerMarkers($text);
+    }
+
+    private static function looksLikeOperationOnlyAnswer(string $text): bool
+    {
+        if (
+            preg_match('/(アップロードしてください|クリックしてください|画面で確認してください|保存してください|CSVを選択してください|ファイルを選択してください|ボタンを押してください|タブを開いてください|モーダルを開いてください|ダウンロードしてください)/u', $text) !== 1
+        ) {
+            return false;
+        }
+
+        return !self::containsSubstantiveAnswerMarkers($text);
+    }
+
+    private static function looksLikeInsufficientEvidenceAnswer(string $text): bool
+    {
+        $hasInsufficientMarkers = preg_match(
+            '/(情報がありません|判断できません|見つかりません|根拠が不足しています|根拠不足です|根拠不足|追加情報が必要です|情報が不足しています|条件が不足しています|必要な情報.*不足)/u',
+            $text
+        ) === 1;
+
+        return $hasInsufficientMarkers && !self::containsSubstantiveAnswerMarkers($text);
+    }
+
+    private static function looksLikeErrorNoticeAnswer(string $text): bool
+    {
+        $hasErrorMarkers = preg_match(
+            '/(通信エラー|内部サーバーエラー|AIサーバー通信エラー|回答の生成に失敗|Token Limit|セッションが切れました|エラーが発生しました|処理に失敗しました)/u',
+            $text
+        ) === 1;
+
+        return $hasErrorMarkers && !self::containsSubstantiveAnswerMarkers($text);
+    }
+
+    private static function looksLikeCompletionNoticeOnlyAnswer(string $text): bool
+    {
+        $isShort = mb_strlen($text) <= 220;
+        $hasCompletionMarkers = preg_match(
+            '/((報告書|レポート|PDF|CSV|資料メモ|markdown|md).*(作成|生成|出力|保存|登録|反映).*(完了|しました))|(((作成|生成|出力|保存|登録|反映).*(完了|しました)).*(報告書|レポート|PDF|CSV|資料メモ|markdown|md))/iu',
+            $text
+        ) === 1;
+
+        return $isShort && $hasCompletionMarkers && !self::containsSubstantiveAnswerMarkers($text);
+    }
+
+    private static function containsSubstantiveAnswerMarkers(string $text): bool
+    {
+        return preg_match(
+            '/(結論|理由|根拠|概要|要約|分析|提案|方針|進行中タスク|主成果品|レーン|主対象|次に|優先|整理すると|ポイント|追記|章立て|見出し|構成案|件数|集計結果|推奨アクション)/u',
+            $text
+        ) === 1;
+    }
+
+    private static function normalizeAutoRefreshText(string $text): string
+    {
+        $text = trim($text);
+        if ($text === '') {
+            return '';
+        }
+
+        return preg_replace('/\s+/u', ' ', $text) ?? $text;
+    }
+
+    private static function logAutoRefreshSkip(string $reason, ?array $evalResult, string $finalResponse): void
+    {
+        $verdict = trim((string)($evalResult['verdict'] ?? ''));
+        $evaluationMode = trim((string)($evalResult['evaluation_mode'] ?? ''));
+        $evaluationSource = trim((string)($evalResult['evaluation_source'] ?? ''));
+        $score = (int)($evalResult['total_score'] ?? 0);
+        $responsePreview = self::compactLine($finalResponse, 120);
+
+        error_log(
+            '[PROJECT-MEMORY-AUTO] skipped=quality_guard'
+            . ' | reason=' . $reason
+            . ' | verdict=' . ($verdict !== '' ? $verdict : 'none')
+            . ' | evaluation_mode=' . ($evaluationMode !== '' ? $evaluationMode : 'none')
+            . ' | evaluation_source=' . ($evaluationSource !== '' ? $evaluationSource : 'none')
+            . ' | score=' . $score
+            . ' | response=' . ($responsePreview !== '' ? $responsePreview : '(empty)')
+        );
     }
 
     private static function collectSnapshot(PDO $pdo, int $projectId, ?int $threadId, int $userId): array
