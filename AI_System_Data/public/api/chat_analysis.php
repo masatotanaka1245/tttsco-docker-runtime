@@ -41,6 +41,7 @@ require_once __DIR__ . '/../../src/RouteRuntimeCallbackFactory.php';
 require_once __DIR__ . '/../../src/SqlFailureAnswerFormatter.php';
 require_once __DIR__ . '/../../src/SqlRouteSchemaScopeHelper.php';
 require_once __DIR__ . '/../../src/LightweightFinalGuardRunner.php';
+require_once __DIR__ . '/../../src/PromptManager.php';
 
 if (!function_exists('chatLogger')) {
     function chatLogger($msg) {
@@ -138,14 +139,14 @@ class AdvancedReasoningRouteProcessor {
         $this->pdo                = $pdo;
         $this->ollama_host        = $ollama_host;
         $this->projectId          = $projectId;
-        $this->originalMessage    = $originalMessage;
+        $this->originalMessage    = $this->normalizeUtf8((string)$originalMessage);
         $this->model              = $mainModel;
         $this->subModel           = $subModel;
         $this->sqlModel           = $sqlModel;
         $this->embeddingModel     = $embeddingModel;
         $this->promptKey          = $promptKey;
-        $this->projectContext     = $projectContext;
-        $this->historySummaryText = $historySummaryText;
+        $this->projectContext     = $this->compactProjectContext((string)$projectContext);
+        $this->historySummaryText = $this->compactHistorySummary((string)$historySummaryText);
         $this->user_id            = $user_id;
         $this->role               = $role;
         $this->threadId           = $threadId;
@@ -168,6 +169,32 @@ class AdvancedReasoningRouteProcessor {
             $instructions .= "\n【CSV化モード】集計結果や一覧をCSVとして保存できるよう、表形式が有効な場合は少なくとも1つのMarkdown表を含めてください。列名と行データを省略せず、Markdown表として完結させてください。";
         }
         return $instructions;
+    }
+
+    private function compactHistorySummary(string $historySummaryText): string
+    {
+        $normalized = $this->normalizeUtf8($historySummaryText);
+        $compacted = PromptManager::compactHistorySummaryText($normalized, 3, 180, 700);
+        if ($compacted !== '' && $compacted !== trim($normalized)) {
+            chatLogger("[PROMPT-HISTORY] route=data_analysis | rawChars=" . mb_strlen(trim($normalized)) . " | compactChars=" . mb_strlen($compacted));
+        }
+        return $compacted;
+    }
+
+    private function compactProjectContext(string $projectContext): string
+    {
+        $normalized = trim($this->normalizeUtf8($projectContext));
+        if ($normalized === '') {
+            return '';
+        }
+
+        if (mb_strlen($normalized) <= 900) {
+            return $normalized;
+        }
+
+        $compacted = rtrim(mb_substr($normalized, 0, 892)) . "\n...[省略]";
+        chatLogger("[PROMPT-PROJECT] route=data_analysis | rawChars=" . mb_strlen($normalized) . " | compactChars=" . mb_strlen($compacted));
+        return $compacted;
     }
 
     private function composeMemoryAwarePrompt(string $prompt): string

@@ -473,7 +473,15 @@ try {
                 $roleLabel = $h['role'] === 'assistant' ? 'AI' : 'ユーザー';
                 $historyLines[] = $roleLabel . ': ' . mb_substr(preg_replace('/\s+/u', ' ', (string)$h['message']), 0, 500);
             }
-            $history_summary_text = implode("\n", $historyLines);
+            $rawHistorySummaryText = implode("\n", $historyLines);
+            $history_summary_text = PromptManager::compactHistorySummaryText($rawHistorySummaryText, 3, 180, 700);
+            if ($history_summary_text !== $rawHistorySummaryText) {
+                chatLogger(
+                    "[PROMPT-HISTORY] recent history packet を圧縮しました。rawChars="
+                    . mb_strlen($rawHistorySummaryText)
+                    . " | compactChars=" . mb_strlen($history_summary_text)
+                );
+            }
         }
     } catch (Throwable $historyEx) {
         chatLogger("[WARN] 会話履歴コンテキスト取得に失敗: " . $historyEx->getMessage());

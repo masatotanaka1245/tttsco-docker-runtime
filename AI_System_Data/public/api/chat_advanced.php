@@ -42,6 +42,7 @@ require_once __DIR__ . '/../../src/AdvancedReasoningStepRecorder.php';
 require_once __DIR__ . '/../../src/AdvancedBulkCsvMapReducer.php';
 require_once __DIR__ . '/../../src/AdvancedFinalDraftGenerator.php';
 require_once __DIR__ . '/../../src/RouteRuntimeCallbackFactory.php';
+require_once __DIR__ . '/../../src/PromptManager.php';
 
 if (!function_exists('chatLogger')) {
     function chatLogger($msg) {
@@ -126,8 +127,8 @@ class AdvancedReasoningRouteProcessor {
         $this->reasoningModel = $this->subModel;
         $this->synthesisModel = $this->mainModel;
         $this->promptKey = (string)$promptKey;
-        $this->projectContext = $this->normalizeUtf8((string)$projectContext);
-        $this->historySummaryText = $this->normalizeUtf8((string)$historySummaryText);
+        $this->projectContext = $this->compactProjectContext((string)$projectContext);
+        $this->historySummaryText = $this->compactHistorySummary((string)$historySummaryText);
         $this->user_id = (int)$user_id;
         $this->role = (string)$role;
         $this->threadId = $threadId !== null ? (int)$threadId : null;
@@ -155,6 +156,32 @@ class AdvancedReasoningRouteProcessor {
     private function composeMemoryAwarePrompt(string $prompt): string
     {
         return trim($this->projectOperatingMemoryPrompt . "\n" . $this->databaseMemoryPrompt . "\n" . $prompt);
+    }
+
+    private function compactHistorySummary(string $historySummaryText): string
+    {
+        $normalized = $this->normalizeUtf8($historySummaryText);
+        $compacted = PromptManager::compactHistorySummaryText($normalized, 3, 180, 700);
+        if ($compacted !== '' && $compacted !== trim($normalized)) {
+            chatLogger("[PROMPT-HISTORY] route=advanced_hybrid | rawChars=" . mb_strlen(trim($normalized)) . " | compactChars=" . mb_strlen($compacted));
+        }
+        return $compacted;
+    }
+
+    private function compactProjectContext(string $projectContext): string
+    {
+        $normalized = trim($this->normalizeUtf8($projectContext));
+        if ($normalized === '') {
+            return '';
+        }
+
+        if (mb_strlen($normalized) <= 900) {
+            return $normalized;
+        }
+
+        $compacted = rtrim(mb_substr($normalized, 0, 892)) . "\n...[省略]";
+        chatLogger("[PROMPT-PROJECT] route=advanced_hybrid | rawChars=" . mb_strlen($normalized) . " | compactChars=" . mb_strlen($compacted));
+        return $compacted;
     }
 
     private function createChatLoggerCallback(): callable

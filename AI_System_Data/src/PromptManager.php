@@ -4,6 +4,11 @@
  * PromptManager.php - ユーザー設定に応じたプロンプトテンプレートを管理するクラス
  */
 class PromptManager {
+    private const PROJECT_MEMORY_SECTION_MAX_CHARS = 1800;
+    private const PROJECT_MEMORY_AUTO_MAX_CHARS = 1400;
+    private const PROJECT_MEMORY_MANUAL_MAX_CHARS = 700;
+    private const PROJECT_MEMORY_TOTAL_MAX_CHARS = 5200;
+
     /**
      * 指定された識別子に対応するベースプロンプトを取得する
      *
@@ -139,6 +144,7 @@ class PromptManager {
     public static function getProjectOperatingMemoryInstruction(array $memoryDocs): string
     {
         $sections = [];
+        $remainingChars = self::PROJECT_MEMORY_TOTAL_MAX_CHARS;
         foreach (['agents', 'readme', 'todo'] as $type) {
             $manualContent = trim((string)($memoryDocs[$type]['content'] ?? ''));
             $autoContent = trim((string)($memoryDocs[$type]['auto_content'] ?? ''));
@@ -149,19 +155,33 @@ class PromptManager {
             $label = (string)($memoryDocs[$type]['label'] ?? strtoupper($type));
             $parts = [];
             if ($autoContent !== '') {
-                if (mb_strlen($autoContent) > 3000) {
-                    $autoContent = mb_substr($autoContent, 0, 3000) . "\n...[後半省略]";
-                }
+                $autoContent = self::clipText($autoContent, self::PROJECT_MEMORY_AUTO_MAX_CHARS);
                 $parts[] = "#### 自動生成メモ（優先参照）\n{$autoContent}";
             }
             if ($manualContent !== '') {
-                if (mb_strlen($manualContent) > 3000) {
-                    $manualContent = mb_substr($manualContent, 0, 3000) . "\n...[後半省略]";
-                }
+                $manualContent = self::clipText($manualContent, self::PROJECT_MEMORY_MANUAL_MAX_CHARS);
                 $parts[] = "#### 手動メモ（補助・補正）\n{$manualContent}";
             }
 
-            $sections[] = "### {$label}\n" . implode("\n\n", $parts);
+            $sectionText = "### {$label}\n" . implode("\n\n", $parts);
+            $sectionText = self::clipText($sectionText, self::PROJECT_MEMORY_SECTION_MAX_CHARS);
+            if ($sectionText === '' || $remainingChars <= 0) {
+                continue;
+            }
+
+            if (mb_strlen($sectionText) > $remainingChars) {
+                $sectionText = self::clipText($sectionText, $remainingChars);
+            }
+
+            if ($sectionText === '') {
+                continue;
+            }
+
+            $sections[] = $sectionText;
+            $remainingChars -= mb_strlen($sectionText);
+            if ($remainingChars <= 0) {
+                break;
+            }
         }
 
         if (empty($sections)) {
@@ -184,5 +204,55 @@ class PromptManager {
              . "9. 手動メモは補助的な補正・上書き候補として扱ってください。自動生成メモと手動メモが矛盾する場合は、まず自動生成メモを主仮説として採用し、必要に応じて手動メモの補足を参照してください。\n"
              . "10. 資料本文・DB実データ・FAQ・コメント・案件情報の間に差異がある場合は、事実断定は資料本文とDB実データを優先しつつ、成果品の方針や補足には他の情報源も活用してください。\n\n"
              . implode("\n\n", $sections) . "\n";
+    }
+
+    public static function compactHistorySummaryText(
+        string $historySummaryText,
+        int $maxLines = 3,
+        int $maxLineChars = 180,
+        int $maxTotalChars = 700
+    ): string {
+        $text = trim((string)$historySummaryText);
+        if ($text === '') {
+            return '';
+        }
+
+        $lines = preg_split('/\R/u', $text) ?: [];
+        $normalizedLines = [];
+        foreach ($lines as $line) {
+            $line = trim((string)$line);
+            if ($line === '') {
+                continue;
+            }
+            $line = preg_replace('/\s+/u', ' ', $line) ?? $line;
+            $normalizedLines[] = self::clipText($line, $maxLineChars);
+        }
+
+        if ($normalizedLines === []) {
+            return '';
+        }
+
+        $normalizedLines = array_slice($normalizedLines, -1 * max(1, $maxLines));
+        $compacted = implode("\n", $normalizedLines);
+
+        return self::clipText($compacted, $maxTotalChars);
+    }
+
+    private static function clipText(string $text, int $maxChars): string
+    {
+        $text = trim((string)$text);
+        if ($text === '' || $maxChars <= 0) {
+            return '';
+        }
+
+        if (mb_strlen($text) <= $maxChars) {
+            return $text;
+        }
+
+        if ($maxChars <= 8) {
+            return mb_substr($text, 0, $maxChars);
+        }
+
+        return rtrim(mb_substr($text, 0, $maxChars - 8)) . "\n...[省略]";
     }
 }

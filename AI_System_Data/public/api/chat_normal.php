@@ -12,6 +12,7 @@ require_once __DIR__ . '/../../src/ChatModelRolePayload.php';
 require_once __DIR__ . '/../../src/ChatThreadManager.php';
 require_once __DIR__ . '/../../src/ReportAnswerPolisher.php';
 require_once __DIR__ . '/../../src/CsvExportGenerator.php';
+require_once __DIR__ . '/../../src/LightweightFinalAnswerGuard.php';
 
 function runNormalStreamingRoute($pdo, $ollama_host, $projectId, $originalMessage, $routeDetail, $searchQuery, $model, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $vectorSearch, $engine, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false, bool $csvMode = false) {
     $processor = new NormalStreamingRouteProcessor(
@@ -133,7 +134,39 @@ class NormalStreamingRouteProcessor {
 
     private function runQualityEvaluationIfNeeded(): void {
         if ($this->isProjectMemoryConsultationRoute()) {
-            chatLogger("[JUDGE-NORMAL-SKIP] consultation 専用軽量ルートのため通常RAG品質評価をスキップしました。reason=project_memory_consultation | responseChars=" . mb_strlen($this->fullResponse) . " | contextChars=" . mb_strlen($this->contextText) . " | sources=" . count($this->sourceDocs));
+            $this->loadProjectOperatingMemoryPrompt();
+            $guard = new LightweightFinalAnswerGuard($this->ollama_host);
+            $guardContext = trim($this->contextText) !== ''
+                ? $this->contextText
+                : (trim($this->projectOperatingMemoryPrompt) !== '' ? $this->projectOperatingMemoryPrompt : '案件運用メモ優先の相談ルート');
+
+            $guardResult = $guard->review(
+                $this->originalMessage,
+                $guardContext,
+                $this->fullResponse,
+                $this->model,
+                'normal_project_memory_consultation',
+                [
+                    'use_llm_judge' => false,
+                    'allow_llm_rewrite' => false,
+                ]
+            );
+
+            $this->fullResponse = (string)($guardResult['response'] ?? $this->fullResponse);
+            $this->evalResult = $guardResult['eval_result'] ?? null;
+            if (is_array($this->evalResult)) {
+                $this->evalResult['allow_memory_refresh'] =
+                    (($this->evalResult['verdict'] ?? '') === 'pass')
+                    && ((int)($this->evalResult['total_score'] ?? 0) >= 92);
+            }
+
+            chatLogger(
+                "[JUDGE-NORMAL-SKIP] consultation 専用軽量ルートのため通常RAG品質評価を rule-first ガードへ置換しました。"
+                . " reason=project_memory_consultation"
+                . " | responseChars=" . mb_strlen($this->fullResponse)
+                . " | contextChars=" . mb_strlen($guardContext)
+                . " | sources=" . count($this->sourceDocs)
+            );
             return;
         }
 
