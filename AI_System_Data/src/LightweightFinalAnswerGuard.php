@@ -169,6 +169,39 @@ class LightweightFinalAnswerGuard
             $forbiddenActions[] = '法規名や設計方針の推測追加';
         }
 
+        if ($this->isOperationOnlyAnswer($draftAnswer)) {
+            $verdict = 'reject';
+            $totalScore = min($totalScore, 42);
+            $relevance = min($relevance, 38);
+            $clarity = min($clarity, 58);
+            $feedback[] = '[FINAL-GUARD-OPERATION-NOTICE] 質問と回答の対象が一致していません。回答が操作案内や画面操作の説明に偏っており、依頼への実質回答になっていません。';
+            $mustFix[] = '操作手順ではなく、質問に対する結論・提案・整理結果を先に示す';
+            $forbiddenActions[] = 'アップロードやクリック案内だけで回答を代用する';
+        }
+
+        if ($this->isInsufficientEvidenceAnswer($draftAnswer)) {
+            $verdict = 'need_more_data';
+            $totalScore = min($totalScore, 40);
+            $relevance = min($relevance, 35);
+            $faithfulness = min($faithfulness, 75);
+            $clarity = min($clarity, 60);
+            $feedback[] = '[FINAL-GUARD-INSUFFICIENT-EVIDENCE] 依頼内容に答えるには根拠または条件が不足しています。対象のファイル・列・期間・観点など、質問内容を特定する追加情報が必要です。';
+            $mustFix[] = '不足している対象条件を明示し、必要なら確認質問へ切り替える';
+            $forbiddenActions[] = '情報がありませんだけで最終回答として出荷する';
+        }
+
+        $intentDrift = $this->detectIntentDrift($question, $draftAnswer);
+        if ($intentDrift !== null) {
+            $verdict = 'reject';
+            $totalScore = min($totalScore, 43);
+            $relevance = min($relevance, 36);
+            $faithfulness = min($faithfulness, 78);
+            $clarity = min($clarity, 60);
+            $feedback[] = $intentDrift['feedback'];
+            $mustFix[] = $intentDrift['must_fix'];
+            $forbiddenActions[] = $intentDrift['forbidden_action'];
+        }
+
         $alignment = AnswerAlignmentChecker::analyze($question, $draftAnswer);
         $mismatchPair = is_array($alignment['mismatch_pair'] ?? null) ? $alignment['mismatch_pair'] : null;
         if (($alignment['has_mismatch'] ?? false) === true) {
@@ -256,5 +289,76 @@ class LightweightFinalAnswerGuard
     private function looksLikeGenericAdvice(string $text): bool
     {
         return preg_match('/(建築基準法|消防法|用途地域|耐震性|シックハウス|最新の基準|専門家との連携|空調負荷計算)/u', $text) === 1;
+    }
+
+    private function isOperationOnlyAnswer(string $text): bool
+    {
+        $normalized = trim($text);
+        if ($normalized === '') {
+            return false;
+        }
+
+        $hasOperationMarkers = preg_match('/(アップロードしてください|クリックしてください|画面で確認してください|保存してください|CSVを選択してください|ファイルを選択してください|ボタンを押してください|タブを開いてください|モーダルを開いてください|ダウンロードしてください)/u', $normalized) === 1;
+        $hasSubstantiveMarkers = preg_match('/(結論|理由|根拠|概要|要約|分析|提案|方針|進め方|追記|章立て|見出し|構成案|報告書|整理すると|次にすべきこと)/u', $normalized) === 1;
+
+        return $hasOperationMarkers && !$hasSubstantiveMarkers;
+    }
+
+    private function isInsufficientEvidenceAnswer(string $text): bool
+    {
+        $normalized = trim($text);
+        if ($normalized === '') {
+            return false;
+        }
+
+        $hasInsufficientMarkers = preg_match('/(情報がありません|判断できません|見つかりません|根拠が不足しています|根拠不足です|追加情報が必要です|情報が不足しています|条件が不足しています)/u', $normalized) === 1;
+        $hasSubstantiveMarkers = preg_match('/(結論|理由|根拠|概要|要約|分析|提案|方針|補足|推奨アクション)/u', $normalized) === 1;
+
+        return $hasInsufficientMarkers && !$hasSubstantiveMarkers;
+    }
+
+    private function detectIntentDrift(string $question, string $answer): ?array
+    {
+        $question = trim($question);
+        $answer = trim($answer);
+        if ($question === '' || $answer === '') {
+            return null;
+        }
+
+        $wantsConsult = preg_match('/(相談|提案|おすすめ|オススメ|どう進め|進め方|方針|整理してください|良い案|よい案)/u', $question) === 1;
+        $wantsMaterial = preg_match('/(資料メモ|markdown|mdファイル|追記|章立て|見出し|ドラフト|たたき台|下書き|資料を育て)/iu', $question) === 1;
+        $wantsReport = preg_match('/(報告書|レポート|報告書化|レポート化|構成案)/u', $question) === 1;
+
+        $answerLooksAggregateOrOperation = preg_match('/(集計してください|件数を出して|グラフ化してください|CSVを選択してください|アップロードしてください|クリックしてください|保存してください)/u', $answer) === 1;
+        $answerLooksPdfExplanation = preg_match('/(PDF|資料|ページ番号|資料名|P\.[0-9]+|図面)/u', $answer) === 1
+            && preg_match('/(資料メモ|markdown|md|追記|章立て|見出し|ドラフト)/iu', $answer) !== 1;
+        $answerLooksHistoryOnly = preg_match('/(会話履歴|これまでの会話|チャット履歴|履歴をまとめると)/u', $answer) === 1
+            && preg_match('/(報告書|レポート|構成案|結論|推奨アクション|出典)/u', $answer) !== 1;
+
+        if ($wantsConsult && $answerLooksAggregateOrOperation) {
+            return [
+                'feedback' => '[FINAL-GUARD-INTENT-DRIFT] 質問と回答の対象が一致していません。相談・提案依頼に対して、集計手順や操作案内へ脱線しています。',
+                'must_fix' => '相談・提案としての結論や次アクションを先に示す',
+                'forbidden_action' => '相談依頼を操作説明だけで代用する',
+            ];
+        }
+
+        if ($wantsMaterial && $answerLooksPdfExplanation) {
+            return [
+                'feedback' => '[FINAL-GUARD-INTENT-DRIFT] 質問と回答の対象が一致していません。資料メモ更新の依頼に対して、PDF説明や資料の一般説明へ脱線しています。',
+                'must_fix' => '資料メモへ追記すべき章・見出し・要点に回答を揃える',
+                'forbidden_action' => '資料メモ更新依頼をPDF説明だけで代用する',
+            ];
+        }
+
+        if ($wantsReport && ($answerLooksHistoryOnly || $this->isOperationOnlyAnswer($answer))) {
+            return [
+                'feedback' => '[FINAL-GUARD-INTENT-DRIFT] 質問と回答の対象が一致していません。報告書化依頼に対して、単なる履歴説明または操作案内へ脱線しています。',
+                'must_fix' => '報告書や構成案としての体裁に回答対象を揃える',
+                'forbidden_action' => '報告書化依頼を履歴説明や操作案内だけで代用する',
+            ];
+        }
+
+        return null;
     }
 }
