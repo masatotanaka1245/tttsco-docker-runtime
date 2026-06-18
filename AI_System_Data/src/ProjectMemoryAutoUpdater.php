@@ -191,6 +191,9 @@ final class ProjectMemoryAutoUpdater
             'csv_files' => $csvFiles,
             'pdf_docs' => $pdfDocs,
             'material_docs' => $materialDocs,
+            'primary_csv_file' => self::selectPrimaryCsvFile($csvFiles),
+            'primary_pdf_doc' => self::selectPrimaryDocument($pdfDocs),
+            'primary_material_doc' => self::selectPrimaryDocument($materialDocs),
             'history' => $history,
             'recent_evaluations' => $recentEvaluations,
             'thread_history_count' => count($threadHistory),
@@ -335,11 +338,20 @@ final class ProjectMemoryAutoUpdater
     private static function buildTodoDoc(array $snapshot): string
     {
         $todoState = self::buildTodoState($snapshot);
+        $latestRequests = self::extractLatestUserMessages($snapshot['history'], 4);
+        $activeArtifact = self::resolveActiveArtifactLane($snapshot, $latestRequests);
+        $artifactFocus = self::describeArtifactFocus($snapshot, $activeArtifact);
 
         $lines = [];
         $lines[] = '# TODO';
         $lines[] = '';
         $lines[] = '> 自動更新: ' . $snapshot['generated_at'];
+        $lines[] = '';
+        $lines[] = '## 現在の主成果品';
+        $lines[] = '- レーン: ' . $activeArtifact['label'];
+        $lines[] = '- 主対象: ' . $artifactFocus;
+        $lines[] = '- 理由: ' . $activeArtifact['reason'];
+        $lines[] = '- 進行中タスク: ' . $todoState['current'][0];
         $lines[] = '';
         $lines[] = '## 進行中';
         foreach ($todoState['current'] as $task) {
@@ -422,7 +434,11 @@ final class ProjectMemoryAutoUpdater
             if (($row['role'] ?? '') !== 'user') {
                 continue;
             }
-            $messages[] = self::compactLine((string)($row['message'] ?? ''), 120);
+            $message = trim((string)($row['message'] ?? ''));
+            if ($message === '' || self::looksLikeLowSignalUserMessage($message)) {
+                continue;
+            }
+            $messages[] = self::compactLine($message, 120);
             if (count($messages) >= $limit) {
                 break;
             }
@@ -787,9 +803,13 @@ final class ProjectMemoryAutoUpdater
     private static function buildCurrentTodoTask(array $snapshot, array $activeArtifact, array $todoSignals): string
     {
         foreach ($todoSignals['open_interactions'] as $interaction) {
+            $userMessage = trim((string)($interaction['user_message'] ?? ''));
+            if ($userMessage === '' || self::looksLikeLowSignalUserMessage($userMessage)) {
+                continue;
+            }
             $assistantMessage = trim((string)($interaction['assistant_message'] ?? ''));
             if ($assistantMessage === '' || !self::looksLikeClarificationAssistantAction($assistantMessage)) {
-                return self::normalizeTodoTask((string)($interaction['user_message'] ?? ''));
+                return self::normalizeTodoTask($userMessage);
             }
         }
         if (!empty($todoSignals['review_interactions'][0])) {
@@ -801,15 +821,26 @@ final class ProjectMemoryAutoUpdater
 
     private static function buildDefaultCurrentTask(array $snapshot, array $activeArtifact): string
     {
-        $materialDocs = $snapshot['material_docs'] ?? [];
+        $primaryMaterial = (array)($snapshot['primary_material_doc'] ?? []);
+        $primaryCsv = (array)($snapshot['primary_csv_file'] ?? []);
+        $primaryPdf = (array)($snapshot['primary_pdf_doc'] ?? []);
+        $materialLabel = self::describeDocumentName($primaryMaterial, '資料メモ');
+        $csvLabel = self::describeCsvName($primaryCsv);
+        $pdfLabel = self::describeDocumentName($primaryPdf, 'PDF');
 
         return match ($activeArtifact['key']) {
-            'material_note' => !empty($materialDocs)
-                ? '既存の資料メモを開き、次の追記・修正ポイントを反映する'
+            'material_note' => $materialLabel !== ''
+                ? '資料メモ「' . $materialLabel . '」を開き、今回の依頼に必要な章・追記ポイントを更新する'
                 : '資料メモを新規作成し、今回の成果品の土台を作る',
-            'csv' => '対象CSVを1本に絞り、集計軸と出力形式を確定する',
-            'report' => '報告書の見出し構成と根拠を整理し、成果品ドラフトを組み立てる',
-            'hybrid_analysis' => 'CSV・PDF・資料メモなど複数ソースを照合し、判断材料をまとめる',
+            'csv' => $csvLabel !== ''
+                ? 'CSV「' . $csvLabel . '」を起点に、対象列・集計軸・出力形式を確定する'
+                : '対象CSVを1本に絞り、集計軸と出力形式を確定する',
+            'report' => $materialLabel !== '' || $pdfLabel !== ''
+                ? '資料メモ「' . ($materialLabel !== '' ? $materialLabel : $pdfLabel) . '」を土台に、報告書の見出し構成と根拠を整理する'
+                : '報告書の見出し構成と根拠を整理し、成果品ドラフトを組み立てる',
+            'hybrid_analysis' => $csvLabel !== '' || $pdfLabel !== ''
+                ? 'CSV「' . ($csvLabel !== '' ? $csvLabel : '対象CSV') . '」と資料「' . ($pdfLabel !== '' ? $pdfLabel : ($materialLabel !== '' ? $materialLabel : '関連資料')) . '」を照合し、判断材料をまとめる'
+                : 'CSV・PDF・資料メモなど複数ソースを照合し、判断材料をまとめる',
             default => '案件運用メモを更新し、次に作る成果品レーンを1つに絞る',
         };
     }
@@ -820,19 +851,28 @@ final class ProjectMemoryAutoUpdater
         $materialDocs = $snapshot['material_docs'] ?? [];
         $csvFiles = $snapshot['csv_files'] ?? [];
         $pdfDocs = $snapshot['pdf_docs'] ?? [];
+        $materialLabel = self::describeDocumentName((array)($snapshot['primary_material_doc'] ?? []), '資料メモ');
+        $csvLabel = self::describeCsvName((array)($snapshot['primary_csv_file'] ?? []));
+        $pdfLabel = self::describeDocumentName((array)($snapshot['primary_pdf_doc'] ?? []), 'PDF');
 
         if ($activeArtifact['key'] !== 'material_note') {
             if (!empty($materialDocs)) {
-                $tasks[] = '既存の資料メモを確認し、今回の依頼に近い章や見出しを再利用する';
+                $tasks[] = $materialLabel !== ''
+                    ? '資料メモ「' . $materialLabel . '」を確認し、今回の依頼に近い章や見出しを再利用する'
+                    : '既存の資料メモを確認し、今回の依頼に近い章や見出しを再利用する';
             } else {
                 $tasks[] = '資料メモが未作成なら、先に叩き台Markdownを1本用意する';
             }
         }
         if (!empty($csvFiles)) {
-            $tasks[] = 'CSV側で必要な件数・分布・時系列のどれを見るかを明示する';
+            $tasks[] = $csvLabel !== ''
+                ? 'CSV「' . $csvLabel . '」で、件数・分布・時系列のどれを見るかを明示する'
+                : 'CSV側で必要な件数・分布・時系列のどれを見るかを明示する';
         }
         if (!empty($pdfDocs)) {
-            $tasks[] = 'PDFや関連資料から必要な根拠ページ・関連記述を抜き出して、成果品へ反映する';
+            $tasks[] = $pdfLabel !== ''
+                ? 'PDF「' . $pdfLabel . '」から必要な根拠ページ・関連記述を抜き出して、成果品へ反映する'
+                : 'PDFや関連資料から必要な根拠ページ・関連記述を抜き出して、成果品へ反映する';
         }
         if ((int)($snapshot['comment_count'] ?? 0) > 0) {
             $tasks[] = '案件コメントに最新の申し送りや方針変更があれば、成果品へ反映する';
@@ -867,10 +907,26 @@ final class ProjectMemoryAutoUpdater
     private static function buildSourceHighlightLines(array $snapshot): array
     {
         $lines = [];
-        foreach (array_slice((array)($snapshot['material_docs'] ?? []), 0, 1) as $material) {
-            $title = self::compactLine((string)($material['title'] ?? basename((string)($material['file_path'] ?? '資料メモ'))), 70);
+        $primaryMaterial = (array)($snapshot['primary_material_doc'] ?? []);
+        if ($primaryMaterial !== []) {
+            $title = self::describeDocumentName($primaryMaterial, '資料メモ');
             if ($title !== '') {
-                $lines[] = '- 資料メモ: ' . $title;
+                $dateLabel = self::formatDateLabel((string)($primaryMaterial['created_at'] ?? ''));
+                $suffix = $dateLabel !== '' ? ' / 最新: ' . $dateLabel : '';
+                $lines[] = '- 資料メモ: ' . $title . $suffix;
+            }
+        }
+        $secondaryMaterials = array_slice((array)($snapshot['material_docs'] ?? []), 1, 2);
+        if ($secondaryMaterials !== []) {
+            $names = [];
+            foreach ($secondaryMaterials as $material) {
+                $name = self::describeDocumentName((array)$material, '資料メモ');
+                if ($name !== '') {
+                    $names[] = $name;
+                }
+            }
+            if ($names !== []) {
+                $lines[] = '- 資料メモ候補: ' . implode(' / ', array_map(static fn(string $name): string => self::compactLine($name, 32), $names));
             }
         }
         foreach (array_slice((array)($snapshot['csv_files'] ?? []), 0, 2) as $csv) {
@@ -1207,6 +1263,21 @@ final class ProjectMemoryAutoUpdater
         return preg_match('/どの(?:列|カラム|項目|資料)|指定してください|教えてください|確認させてください|補足してください|もう少し詳しく|対象を教えて/u', $message) === 1;
     }
 
+    private static function looksLikeLowSignalUserMessage(string $message): bool
+    {
+        $message = trim($message);
+        if ($message === '') {
+            return true;
+        }
+
+        $normalized = mb_strtolower($message);
+        if (mb_strlen($normalized) <= 24 && preg_match('/^(はい|了解|承知|ok|ありがとうございます|ありがとう|お願いします|お願い|進めてください|続けてください|確認お願いします|お願いします。|はい、お願いします。|大丈夫です|問題ありません)[!！。.\s]*$/u', $normalized) === 1) {
+            return true;
+        }
+
+        return false;
+    }
+
     private static function normalizeTodoTask(string $text): string
     {
         $text = trim($text);
@@ -1221,6 +1292,67 @@ final class ProjectMemoryAutoUpdater
         }
 
         return self::compactLine($normalized, 110);
+    }
+
+    private static function describeArtifactFocus(array $snapshot, array $activeArtifact): string
+    {
+        $materialLabel = self::describeDocumentName((array)($snapshot['primary_material_doc'] ?? []), '資料メモ');
+        $csvLabel = self::describeCsvName((array)($snapshot['primary_csv_file'] ?? []));
+        $pdfLabel = self::describeDocumentName((array)($snapshot['primary_pdf_doc'] ?? []), 'PDF');
+
+        return match ($activeArtifact['key']) {
+            'material_note' => $materialLabel !== '' ? '資料メモ「' . $materialLabel . '」' : '作業用の資料メモ',
+            'csv' => $csvLabel !== '' ? 'CSV「' . $csvLabel . '」' : '対象CSV',
+            'report' => $materialLabel !== '' ? '資料メモ「' . $materialLabel . '」を元にした報告書ドラフト' : ($pdfLabel !== '' ? 'PDF「' . $pdfLabel . '」を元にした報告書ドラフト' : '報告書ドラフト'),
+            'hybrid_analysis' => ($csvLabel !== '' ? 'CSV「' . $csvLabel . '」' : 'CSV')
+                . ' + '
+                . ($pdfLabel !== '' ? 'PDF「' . $pdfLabel . '」' : ($materialLabel !== '' ? '資料メモ「' . $materialLabel . '」' : '関連資料')),
+            'pdf' => $pdfLabel !== '' ? 'PDF「' . $pdfLabel . '」' : '参照PDF',
+            default => '案件運用メモと次アクション',
+        };
+    }
+
+    private static function selectPrimaryCsvFile(array $csvFiles): array
+    {
+        return isset($csvFiles[0]) && is_array($csvFiles[0]) ? $csvFiles[0] : [];
+    }
+
+    private static function selectPrimaryDocument(array $documents): array
+    {
+        return isset($documents[0]) && is_array($documents[0]) ? $documents[0] : [];
+    }
+
+    private static function describeDocumentName(array $document, string $fallback): string
+    {
+        $name = trim((string)($document['title'] ?? ''));
+        if ($name === '') {
+            $path = trim((string)($document['file_path'] ?? ''));
+            $name = $path !== '' ? basename($path) : $fallback;
+        }
+
+        return self::compactLine($name, 80);
+    }
+
+    private static function describeCsvName(array $csv): string
+    {
+        $name = trim((string)($csv['file_name'] ?? ''));
+        if ($name === '') {
+            return '';
+        }
+
+        return self::compactLine($name, 80);
+    }
+
+    private static function formatDateLabel(string $value): string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return '';
+        }
+
+        return preg_match('/^\d{4}-\d{2}-\d{2}/', $value) === 1
+            ? substr($value, 0, 10)
+            : self::compactLine($value, 16);
     }
 
     private static function uniqueNonEmptyLines(array $lines, array $exclude = []): array
