@@ -41,7 +41,7 @@ class ChatHistoryContextResolver
                     if ($column === '') {
                         continue;
                     }
-                    if (mb_stripos($message, $column, 0, 'UTF-8') !== false) {
+                    if ($this->hasImplicitColumnMention($message, $column)) {
                         $fileScopedMatches[$fileName . '|' . $column] = [
                             'file_name' => $fileName,
                             'column_name' => $column,
@@ -65,7 +65,7 @@ class ChatHistoryContextResolver
                 if ($column === '') {
                     continue;
                 }
-                if (mb_stripos($message, $column, 0, 'UTF-8') !== false) {
+                if ($this->hasImplicitColumnMention($message, $column)) {
                     $matches[$fileName . '|' . $column] = [
                         'file_name' => $fileName,
                         'column_name' => $column,
@@ -238,7 +238,7 @@ class ChatHistoryContextResolver
                 if ($column === '') {
                     continue;
                 }
-                if (mb_stripos($message, $column, 0, 'UTF-8') !== false) {
+                if ($this->hasImplicitColumnMention($message, $column)) {
                     $matchedColumns[$column] = true;
                 }
             }
@@ -307,6 +307,21 @@ class ChatHistoryContextResolver
         }
 
         return null;
+    }
+
+    private function hasImplicitColumnMention(string $message, string $column): bool
+    {
+        $column = trim($column);
+        if (!$this->shouldUseImplicitColumnMatch($column)) {
+            return false;
+        }
+
+        return mb_stripos($message, $column, 0, 'UTF-8') !== false;
+    }
+
+    private function shouldUseImplicitColumnMatch(string $column): bool
+    {
+        return mb_strlen($column, 'UTF-8') > 1;
     }
 
     private function loadFiles(): array

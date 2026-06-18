@@ -87,7 +87,10 @@ class ChatRouteFactorizer
                     $mentionedCsv = $recentContext['target_file_name'] ?? null;
                 }
                 if ($targetColumn === null) {
-                    $targetColumn = $recentContext['target_column'] ?? null;
+                    $recentTargetColumn = trim((string)($recentContext['target_column'] ?? ''));
+                    if ($recentTargetColumn !== '' && $this->shouldUseImplicitColumnMatch($recentTargetColumn)) {
+                        $targetColumn = $recentTargetColumn;
+                    }
                 }
                 if ($mentionedCsv !== null || $targetColumn !== null) {
                     $this->log("[SMART-ROUTER] 直前の会話履歴からCSV文脈を補完しました。file=" . ($mentionedCsv ?? 'none') . " | column=" . ($targetColumn ?? 'none'));
@@ -322,6 +325,11 @@ class ChatRouteFactorizer
         }
 
         return null;
+    }
+
+    private function shouldUseImplicitColumnMatch(string $column): bool
+    {
+        return mb_strlen(trim($column), 'UTF-8') > 1;
     }
 
     private function shouldInheritRecentCsvContext(

@@ -117,7 +117,7 @@ class CsvAggregationPlanner
         $routeLockActive = $routeDetail === 'data_analysis.csv_agg.route_lock';
         if (($targetFileName === null || $targetColumn === null) && $explicitColumnReference === null) {
             $columnTarget = $this->findMentionedColumnTarget($question);
-            if ($columnTarget !== null) {
+            if ($columnTarget !== null && ($targetFileName === null || $targetFileName === (string)$columnTarget['file_name'])) {
                 $targetFileName = (string)$columnTarget['file_name'];
                 $targetColumn = (string)$columnTarget['column_name'];
                 $contextSource = 'explicit_column_target';
@@ -127,7 +127,9 @@ class CsvAggregationPlanner
             $contextSource = 'explicit_column_reference';
         }
         if ($targetColumn === null) {
-            $globalColumn = $this->findMentionedColumnNameAcrossFiles($question);
+            $globalColumn = $targetFileName !== null
+                ? $this->findMentionedColumnName($question, $targetFileName)
+                : $this->findMentionedColumnNameAcrossFiles($question);
             if ($globalColumn !== null) {
                 $targetColumn = $globalColumn;
                 if ($contextSource === 'none') {
@@ -360,7 +362,7 @@ class CsvAggregationPlanner
                 if ($column === '') {
                     continue;
                 }
-                if (mb_stripos($question, $column, 0, 'UTF-8') !== false) {
+                if ($this->hasImplicitColumnMention($question, $column)) {
                     return $column;
                 }
             }
@@ -378,7 +380,7 @@ class CsvAggregationPlanner
                 if ($column === '') {
                     continue;
                 }
-                if (mb_stripos($question, $column, 0, 'UTF-8') !== false) {
+                if ($this->hasImplicitColumnMention($question, $column)) {
                     $key = (string)($file['file_name'] ?? '') . '|' . $column;
                     $matches[$key] = [
                         'file_name' => (string)($file['file_name'] ?? ''),
@@ -400,7 +402,7 @@ class CsvAggregationPlanner
                 if ($column === '') {
                     continue;
                 }
-                if (mb_stripos($question, $column, 0, 'UTF-8') !== false) {
+                if ($this->hasImplicitColumnMention($question, $column)) {
                     $matchedColumns[$column] = true;
                 }
             }
@@ -441,6 +443,21 @@ class CsvAggregationPlanner
         }
 
         return null;
+    }
+
+    private function hasImplicitColumnMention(string $question, string $column): bool
+    {
+        $column = trim($column);
+        if (!$this->shouldUseImplicitColumnMatch($column)) {
+            return false;
+        }
+
+        return mb_stripos($question, $column, 0, 'UTF-8') !== false;
+    }
+
+    private function shouldUseImplicitColumnMatch(string $column): bool
+    {
+        return mb_strlen($column, 'UTF-8') > 1;
     }
 
     private function findRecentCsvContext(array $recentHistory): ?array
