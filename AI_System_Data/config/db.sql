@@ -1,7 +1,7 @@
 -- ==================================================================
 -- AI システム 統合データベーススキーマ
 -- Target: MySQL 8.0.33 / PHP 8.2.8 / Apache 2.4.57
--- Updated: 2026-06-01
+-- Updated: 2026-06-18
 -- ==================================================================
 
 CREATE DATABASE IF NOT EXISTS tepscoapp
@@ -23,10 +23,10 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     default_prompt VARCHAR(50) DEFAULT 'construction_consultant' COMMENT 'デフォルトプロンプトの識別子',
     default_lang VARCHAR(10) DEFAULT 'ja' COMMENT '表示言語設定',
-    default_model VARCHAR(50) DEFAULT 'gpt-oss:20b' COMMENT '優先使用モデル',
+    default_model VARCHAR(50) DEFAULT 'gemma4:e4b' COMMENT '優先使用モデル',
     ollama_host VARCHAR(255) DEFAULT 'http://127.0.0.1:11434' COMMENT 'Ollama接続先URL',
     sub_model VARCHAR(100) DEFAULT 'gpt-oss:20b' COMMENT '中間処理・補助分析用サブモデル',
-    sql_model VARCHAR(100) DEFAULT 'gpt-oss:20b' COMMENT 'Text-to-SQL・SQL自己修復用モデル',
+    sql_model VARCHAR(100) DEFAULT 'codellama:7b' COMMENT 'Text-to-SQL・SQL自己修復用モデル',
     embedding_model VARCHAR(100) DEFAULT 'mxbai-embed-large' COMMENT 'ベクトル化専用モデル',
     vision_model VARCHAR(100) DEFAULT 'gemma4:e4b' COMMENT 'PDF・画像解析用ビジョンモデル'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='ユーザー認証・所属管理';
@@ -61,13 +61,31 @@ CREATE TABLE IF NOT EXISTS projects (
 CREATE TABLE IF NOT EXISTS documents (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     project_id BIGINT UNSIGNED NOT NULL COMMENT 'プロジェクトID',
-    title VARCHAR(255) NOT NULL,
-    file_path VARCHAR(512) NOT NULL,
+    title VARCHAR(255) NOT NULL COMMENT '資料タイトル（PDF/資料メモ/CSV連携ノードを含む）',
+    file_path VARCHAR(512) NOT NULL COMMENT '物理パスまたはCSV連携用の論理識別子',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_documents_project_id
         FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
     INDEX idx_documents_project_id (project_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='プロジェクト関連資料管理';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='プロジェクト関連資料管理（PDF/資料メモ/CSV連携の親ノード）';
+
+-- ------------------------------------------------------------------
+-- チャットスレッド
+-- ------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS chat_threads (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    project_id BIGINT UNSIGNED NOT NULL,
+    title VARCHAR(255) NOT NULL COMMENT '案件内会話スレッドの表示名',
+    created_by BIGINT UNSIGNED NULL COMMENT 'スレッド作成ユーザー',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_chat_threads_project_id
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+    CONSTRAINT fk_chat_threads_created_by
+        FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+    INDEX idx_chat_threads_project_id (project_id),
+    INDEX idx_chat_threads_updated_at (updated_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='案件内の会話スレッド';
 
 -- ------------------------------------------------------------------
 -- RAGチャンク
@@ -92,6 +110,7 @@ CREATE TABLE IF NOT EXISTS doc_chunks (
 CREATE TABLE IF NOT EXISTS chat_history (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     project_id BIGINT UNSIGNED NULL COMMENT '関連業務ID (NULLの場合は汎用対話)',
+    thread_id BIGINT UNSIGNED NULL COMMENT '案件内会話スレッドID（NULLの場合は旧履歴または汎用対話）',
     user_id BIGINT UNSIGNED NOT NULL COMMENT '対話者ID',
     role ENUM('user','assistant') NOT NULL COMMENT '発話者区分',
     message TEXT NOT NULL COMMENT 'メッセージ内容',
@@ -101,7 +120,9 @@ CREATE TABLE IF NOT EXISTS chat_history (
     CONSTRAINT fk_chat_history_user_id
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     INDEX idx_chat_history_project_id (project_id),
+    INDEX idx_chat_history_thread_id (thread_id),
     INDEX idx_chat_history_user_id (user_id),
+    INDEX idx_chat_history_thread_context (thread_id, created_at),
     INDEX idx_chat_history_context (project_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='案件ごとのAI対話ログ保存';
 
