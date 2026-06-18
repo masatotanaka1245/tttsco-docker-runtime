@@ -21,6 +21,9 @@ class ChatRouteSelector
         $factorizedQuery = (array)($context['factorized_query'] ?? []);
         $factorizedRoute = (string)($factorizedQuery['route'] ?? '');
         $factorizedOperation = (string)($factorizedQuery['operation'] ?? '');
+        $factorizedConfidence = (string)($factorizedQuery['route_confidence'] ?? 'low');
+        $factorizedReasonCodes = array_values(array_filter((array)($factorizedQuery['route_reason_codes'] ?? []), 'is_string'));
+        $factorizedEvidence = array_values(array_filter((array)($factorizedQuery['route_evidence'] ?? []), 'is_string'));
         $explicitAdvanced = (bool)($context['explicit_advanced'] ?? false);
         $reportMode = (bool)($context['report_mode'] ?? false);
 
@@ -30,6 +33,19 @@ class ChatRouteSelector
         $preferNormalRag = false;
         $routeDetailOverride = null;
         $recentArtifactState = null;
+        $selectorReasonCodes = [];
+        $selectorEvidence = [];
+        $selectedRouteConfidence = $factorizedConfidence !== '' ? $factorizedConfidence : 'low';
+        $selectedRouteReasonCodes = $factorizedReasonCodes;
+        $selectedRouteEvidence = $factorizedEvidence;
+
+        $appendUnique = static function (array &$items, ?string $value): void {
+            $value = trim((string)$value);
+            if ($value === '' || in_array($value, $items, true)) {
+                return;
+            }
+            $items[] = $value;
+        };
 
         $complexPattern  = '/(比較|違い|相違|対比|網羅|分析|解析|詳細|詳しく|まとめ|総括|検討|留意点|評価|影響|検証|整合性|关系|どう違う|解説して)/u';
         $analysisPattern = '/(集計|何種類|割合|平均|カウント|件数|グラフ|チャート|分布|推移|合計)/u';
@@ -44,6 +60,9 @@ class ChatRouteSelector
 
         if (($hasHistoryReportRequest || ($hasHistorySummaryRequest && $reportMode)) && $projectId !== null) {
             $explicitAdvanced = true;
+            $appendUnique($selectorReasonCodes, 'selector_history_report');
+            $appendUnique($selectorEvidence, $hasHistoryReportRequest ? 'history_report_keyword' : 'report_mode_with_history_summary');
+            $selectedRouteConfidence = 'high';
             if ($hasHistoryReportRequest) {
                 $this->log("[SMART-ROUTER] 会話履歴の報告書化要求を検知。軽量履歴要約ではなく報告書向けフル思考ルートを優先します。");
             } else {
@@ -52,10 +71,16 @@ class ChatRouteSelector
 
         } elseif ($hasHistorySummaryRequest) {
             $isHistorySummaryMode = true;
+            $appendUnique($selectorReasonCodes, 'selector_history_summary');
+            $appendUnique($selectorEvidence, 'history_summary_keyword');
+            $selectedRouteConfidence = 'high';
             $this->log("[SMART-ROUTER] 会話履歴要約要求を検知。report_mode より軽量履歴サマリールートを優先します。");
 
         } elseif ($reportMode && $projectId !== null) {
             $explicitAdvanced = true;
+            $appendUnique($selectorReasonCodes, 'selector_report_mode_advanced');
+            $appendUnique($selectorEvidence, 'report_mode_enabled');
+            $selectedRouteConfidence = 'medium';
             $this->log("[SMART-ROUTER] 報告書モードを検知。PDF生成・検索登録のためフル思考ルートへ寄せます。");
         }
 
@@ -73,6 +98,15 @@ class ChatRouteSelector
                     $advancedReasoning = false;
                     $preferNormalRag = false;
                     $routeDetailOverride = 'data_analysis.csv_agg.route_lock';
+                    $appendUnique($selectorReasonCodes, 'selector_csv_route_lock');
+                    $appendUnique($selectorEvidence, 'recent_artifact_state');
+                    if (!empty($recentArtifactState['target_file_name'])) {
+                        $appendUnique($selectorEvidence, 'recent_artifact_file');
+                    }
+                    if (!empty($recentArtifactState['target_column'])) {
+                        $appendUnique($selectorEvidence, 'recent_artifact_column');
+                    }
+                    $selectedRouteConfidence = 'high';
                     $this->log(
                         "[SMART-ROUTER] 直前の成果品ステートを検知したため CSV集計ルートを継続固定します。"
                         . " file=" . ($recentArtifactState['target_file_name'] ?? 'unknown')
@@ -104,63 +138,105 @@ class ChatRouteSelector
 
             } elseif ($allowCsvRouteOverride && ($factorizedQuery['route'] ?? null) === 'data_analysis.csv_agg') {
                 $isAnalysisMode = true;
+                $appendUnique($selectorReasonCodes, 'selector_data_analysis_csv_agg');
+                $appendUnique($selectorEvidence, 'factorized_csv_agg');
+                $selectedRouteConfidence = $factorizedConfidence !== 'low' ? $factorizedConfidence : 'medium';
                 $this->log("[SMART-ROUTER] CSV集計系の質問は軽量分析を優先します。explicit_advanced=" . ($explicitAdvanced ? 'on' : 'off') . " | file=" . ($factorizedQuery['target_file_name'] ?? 'all'));
 
             } elseif ($allowCsvRouteOverride && ($factorizedQuery['route'] ?? null) === 'data_analysis.csv_export_request') {
                 $isAnalysisMode = true;
+                $appendUnique($selectorReasonCodes, 'selector_data_analysis_csv_export');
+                $appendUnique($selectorEvidence, 'factorized_csv_export_request');
+                $selectedRouteConfidence = $factorizedConfidence !== 'low' ? $factorizedConfidence : 'medium';
                 $this->log("[SMART-ROUTER] CSV生成系の質問は軽量分析を優先します。explicit_advanced=" . ($explicitAdvanced ? 'on' : 'off') . " | target=" . ($factorizedQuery['target'] ?? 'unknown'));
 
             } elseif ($allowCsvRouteOverride && ($factorizedQuery['route'] ?? null) === 'data_analysis.csv_summary') {
                 $isAnalysisMode = true;
+                $appendUnique($selectorReasonCodes, 'selector_data_analysis_csv_summary');
+                $appendUnique($selectorEvidence, 'factorized_csv_summary');
+                $selectedRouteConfidence = $factorizedConfidence !== 'low' ? $factorizedConfidence : 'medium';
                 $this->log("[SMART-ROUTER] CSV要約系の質問は軽量分析を優先します。explicit_advanced=" . ($explicitAdvanced ? 'on' : 'off') . " | target=" . ($factorizedQuery['target'] ?? 'unknown'));
 
             } elseif ($projectId !== null && $this->shouldPreferProjectMemoryConsultation($message, $factorizedRoute, $factorizedOperation)) {
                 $preferNormalRag = true;
                 $advancedReasoning = false;
                 $isAnalysisMode = false;
+                $appendUnique($selectorReasonCodes, 'selector_project_memory_consultation');
+                $appendUnique($selectorEvidence, $factorizedRoute === 'normal_rag.project_memory_consultation' ? 'factorized_project_memory_consultation' : 'project_memory_consultation_override');
+                $selectedRouteConfidence = in_array($factorizedOperation, ['material_workflow', 'status_alignment'], true) ? 'high' : ($factorizedConfidence !== 'low' ? $factorizedConfidence : 'medium');
                 $this->log("[SMART-ROUTER] 成果品相談・現在地確認の意図を検知。案件運用メモを踏まえた相談ルートを優先します。route=normal_rag.project_memory_consultation | operation=" . ($factorizedOperation !== '' ? $factorizedOperation : 'unknown'));
 
             } elseif ($explicitAdvanced && $projectId !== null) {
                 $advancedReasoning = true;
                 $isAnalysisMode = false;
+                $appendUnique($selectorReasonCodes, 'selector_explicit_advanced');
+                $appendUnique($selectorEvidence, 'explicit_advanced_flag');
+                $selectedRouteConfidence = $factorizedConfidence !== 'low' ? $factorizedConfidence : 'medium';
                 $this->log("[SMART-ROUTER] フル思考モードの明示指定を検知。ハイブリッド多重推論統合ハブをキックします。");
 
             } elseif ($projectId !== null && preg_match($structuredAnalysisPattern, $message)) {
                 $isAnalysisMode = true;
+                $appendUnique($selectorReasonCodes, 'selector_structured_analysis');
+                $appendUnique($selectorEvidence, 'structured_analysis_pattern');
+                $selectedRouteConfidence = 'medium';
                 $this->log("[SMART-ROUTER] 構造化データ参照に適した質問を検知。データ分析ルートを優先します。");
 
             } elseif ($projectId !== null && ($factorizedQuery['route'] ?? null) === 'data_analysis.csv_agg') {
                 $isAnalysisMode = true;
+                $appendUnique($selectorReasonCodes, 'selector_factorized_csv_agg');
+                $appendUnique($selectorEvidence, 'factorized_csv_agg');
+                $selectedRouteConfidence = $factorizedConfidence !== 'low' ? $factorizedConfidence : 'medium';
                 $this->log("[SMART-ROUTER] 質問因数分解によりCSV集計ルートを優先します。target=" . ($factorizedQuery['target'] ?? 'unknown') . " | file=" . ($factorizedQuery['target_file_name'] ?? 'all'));
 
             } elseif ($projectId !== null && ($factorizedQuery['route'] ?? null) === 'data_analysis.csv_export_request') {
                 $isAnalysisMode = true;
+                $appendUnique($selectorReasonCodes, 'selector_factorized_csv_export');
+                $appendUnique($selectorEvidence, 'factorized_csv_export_request');
+                $selectedRouteConfidence = $factorizedConfidence !== 'low' ? $factorizedConfidence : 'medium';
                 $this->log("[SMART-ROUTER] 質問因数分解によりCSV生成ルートを優先します。target=" . ($factorizedQuery['target'] ?? 'unknown'));
 
             } elseif ($projectId !== null && ($factorizedQuery['route'] ?? null) === 'data_analysis.csv_summary') {
                 $isAnalysisMode = true;
+                $appendUnique($selectorReasonCodes, 'selector_factorized_csv_summary');
+                $appendUnique($selectorEvidence, 'factorized_csv_summary');
+                $selectedRouteConfidence = $factorizedConfidence !== 'low' ? $factorizedConfidence : 'medium';
                 $this->log("[SMART-ROUTER] 質問因数分解によりCSV要約ルートを優先します。file=" . ($factorizedQuery['target_file_name'] ?? 'unknown'));
 
             } elseif ($projectId !== null && $factorizedRoute === 'advanced_hybrid.doc_extract') {
                 $advancedReasoning = true;
                 $isAnalysisMode = false;
+                $appendUnique($selectorReasonCodes, 'selector_doc_extract');
+                $appendUnique($selectorEvidence, 'factorized_doc_extract');
+                $selectedRouteConfidence = $factorizedConfidence !== 'low' ? $factorizedConfidence : 'medium';
                 $this->log("[SMART-ROUTER] 質問因数分解により資料PDF抽出ルートを優先します。target=" . ($factorizedQuery['target'] ?? 'unknown'));
 
             } elseif ($projectId !== null && $factorizedRoute !== '' && str_starts_with($factorizedRoute, 'advanced_hybrid.')) {
                 $advancedReasoning = true;
                 $isAnalysisMode = false;
+                $appendUnique($selectorReasonCodes, 'selector_factorized_advanced');
+                $appendUnique($selectorEvidence, 'factorized_advanced_route');
+                $selectedRouteConfidence = $factorizedConfidence !== 'low' ? $factorizedConfidence : 'medium';
                 $this->log("[SMART-ROUTER] 質問因数分解によりハイブリッド分析ルートを優先します。route={$factorizedRoute} | target=" . ($factorizedQuery['target'] ?? 'unknown'));
 
             } elseif ($projectId !== null && $factorizedRoute !== '' && str_starts_with($factorizedRoute, 'normal_rag.')) {
                 $preferNormalRag = true;
+                $appendUnique($selectorReasonCodes, 'selector_prefer_normal_rag');
+                $appendUnique($selectorEvidence, 'factorized_normal_rag_route');
+                $selectedRouteConfidence = $factorizedConfidence !== 'low' ? $factorizedConfidence : 'medium';
                 $this->log("[SMART-ROUTER] 質問因数分解により案件運用メモを踏まえた相談ルートを優先します。route={$factorizedRoute}");
 
             } elseif ($projectId !== null && preg_match($csvEvidencePattern, $message)) {
                 $isAnalysisMode = true;
+                $appendUnique($selectorReasonCodes, 'selector_csv_evidence');
+                $appendUnique($selectorEvidence, 'csv_evidence_pattern');
+                $selectedRouteConfidence = 'medium';
                 $this->log("[SMART-ROUTER] CSV証拠読解に適した質問を検知。CSV全件証拠収集ルートを優先します。");
 
             } elseif (preg_match($normalRagPreferredPattern, $message)) {
                 $preferNormalRag = true;
+                $appendUnique($selectorReasonCodes, 'selector_normal_rag_preferred');
+                $appendUnique($selectorEvidence, 'normal_rag_preferred_pattern');
+                $selectedRouteConfidence = 'medium';
                 $this->log("[SMART-ROUTER] 提案・設計書作成系の質問を検知。通常RAGルートを優先します。");
 
             } elseif ($projectId !== null && !$preferNormalRag && (
@@ -169,10 +245,16 @@ class ChatRouteSelector
             )) {
                 $advancedReasoning = true;
                 $isAnalysisMode = false;
+                $appendUnique($selectorReasonCodes, 'selector_complex_advanced');
+                $appendUnique($selectorEvidence, preg_match($complexPattern, $message) ? 'complex_pattern' : 'long_message');
+                $selectedRouteConfidence = 'medium';
                 $this->log("[SMART-ROUTER] 高度なマルチタスク文脈を検知。最優先で「ハイブリッド多重推論統合ハブ(chat_advanced.php Colonial)」をキックします。");
 
             } elseif ($projectId !== null && preg_match($analysisPattern, $message)) {
                 $isAnalysisMode = true;
+                $appendUnique($selectorReasonCodes, 'selector_data_analysis');
+                $appendUnique($selectorEvidence, 'analysis_pattern');
+                $selectedRouteConfidence = 'medium';
                 $this->log("[SMART-ROUTER] 純粋なデータ集計要求を検知。単発の「データ分析エージェント(chat_analysis.php)」を起動します。");
             }
         }
@@ -193,11 +275,35 @@ class ChatRouteSelector
                 if ($mentionedCsv !== null) {
                     $isAnalysisMode = true;
                     $preferNormalRag = false;
+                    $appendUnique($selectorReasonCodes, 'selector_csv_filename_fallback');
+                    $appendUnique($selectorEvidence, 'mentioned_csv_filename');
+                    $selectedRouteConfidence = 'medium';
                     $this->log("[SMART-ROUTER] 登録済みCSVファイル名への言及を検知。CSV分析ルートへ切替: {$mentionedCsv}");
                 }
             } catch (Throwable $csvRouteEx) {
                 $this->log("[SMART-ROUTER] CSVファイル名ルーティング確認に失敗: " . $csvRouteEx->getMessage());
             }
+        }
+
+        if (empty($selectedRouteReasonCodes) && !empty($factorizedReasonCodes)) {
+            $selectedRouteReasonCodes = $factorizedReasonCodes;
+        }
+        if (empty($selectedRouteEvidence) && !empty($factorizedEvidence)) {
+            $selectedRouteEvidence = $factorizedEvidence;
+        }
+
+        foreach ($selectorReasonCodes as $selectorReasonCode) {
+            $appendUnique($selectedRouteReasonCodes, $selectorReasonCode);
+        }
+        foreach ($selectorEvidence as $selectorEvidenceItem) {
+            $appendUnique($selectedRouteEvidence, $selectorEvidenceItem);
+        }
+
+        if (empty($selectorReasonCodes)) {
+            $appendUnique($selectorReasonCodes, 'selector_no_override');
+        }
+        if (empty($selectorEvidence)) {
+            $appendUnique($selectorEvidence, 'selector_pass_through');
         }
 
         return [
@@ -208,6 +314,11 @@ class ChatRouteSelector
             'explicit_advanced' => $explicitAdvanced,
             'route_detail_override' => $routeDetailOverride,
             'recent_artifact_state' => $recentArtifactState,
+            'selected_route_confidence' => $selectedRouteConfidence,
+            'selected_route_reason_codes' => array_slice($selectedRouteReasonCodes, 0, 8),
+            'selected_route_evidence' => array_slice($selectedRouteEvidence, 0, 8),
+            'selector_reason_codes' => array_slice($selectorReasonCodes, 0, 8),
+            'selector_evidence' => array_slice($selectorEvidence, 0, 8),
         ];
     }
 

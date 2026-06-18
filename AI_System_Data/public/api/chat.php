@@ -531,6 +531,36 @@ try {
     $prefer_normal_rag = (bool)($routingState['prefer_normal_rag'] ?? false);
     $explicit_advanced = (bool)($routingState['explicit_advanced'] ?? $explicit_advanced);
     $routeDetail = (string)($routingState['route_detail_override'] ?? ($factorizedQuery['route'] ?? ''));
+    $selectedRouteForLog = $routeDetail;
+    if ($selectedRouteForLog === '') {
+        if ($is_history_summary_mode) {
+            $selectedRouteForLog = 'history_summary';
+        } elseif ($is_analysis_mode && !$advanced_reasoning) {
+            $selectedRouteForLog = 'data_analysis';
+        } elseif ($advanced_reasoning) {
+            $selectedRouteForLog = 'advanced_hybrid';
+        } else {
+            $selectedRouteForLog = 'normal_rag';
+        }
+    }
+    $factorReasonLog = implode(',', array_slice((array)($factorizedQuery['route_reason_codes'] ?? []), 0, 6));
+    $selectorReasonLog = implode(',', array_slice((array)($routingState['selector_reason_codes'] ?? []), 0, 6));
+    $selectedEvidence = array_values(array_unique(array_filter(array_merge(
+        (array)($factorizedQuery['route_evidence'] ?? []),
+        (array)($routingState['selector_evidence'] ?? []),
+        (array)($routingState['selected_route_evidence'] ?? [])
+    ), static function ($value): bool {
+        return trim((string)$value) !== '';
+    })));
+    $evidenceLog = implode(',', array_slice($selectedEvidence, 0, 6));
+    chatLogger(
+        "[SMART-ROUTER-CONFIDENCE] factorized_route=" . (($factorizedQuery['route'] ?? '') ?: 'none')
+        . " | selected_route=" . $selectedRouteForLog
+        . " | confidence=" . ((string)($routingState['selected_route_confidence'] ?? ($factorizedQuery['route_confidence'] ?? 'low')))
+        . " | factor_reasons=" . ($factorReasonLog !== '' ? $factorReasonLog : 'none')
+        . " | selector_reasons=" . ($selectorReasonLog !== '' ? $selectorReasonLog : 'none')
+        . " | evidence=" . ($evidenceLog !== '' ? $evidenceLog : 'none')
+    );
 
     if ($advanced_reasoning && empty($reasoning_id)) {
         $reasoning_id = 'auto-' . uniqid('reason_') . '-' . mt_rand(1000, 9999);

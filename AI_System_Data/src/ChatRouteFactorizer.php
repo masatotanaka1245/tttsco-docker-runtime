@@ -20,6 +20,19 @@ class ChatRouteFactorizer
         $mentionedCsv = null;
         $mentionedColumnTarget = null;
         $explicitColumnReference = $this->findExplicitColumnReference($message);
+        $routeConfidence = 'low';
+        $routeReasonCodes = [];
+        $routeEvidence = [];
+
+        $setRouteMeta = static function (string $confidence, array $reasonCodes, array $evidence) use (&$routeConfidence, &$routeReasonCodes, &$routeEvidence): void {
+            $routeConfidence = $confidence;
+            $routeReasonCodes = array_values(array_unique(array_filter(array_map('strval', $reasonCodes), static function (string $value): bool {
+                return $value !== '';
+            })));
+            $routeEvidence = array_values(array_unique(array_filter(array_map('strval', $evidence), static function (string $value): bool {
+                return $value !== '';
+            })));
+        };
 
         if ($this->csvContextResolver !== null) {
             try {
@@ -94,6 +107,7 @@ class ChatRouteFactorizer
                 }
                 if ($mentionedCsv !== null || $targetColumn !== null) {
                     $this->log("[SMART-ROUTER] 直前の会話履歴からCSV文脈を補完しました。file=" . ($mentionedCsv ?? 'none') . " | column=" . ($targetColumn ?? 'none'));
+                    $routeEvidence[] = 'recent_csv_context';
                 }
             }
         }
@@ -117,48 +131,74 @@ class ChatRouteFactorizer
             $scope = 'conversation_thread';
             $operation = 'report';
             $route = 'advanced_hybrid.history_report';
+            $setRouteMeta('high', ['history_report_request'], ['history_keywords', 'report_keywords']);
         } elseif ($hasProjectSummaryIntent && ($hasCsvContext || $hasDocReference || $this->hasRecentProjectAssetContext($recentHistory))) {
             $intent = 'summarize';
             $target = 'project_assets';
             $scope = 'project_wide';
             $operation = 'project_summary';
             $route = 'advanced_hybrid.multi_source_advice';
+            $setRouteMeta('medium', ['project_summary_request'], array_values(array_filter([
+                'project_summary_keywords',
+                $hasCsvContext ? 'csv_context_keyword' : null,
+                $hasDocReference ? 'document_context_keyword' : null,
+                $this->hasRecentProjectAssetContext($recentHistory) ? 'recent_project_asset_context' : null,
+            ])));
         } elseif ($hasMixedDocumentAndCsvContext && $hasRecommendationIntent) {
             $intent = 'analyze';
             $target = 'project_assets';
             $scope = 'project_wide';
             $operation = 'analysis_recommendation';
             $route = 'advanced_hybrid.multi_source_advice';
+            $setRouteMeta('medium', ['mixed_asset_analysis_recommendation'], ['document_context_keyword', 'csv_context_keyword', 'recommendation_keyword']);
         } elseif ($hasMaterialWorkflowIntent) {
             $intent = 'consult';
             $target = 'project_memory';
             $scope = 'project_wide';
             $operation = 'material_workflow';
             $route = 'normal_rag.project_memory_consultation';
+            $setRouteMeta('high', ['material_reference_with_action'], ['material_keyword', 'material_action_keyword']);
         } elseif ($hasTaskStatusIntent) {
             $intent = 'consult';
             $target = 'project_memory';
             $scope = 'project_wide';
             $operation = 'status_alignment';
             $route = 'normal_rag.project_memory_consultation';
+            $setRouteMeta('high', ['project_status_question'], ['task_status_keyword']);
         } elseif ($hasRecommendationIntent && ($hasCsvContext || $hasDocReference || $this->hasRecentProjectAssetContext($recentHistory))) {
             $intent = 'analyze';
             $target = 'project_assets';
             $scope = 'project_wide';
             $operation = 'analysis_recommendation';
             $route = 'advanced_hybrid.multi_source_advice';
+            $setRouteMeta('medium', ['analysis_recommendation_request'], array_values(array_filter([
+                'recommendation_keyword',
+                $hasCsvContext ? 'csv_context_keyword' : null,
+                $hasDocReference ? 'document_context_keyword' : null,
+                $this->hasRecentProjectAssetContext($recentHistory) ? 'recent_project_asset_context' : null,
+            ])));
         } elseif ($hasCsvOperationIntent && $hasCsvContext) {
             $intent = 'consult';
             $target = 'project_assets';
             $scope = 'project_wide';
             $operation = 'csv_workflow';
             $route = 'normal_rag.project_memory_consultation';
+            $setRouteMeta('medium', ['csv_workflow_consultation'], ['csv_operation_keyword', 'csv_context_keyword']);
         } elseif ($hasNamingOrFramingIntent || ($hasAppVerificationIntent && $memorySuggestsAppVerification)) {
             $intent = 'consult';
             $target = 'project_memory';
             $scope = 'project_wide';
             $operation = $hasNamingOrFramingIntent ? 'framing' : 'status_alignment';
             $route = 'normal_rag.project_memory_consultation';
+            $setRouteMeta(
+                'medium',
+                [$hasNamingOrFramingIntent ? 'framing_consultation' : 'app_verification_consultation'],
+                array_values(array_filter([
+                    $hasNamingOrFramingIntent ? 'framing_keyword' : null,
+                    $hasAppVerificationIntent ? 'app_verification_keyword' : null,
+                    $memorySuggestsAppVerification ? 'project_memory_app_context' : null,
+                ]))
+            );
         } elseif ($hasHistorySummaryRequest) {
             $intent = 'summarize';
             $target = 'chat_history';
@@ -167,6 +207,7 @@ class ChatRouteFactorizer
             $scope = 'conversation_thread';
             $operation = 'summarize';
             $route = 'history_summary';
+            $setRouteMeta('high', ['history_summary_request'], ['history_keywords']);
         } elseif ($hasAggregateIntent && ($hasDateIntent || $hasTimeBandIntent) && $mentionedCsv !== null) {
             $intent = 'aggregate';
             $target = 'single_csv';
@@ -174,6 +215,13 @@ class ChatRouteFactorizer
             $operation = 'count';
             $timeAxis = $this->detectTimeAxis($message, $hasTimeBandIntent);
             $route = 'data_analysis.csv_agg';
+            $setRouteMeta('high', ['csv_aggregation_request', 'explicit_csv_file', $hasTimeBandIntent ? 'time_band_request' : 'date_histogram_request'], array_values(array_filter([
+                'aggregate_keyword',
+                $hasTimeBandIntent ? 'time_band_keyword' : 'date_keyword',
+                $mentionedCsv !== null ? 'explicit_csv_file' : null,
+                $targetColumn !== null ? 'explicit_csv_column' : null,
+                in_array('recent_csv_context', $routeEvidence, true) ? 'recent_csv_context' : null,
+            ])));
         } elseif ($hasAggregateIntent && ($hasDateIntent || $hasTimeBandIntent) && $targetColumn !== null) {
             $intent = 'aggregate';
             $target = $mentionedCsv !== null ? 'single_csv' : 'all_csv';
@@ -181,6 +229,13 @@ class ChatRouteFactorizer
             $operation = 'count';
             $timeAxis = $this->detectTimeAxis($message, $hasTimeBandIntent);
             $route = 'data_analysis.csv_agg';
+            $setRouteMeta('high', ['csv_aggregation_request', $hasTimeBandIntent ? 'time_band_request' : 'date_histogram_request'], array_values(array_filter([
+                'aggregate_keyword',
+                $hasTimeBandIntent ? 'time_band_keyword' : 'date_keyword',
+                $targetColumn !== null ? 'explicit_or_resolved_column' : null,
+                $mentionedCsv !== null ? 'explicit_csv_file' : null,
+                in_array('recent_csv_context', $routeEvidence, true) ? 'recent_csv_context' : null,
+            ])));
         } elseif ($hasAggregateIntent && ($hasDateIntent || $hasTimeBandIntent) && $hasCsvContext) {
             $intent = 'aggregate';
             $target = 'all_csv';
@@ -188,6 +243,7 @@ class ChatRouteFactorizer
             $operation = 'count';
             $timeAxis = $this->detectTimeAxis($message, $hasTimeBandIntent);
             $route = 'data_analysis.csv_agg';
+            $setRouteMeta('medium', ['csv_aggregation_request', $hasTimeBandIntent ? 'time_band_request' : 'date_histogram_request'], ['aggregate_keyword', $hasTimeBandIntent ? 'time_band_keyword' : 'date_keyword', 'csv_context_keyword']);
         } elseif ($hasAggregateIntent && ($hasDateIntent || $hasTimeBandIntent) && $targetsAllCsv) {
             $intent = 'aggregate';
             $target = 'all_csv';
@@ -195,6 +251,7 @@ class ChatRouteFactorizer
             $operation = 'count';
             $timeAxis = $this->detectTimeAxis($message, $hasTimeBandIntent);
             $route = 'data_analysis.csv_agg';
+            $setRouteMeta('high', ['csv_aggregation_request', 'all_csv_request', $hasTimeBandIntent ? 'time_band_request' : 'date_histogram_request'], ['aggregate_keyword', 'all_csv_keyword', $hasTimeBandIntent ? 'time_band_keyword' : 'date_keyword']);
         } elseif ($hasAggregationFollowUpIntent && ($targetColumn !== null || $mentionedCsv !== null)) {
             $intent = 'aggregate';
             $target = $mentionedCsv !== null ? 'single_csv' : 'all_csv';
@@ -202,30 +259,40 @@ class ChatRouteFactorizer
             $operation = ($hasDateIntent || $hasTimeBandIntent) ? 'count' : ($targetColumn !== null ? 'value_distribution' : 'summarize');
             $timeAxis = ($hasDateIntent || $hasTimeBandIntent) ? $this->detectTimeAxis($message, $hasTimeBandIntent) : 'none';
             $route = 'data_analysis.csv_agg';
+            $setRouteMeta('medium', ['csv_followup_request'], array_values(array_filter([
+                'aggregation_followup_keyword',
+                $mentionedCsv !== null ? 'explicit_csv_file' : null,
+                $targetColumn !== null ? 'explicit_or_resolved_column' : null,
+                in_array('recent_csv_context', $routeEvidence, true) ? 'recent_csv_context' : null,
+            ])));
         } elseif ($targetColumn !== null && $hasAggregateIntent && $hasDistinctIntent) {
             $intent = 'aggregate';
             $target = $mentionedCsv !== null ? 'single_csv' : 'all_csv';
             $scope = 'file_content';
             $operation = 'distinct_count';
             $route = 'data_analysis.csv_agg';
+            $setRouteMeta('high', ['csv_distinct_request'], ['aggregate_keyword', 'distinct_keyword', 'explicit_or_resolved_column']);
         } elseif ($targetColumn !== null && $hasColumnExistsIntent) {
             $intent = 'aggregate';
             $target = $mentionedCsv !== null ? 'single_csv' : 'all_csv';
             $scope = 'file_schema';
             $operation = 'column_exists';
             $route = 'data_analysis.csv_agg';
+            $setRouteMeta('high', ['csv_column_exists_request'], ['column_exists_keyword', 'explicit_or_resolved_column']);
         } elseif ($targetColumn !== null && $hasColumnExplainIntent) {
             $intent = 'aggregate';
             $target = $mentionedCsv !== null ? 'single_csv' : 'all_csv';
             $scope = 'file_content';
             $operation = 'column_semantics';
             $route = 'data_analysis.csv_agg';
+            $setRouteMeta('high', ['csv_column_semantics_request'], ['column_explain_keyword', 'explicit_or_resolved_column']);
         } elseif ($targetColumn !== null && $hasAggregateIntent) {
             $intent = 'aggregate';
             $target = $mentionedCsv !== null ? 'single_csv' : 'all_csv';
             $scope = 'file_content';
             $operation = 'value_distribution';
             $route = 'data_analysis.csv_agg';
+            $setRouteMeta('high', ['csv_value_distribution_request'], ['aggregate_keyword', 'explicit_or_resolved_column']);
         } elseif ($hasCsvExportIntent) {
             $intent = 'export';
             $target = $mentionedCsv !== null ? 'single_csv' : 'all_csv';
@@ -233,24 +300,31 @@ class ChatRouteFactorizer
             $operation = 'export_csv';
             $outputFormat = 'table';
             $route = 'data_analysis.csv_export_request';
+            $setRouteMeta('high', ['csv_export_request'], array_values(array_filter([
+                'csv_export_keyword',
+                $mentionedCsv !== null ? 'explicit_csv_file' : null,
+            ])));
         } elseif ($hasSummaryIntent && $mentionedCsv !== null) {
             $intent = 'summarize';
             $target = 'single_csv';
             $scope = 'file_content';
             $operation = 'summarize';
             $route = 'data_analysis.csv_summary';
+            $setRouteMeta('high', ['csv_summary_request', 'explicit_csv_file'], ['summary_keyword', 'explicit_csv_file']);
         } elseif ($hasSummaryIntent && preg_match('/(CSV|csv|ファイル|データ)/u', $message) === 1) {
             $intent = 'summarize';
             $target = 'all_csv';
             $scope = 'project_wide';
             $operation = 'summarize';
             $route = 'data_analysis.csv_summary';
+            $setRouteMeta('medium', ['csv_summary_request'], ['summary_keyword', 'csv_context_keyword']);
         } elseif ($hasAggregateIntent && $hasCsvContext && $hasBroadDetailIntent && !$hasDateIntent && !$hasTimeBandIntent && $targetColumn === null) {
             $intent = 'summarize';
             $target = $mentionedCsv !== null ? 'single_csv' : 'all_csv';
             $scope = $mentionedCsv !== null ? 'file_content' : 'project_wide';
             $operation = 'summarize';
             $route = 'data_analysis.csv_summary';
+            $setRouteMeta('medium', ['csv_summary_fallback'], ['aggregate_keyword', 'csv_context_keyword', 'broad_detail_keyword']);
         } elseif (!$targetsAllCsv && $mentionedCsv === null && ($hasDocReference || $hasDocActionIntent)) {
             $intent = 'extract_evidence';
             $target = 'pdf';
@@ -258,6 +332,12 @@ class ChatRouteFactorizer
             $operation = 'extract_evidence';
             $outputFormat = preg_match('/(箇条書き|3点|3つ|列挙|リスト)/u', $message) === 1 ? 'bullets' : $outputFormat;
             $route = 'advanced_hybrid.doc_extract';
+            $setRouteMeta('medium', [$hasDocActionIntent ? 'extract_evidence_request' : 'broad_document_reference'], array_values(array_filter([
+                $hasDocReference ? 'document_context_keyword' : null,
+                $hasDocActionIntent ? 'document_action_keyword' : null,
+            ])));
+        } elseif ($route === null) {
+            $setRouteMeta('low', ['fallback_normal_rag'], ['no_strong_route_signal']);
         }
 
         return [
@@ -270,6 +350,9 @@ class ChatRouteFactorizer
             'time_axis' => $timeAxis,
             'output_format' => $outputFormat,
             'route' => $route,
+            'route_confidence' => $routeConfidence,
+            'route_reason_codes' => $routeReasonCodes,
+            'route_evidence' => array_slice($routeEvidence, 0, 6),
         ];
     }
 
