@@ -1810,6 +1810,7 @@ async function pollCsvAiJobStatus(jobId) {
             }
             const requestWasTimedOut = err?.name === 'AbortError';
             activeCsvAiJobRequestController = null;
+            const jobNotFound = String(err?.message || '').includes('ジョブが見つかりません');
             if (requestWasTimedOut && !csvAiJobPausedByVisibility && activeCsvAiJobId === jobId) {
                 const overlay = document.getElementById('csv-ai-job-overlay');
                 if (overlay) {
@@ -1824,6 +1825,25 @@ async function pollCsvAiJobStatus(jobId) {
                         <div class="text-[11px] leading-snug font-bold text-white">通信が一時的に遅延しています。しばらく待って再取得します。</div>
                     `;
                 }
+            } else if (jobNotFound) {
+                shouldScheduleNext = false;
+                stopCsvAiJobPolling({ resetJobId: true });
+                await loadCsvAiJobHistory().catch(() => {});
+                const overlay = document.getElementById('csv-ai-job-overlay');
+                if (overlay) {
+                    overlay.classList.replace('bg-slate-900', 'bg-slate-800');
+                    overlay.innerHTML = `
+                        <div class="flex justify-between items-start border-b border-white/10 pb-3">
+                            <div class="flex flex-col gap-1">
+                                <span class="text-[9px] text-slate-300 uppercase tracking-widest font-black">AI Row Analysis</span>
+                                <span class="text-xs font-bold text-white">ℹ️ ジョブ追跡を終了しました</span>
+                            </div>
+                        </div>
+                        <div class="text-[11px] leading-snug font-bold text-white">完了済みジョブの追跡情報が整理されました。結果CSVが生成されている場合は、左のCSV一覧またはジョブ履歴から確認してください。</div>
+                    `;
+                    setTimeout(() => overlay.remove(), 6000);
+                }
+                return;
             } else if (err?.name === 'AbortError') {
                 shouldScheduleNext = false;
                 return;

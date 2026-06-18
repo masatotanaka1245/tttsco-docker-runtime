@@ -5,6 +5,8 @@
 
 class CsvAiCategorizationJobService
 {
+    private const TERMINAL_JOB_RETENTION_SECONDS = 86400;
+
     private PDO $pdo;
     private string $basePath;
     private string $jobDir;
@@ -109,7 +111,7 @@ class CsvAiCategorizationJobService
 
             $status = $this->readStatus($jobId) ?: [];
             $effectiveStatus = (string)($status['status'] ?? $job['status'] ?? '');
-            if (in_array($effectiveStatus, ['canceled', 'completed'], true)) {
+            if ($this->shouldDeleteTerminalJobArtifacts($job, $status, $effectiveStatus)) {
                 $this->deleteJobArtifacts($jobId);
                 continue;
             }
@@ -232,6 +234,25 @@ class CsvAiCategorizationJobService
         if (is_file($statusPath)) {
             @unlink($statusPath);
         }
+    }
+
+    private function shouldDeleteTerminalJobArtifacts(array $job, array $status, string $effectiveStatus): bool
+    {
+        if (!in_array($effectiveStatus, ['canceled', 'completed', 'error'], true)) {
+            return false;
+        }
+
+        $finishedAt = trim((string)($job['finished_at'] ?? ''));
+        $updatedAt = (int)($status['updated_at'] ?? 0);
+        $terminalAt = $finishedAt !== '' ? strtotime($finishedAt) : 0;
+        if ($terminalAt <= 0 && $updatedAt > 0) {
+            $terminalAt = $updatedAt;
+        }
+        if ($terminalAt <= 0) {
+            return false;
+        }
+
+        return (time() - $terminalAt) >= self::TERMINAL_JOB_RETENTION_SECONDS;
     }
 
     private function readJson(string $path): ?array
