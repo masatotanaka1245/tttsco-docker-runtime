@@ -213,7 +213,7 @@
             </tr>
             <tr class="hover:bg-slate-50 transition">
               <td class="px-6 py-4 font-bold text-slate-700">AI 推論 / 解析</td>
-              <td class="px-6 py-4 text-slate-600">Ollama API。チャット・VLMはユーザー設定の default_model と sub_model、SQL生成とSQL自己修復は sql_model、ベクトル化は embedding_model（未設定時は mxbai-embed-large）を使用する。PDF解析には本番Windows上のPoppler系ツール（pdfinfo / pdftotext / pdftoppm相当）を使用する。報告書PDFの生成はComposerで導入した mPDF を優先し、mPDFが利用できない検証環境では wkhtmltopdf またはChrome/EdgeのヘッドレスPDF出力へフォールバックする。</td>
+              <td class="px-6 py-4 text-slate-600">Ollama API。実効既定値は <code>ModelRoleResolver.php</code> を正とし、<code>default_model=gemma4:e4b</code>、<code>sub_model=gpt-oss:20b</code>、<code>sql_model=codellama:7b</code>、<code>embedding_model=mxbai-embed-large</code>、<code>vision_model=gemma4:e4b</code> を採用する。チャットの最終統合は主に default/main model、中間処理は sub_model、SQL生成とSQL自己修復は sql_model、ベクトル化は embedding_model、PDFページ全体要約・スライス読解・タイル読解などのVLM/PDF解析は vision_model を優先使用する。PDF解析には本番Windows上のPoppler系ツール（pdfinfo / pdftotext / pdftoppm相当）を使用する。報告書PDFの生成はComposerで導入した mPDF を優先し、mPDFが利用できない検証環境では wkhtmltopdf またはChrome/EdgeのヘッドレスPDF出力へフォールバックする。</td>
             </tr>
             <tr class="hover:bg-slate-50 transition">
               <td class="px-6 py-4 font-bold text-slate-700">フロントエンド</td>
@@ -253,7 +253,7 @@
 │   ├── <span class="text-indigo-400 font-bold">api/</span>
 │   │   ├── <span class="text-green-400">chat.php</span> <span class="text-slate-500"># AIチャットのエントリーポイント、スマートルーティング</span>
 │   │   ├── <span class="text-green-400">chat_normal.php / chat_advanced.php / chat_analysis.php / chat_global.php</span>
-│   │   ├── <span class="text-green-400">upload.php</span> <span class="text-slate-500"># PDF解析、VLM/OCR、チャンク化、ベクトル登録</span>
+│   │   ├── <span class="text-green-400">upload.php</span> <span class="text-slate-500"># PDF解析、vision/OCR、チャンク化、ベクトル登録</span>
 │   │   ├── <span class="text-green-400">upload_csv.php</span> <span class="text-slate-500"># CSV/TSV取込、DB先行保存、自然言語チャンク化</span>
 │   │   ├── <span class="text-green-400">import_postgresql.php</span> <span class="text-slate-500"># 外部PostgreSQL抽出結果をCSV同等に登録</span>
 │   │   └── <span class="text-green-400">add/update/delete_project*.php</span> <span class="text-slate-500"># 案件、コメント、FAQ、メンバーCRUD</span>
@@ -314,7 +314,7 @@
 
       <h2 class="text-xl font-semibold sub-section text-slate-800">3.3 現行主要テーブルと役割</h2>
       <p class="text-sm md:text-base text-slate-700 mb-3">
-        現行コードは、案件を中心に <code>documents</code>、<code>doc_chunks</code>、<code>project_csv_files</code>、<code>project_csv_rows</code>、<code>chat_history</code>、<code>chat_reasoning_steps</code> を関連付ける。PDFとCSVはいずれも <code>documents</code> を親レコードとして持ち、AI検索対象は最終的に <code>doc_chunks</code> に集約される。
+        現行コードは、案件を中心に <code>documents</code>、<code>doc_chunks</code>、<code>project_csv_files</code>、<code>project_csv_rows</code>、<code>chat_threads</code>、<code>chat_history</code>、<code>chat_reasoning_steps</code> を関連付ける。<code>documents</code> はPDF専用テーブルではなく、PDF、Markdown資料メモ、CSV連携ノードを束ねる共有アセット基盤である。AI検索対象は最終的に <code>doc_chunks</code> に集約され、CSV本体は <code>project_csv_files</code> / <code>project_csv_rows</code> に、チャット継続文脈は <code>chat_threads</code> / <code>chat_history.thread_id</code> に保持される。
       </p>
       <div class="overflow-hidden rounded-2xl border border-slate-200 shadow-sm mb-8">
         <table class="min-w-full divide-y divide-slate-200 m-0">
@@ -329,11 +329,12 @@
             <tr><td class="font-bold">users</td><td>ログイン、権限、部署、Ollama接続先、既定モデル設定</td><td>Auth.php、header.php、save_user_settings.php</td></tr>
             <tr><td class="font-bold">projects</td><td>案件本体。名称、概要、期間、住所、緯度経度、状態、作成者を管理</td><td>SupportController.php、add/update/delete_project.php</td></tr>
             <tr><td class="font-bold">project_members</td><td>案件ごとの参加者と役割（manager/member/viewer）</td><td>ProjectAccess.php、add/remove_project_member.php</td></tr>
-            <tr><td class="font-bold">documents</td><td>PDFまたはCSV由来RAG親データ。<code>file_path</code> が物理PDFまたは <code>csv_db_record_ID</code> を保持</td><td>upload.php、upload_csv.php、view_pdf.php、delete_pdf.php</td></tr>
+            <tr><td class="font-bold">documents</td><td>PDF、Markdown資料メモ、CSV由来RAG親データを束ねる共有アセット基盤。<code>file_path</code> は物理PDF、<code>.md</code>、または <code>csv_db_record_ID</code> を保持</td><td>upload.php、upload_csv.php、save_material.php、view_pdf.php、delete_pdf.php</td></tr>
             <tr><td class="font-bold">doc_chunks</td><td>AI検索対象の本文チャンク、ページ番号、embedding、画像説明</td><td>VectorSearch.php、chat_normal.php、upload.php、upload_csv.php</td></tr>
             <tr><td class="font-bold">project_csv_files / project_csv_rows</td><td>CSVメタデータと行データ。行データはJSONで保存し、表示とText-to-SQL分析に使用</td><td>upload_csv.php、get_csv_data.php、SqlExecutionEngine.php</td></tr>
             <tr><td class="font-bold">project_comments / project_faqs</td><td>案件メモ、申し送り、手動登録ナレッジ</td><td>add_comment.php、add_faq.php、support.php</td></tr>
-            <tr><td class="font-bold">chat_history / chat_reasoning_steps / chat_evaluations</td><td>対話履歴、推論ステップ、回答品質評価。ブラウザ更新後も推論プロセスを再表示するため、最終回答と中間ステップを紐づけて保存する</td><td>chat_normal.php、chat_advanced.php、chat_analysis.php、SupportController.php、ChatEvaluator.php</td></tr>
+            <tr><td class="font-bold">chat_threads</td><td>案件内の会話スレッド。タイトル、自動採番、最終更新時刻を保持し、履歴要約と follow-up 継続の単位になる</td><td>ChatThreadManager.php、SupportController.php、chat.php、delete_chat_thread.php</td></tr>
+            <tr><td class="font-bold">chat_history / chat_reasoning_steps / chat_evaluations</td><td>対話履歴、推論ステップ、回答品質評価。<code>chat_history.thread_id</code> により現在スレッドへ紐づけ、ブラウザ更新後も推論プロセスを再表示するため、最終回答と中間ステップを保存する</td><td>chat_normal.php、chat_advanced.php、chat_analysis.php、SupportController.php、ChatEvaluator.php</td></tr>
             <tr><td class="font-bold">project_meta</td><td>案件ごとの可変メタ情報。AI用DBメモリも格納可能</td><td>SqlExecutionEngine.php</td></tr>
           </tbody>
         </table>
@@ -354,7 +355,7 @@
             <tr><td class="font-bold">index.php</td><td>ダッシュボード</td><td>案件統計、アクティブ案件、資料数、全体チャット、選択案件の簡易ビュー</td></tr>
             <tr><td class="font-bold">support.php</td><td>業務支援コンソール</td><td>案件一覧、概要、PDF、CSV、コメント、FAQ、メンバー、AIチャットをタブで統合</td></tr>
             <tr><td class="font-bold">user_management.php</td><td>管理者向けユーザー管理</td><td>ユーザーの作成、更新、削除、権限設定</td></tr>
-            <tr><td class="font-bold">viewer.php / view_pdf.php</td><td>PDF表示</td><td>documents.file_path の実体PDFを認可チェック後に配信</td></tr>
+            <tr><td class="font-bold">viewer.php / public/api/view_pdf.php</td><td>PDF表示</td><td>viewer.php が PDF.js ビューアを提供し、public/api/view_pdf.php が documents.file_path の実体PDFを認可チェック後に配信</td></tr>
             <tr><td class="font-bold">docs/design_v3.html</td><td>仕様書</td><td>現行機能、DB、API、RAG処理、運用情報の説明</td></tr>
           </tbody>
         </table>
@@ -386,17 +387,17 @@
 
       <h2 class="text-xl font-semibold sub-section text-slate-800">4.3 PDF登録・RAG化</h2>
       <p class="text-sm md:text-base text-slate-700">
-        PDFアップロードは <code>upload.php</code> が担当する。画面から送られた <code>document</code> または互換用 <code>pdf</code> フィールドを受け取り、<code>public/01_RAG_Documents/{project_id}/</code> に保存する。<code>pdfinfo</code> でページ数を取得し、<code>pdftotext</code> でネイティブテキストを抽出する。画像化が必要な場合は <code>pdftoppm</code> でPNG化し、VLMへページ分類、2x2タイル、1x8水平スライス、全体解析を依頼する。抽出結果は500文字程度に分割され、Ollama Embedding APIでベクトル化したうえで <code>doc_chunks</code> に保存される。
+        PDFアップロードは <code>upload.php</code> が担当する。画面から送られた <code>document</code> または互換用 <code>pdf</code> フィールドを受け取り、<code>public/01_RAG_Documents/{project_id}/</code> に保存する。<code>pdfinfo</code> でページ数を取得し、<code>pdftotext</code> でネイティブテキストを抽出する。画像化が必要な場合は <code>pdftoppm</code> でPNG化し、<code>vision_model</code> を用いたページ分類、2x2タイル、1x8水平スライス、全体解析を依頼する。抽出結果は500文字程度に分割され、Ollama Embedding APIでベクトル化したうえで <code>doc_chunks</code> に保存される。
       </p>
 
       <h2 class="text-xl font-semibold sub-section text-slate-800">4.4 CSV/TSV登録・外部PostgreSQL取込</h2>
       <p class="text-sm md:text-base text-slate-700">
-        <code>upload_csv.php</code> はCSV/TSVの文字コードと区切り文字を判定し、列名を <code>project_csv_files.column_headers</code> に、各行を <code>project_csv_rows.row_data</code> にJSONとして格納する。現在はDB登録を先に完了し、その後でRAG用の自然言語チャンクとEmbeddingを作成する。大規模CSVでは複数行をまとめたRAGチャンクを生成し、Embeddingが連続失敗した場合もCSV本体の登録を維持する。<code>import_postgresql.php</code> は外部PostgreSQLへ接続し、抽出結果をCSV取込と同じ構造に流し込む。
+        <code>upload_csv.php</code> はCSV/TSVの文字コードと区切り文字を判定し、列名を <code>project_csv_files.column_headers</code> に、各行を <code>project_csv_rows.row_data</code> にJSONとして格納する。現在はDB登録を先に完了し、その後でRAG用の自然言語チャンクとEmbeddingを作成する。加えて、RAG検索と資料基盤の整合性を保つため、CSVごとに <code>documents</code> へも親ノードを登録する。大規模CSVでは複数行をまとめたRAGチャンクを生成し、Embeddingが連続失敗した場合もCSV本体の登録を維持する。<code>import_postgresql.php</code> は外部PostgreSQLへ接続し、抽出結果をCSV取込と同じ構造に流し込む。
       </p>
 
       <h2 class="text-xl font-semibold sub-section text-slate-800">4.5 AIチャット・分析モード</h2>
       <p class="text-sm md:text-base text-slate-700">
-        <code>chat.php</code> はSSE形式のチャットエントリーポイントで、まず質問を粗く因数分解し、通常RAG、<code>advanced_hybrid.doc_extract</code>、CSV証拠読解、CSV構造化集計（<code>CSV-AGG</code>）、CSV要約、admin専用全社横断調査の各ルートへ分岐する。ルーティング前に <code>ChatRequestGuard.php</code> が空入力、挨拶、誤送信に近い短文、報告書モードに不十分な指示を判定し、重い推論へ入る前に確認応答へ切り替える。通常RAGは <code>chat_normal.php</code>、多段階推論は <code>chat_advanced.php</code>、CSV証拠読解・CSV要約・構造化集計は <code>chat_analysis.php</code>、admin専用の全社横断調査は <code>chat_global.php</code> が担当する。回答と質問は <code>chat_history</code> に保存され、推論過程は <code>chat_reasoning_steps</code>、品質評価は <code>chat_evaluations</code> に保存される。高評価の回答は要点化され、FAQ候補として <code>project_faqs</code> に自動登録される。<code>SupportController.php</code> は保存済み推論ステップを再取得し、ブラウザ更新後もプロセス表示を復元する。
+        <code>chat.php</code> はSSE形式のチャットエントリーポイントで、まず質問を粗く因数分解し、通常RAG、<code>advanced_hybrid.doc_extract</code>、CSV証拠読解、CSV構造化集計（<code>CSV-AGG</code>）、CSV要約、admin専用全社横断調査の各ルートへ分岐する。ルーティング前に <code>ChatRequestGuard.php</code> が空入力、挨拶、誤送信に近い短文、報告書モードに不十分な指示を判定し、重い推論へ入る前に確認応答へ切り替える。通常RAGは <code>chat_normal.php</code>、多段階推論は <code>chat_advanced.php</code>、CSV証拠読解・CSV要約・構造化集計は <code>chat_analysis.php</code>、admin専用の全社横断調査は <code>chat_global.php</code> が担当する。案件チャットは <code>ChatThreadManager.php</code> により <code>chat_threads</code> と <code>chat_history.thread_id</code> を単位に管理され、現在スレッドの直近履歴と成果品ステートを使って follow-up を継続する。回答と質問は <code>chat_history</code> に保存され、推論過程は <code>chat_reasoning_steps</code>、品質評価は <code>chat_evaluations</code> に保存される。高評価の回答は要点化され、FAQ候補として <code>project_faqs</code> に自動登録される。<code>SupportController.php</code> は保存済み推論ステップを再取得し、ブラウザ更新後もプロセス表示を復元する。
       </p>
 
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm mt-4">
@@ -460,14 +461,14 @@ graph TD
     subgraph Windows["Windows 本番サーバー"]
       Apache["Apache 2.4.57<br>DocumentRoot: AI_System_Data/public"]:::appNode
       PHP["PHP 8.2.8<br>public/api + src"]:::appNode
-      Watchdog["任意監視処理<br>scripts/watchdog.php"]:::appNode
+      Watchdog["再導入検討中の任意監視処理<br>scripts/watchdog.php"]:::appNode
       DB[("MySQL 8.0.33<br>tepscoapp")]:::dbNode
       PMA["phpMyAdmin<br>本番管理URL"]:::appNode
       Logs[("logs/<br>app_error / upload_debug / chat_debug")]:::dbNode
       Files[("public/01_RAG_Documents<br>PDF物理ファイル")]:::dbNode
     end
 
-    Ollama["Ollama API<br>設定画面の接続先URL:11434<br>chat / generate / embeddings"]:::aiNode
+    Ollama["Ollama API<br>設定画面の接続先URL:11434<br>chat / vision / embeddings"]:::aiNode
 
     User --> Browser
     Browser -->|"HTTP/HTTPS / CSRF付きAPI"| Apache
@@ -476,11 +477,11 @@ graph TD
     PMA --> DB
     PHP --> Files
     PHP --> Logs
-    Watchdog --> Logs
+    Watchdog -.未実装/将来候補.-> Logs
     PDF -->|"upload.php"| PHP
     CSV -->|"upload_csv.php"| PHP
     PG -->|"import_postgresql.php"| PHP
-    PHP -->|"VLM / Chat / Embedding"| Ollama
+    PHP -->|"vision / chat / embeddings"| Ollama
     Ollama -->|"SSE / JSON応答"| PHP
         </div>
       </div>
@@ -634,7 +635,7 @@ graph TD
 
       <h2 class="text-xl font-semibold sub-section text-slate-800 border-l-4 border-primary pl-3 mb-4">7.1 【軽量ルート】一問一答型RAG（文脈補正・一発検索）</h2>
       <p class="text-slate-700 text-xs md:text-sm mb-4">
-        <code>chat_normal.php</code> が担当する基本ルートです。質問ベクトルを生成し、案件内の <code>doc_chunks</code> を検索する。PDF本文、PDF画像説明、CSVから自然言語化された行データを同じ検索対象として扱い、関連チャンクをプロンプトに入れて回答を生成する。通常RAGの品質評価は <code>ChatEvaluationPolicy.php</code> で必要性を判定し、根拠が薄い軽量応答や短い定型応答ではLLM-as-a-Judgeを省略して待ち時間を抑える。
+        <code>chat_normal.php</code> が担当する基本ルートです。質問ベクトルを生成し、案件内の <code>doc_chunks</code> を検索する。PDF本文、PDF画像説明、Markdown資料メモ、CSVから自然言語化された行データを同じ検索対象として扱い、関連チャンクをプロンプトに入れて回答を生成する。通常RAGの品質評価は <code>ChatEvaluationPolicy.php</code> で必要性を判定し、根拠が薄い軽量応答や短い定型応答ではLLM-as-a-Judgeを省略して待ち時間を抑える。
       </p>
       <div class="mermaid-container mb-10">
         <div class="mermaid">
@@ -651,7 +652,7 @@ sequenceDiagram
     
     rect rgb(238, 242, 255)
     Note right of API: 【1. 事前クエリ再構成ステージ】
-    API->>DB: 直近3往復（最大6レコード）の会話履歴をSELECT
+    API->>DB: 現在スレッドの直近2〜3件（実装上は最大3レコード）の履歴をSELECT
     DB-->>API: 会話ログデータを返却
     API->>API: 指示代名詞や継続対話の兆候を正規表現フック
     API->>AI: 過去文脈＋最新質問を投入し、クエリ再構成を要求
@@ -663,7 +664,7 @@ sequenceDiagram
     API->>AI: 検索キーのベクトル化要求 (Embedding)
     AI-->>API: ベクトルデータ(数値配列)を返却
     API->>DB: プロジェクト内のdoc_chunksを検索 (Limit: 6)
-    Note over DB: doc_chunksに格納された<br>「PDFテキストチャンク」および<br>「自然言語化されたCSVチャンク」の両方を横断検索
+    Note over DB: doc_chunksに格納された<br>「PDFテキストチャンク」「Markdown資料メモ」および<br>「自然言語化されたCSVチャンク」を横断検索
     DB-->>API: チャンクテキストと画像メタデータを返却
     end
     
@@ -755,13 +756,13 @@ graph TD
     CheckTurn{Q1. 会話の往復ターン数は?<br>chat_historyに履歴はあるか?}:::condNode
     
     RouteT1["【ターン1: 新規RAGルート】<br>過去の会話履歴・中間思考ステップなし"]:::actionNode
-    SearchChunksT1["一次PDFデータのみを検索対象とする<br>doc_chunks からベクトル類似度検索"]:::actionNode
+    SearchChunksT1["PDF / Markdown資料メモ / 自然言語CSVチャンクを検索対象とする<br>doc_chunks からベクトル類似度検索"]:::actionNode
     
     RouteT2["【ターン2以降: 階層型文脈RAGルート】<br>過去の対話履歴 & 中間思考ステップが存在"]:::actionNode
     CheckDependency{Q2. 質問内容に「代名詞」や<br>「さっきの検証・ステップ等」の<br>明示的・暗示的参照はあるか?}:::condNode
     
     ActionA["【ルートA: 中間推論グラウンディング】<br>MySQLから現在の session_id に紐づく<br>chat_reasoning_steps の sub_query & sub_answer"]:::actionNode
-    ActionB["【ルートB: 会話文脈 Query Rewriting】<br>直近3往復の対話履歴をコンテキストとして読み込み<br>Ollamaで「単独で成立する検索クエリ」に再構成"]:::actionNode
+    ActionB["【ルートB: 会話文脈 Query Rewriting】<br>現在スレッドの直近2〜3件の対話履歴をコンテキストとして読み込み<br>Ollamaで「単独で成立する検索クエリ」に再構成"]:::actionNode
     ActionC["【ルートC: トピック転換・新規検索】<br>文脈を引き継がず、新たな質問として<br>最新質問で直接doc_chunksから新規類似度検索"]:::actionNode
     
     PromptSynthesis["【プロンプトの動的マージ（合流）】<br>1. 一次資料 2. 過去会話 3. 中間検証軌跡<br>を役割ごとに仕分け、プロンプトへ階層的に注入"]:::actionNode
@@ -860,7 +861,7 @@ sequenceDiagram
     participant API as API (add_project / upload / upload_csv)
     participant DB as MySQL (DB)
     participant FS as ファイルシステム
-    participant AI as Ollama (VLM/LLM)
+    participant AI as Ollama (vision/chat/embedding)
 
     User->>UI: ①新規案件登録
     UI->>API: POST /api/add_project.php
@@ -875,7 +876,7 @@ sequenceDiagram
         API->>API: canAccessProjectで案件権限チェック
         API->>FS: PDF保存・画像化・テキスト抽出
         loop ページごと
-            API->>AI: 種類判定・OCR抽出要求
+            API->>AI: vision_model で種類判定・OCR抽出要求
             AI-->>API: 抽出テキスト返却
             API->>AI: 重複排除・整理要求
             AI-->>API: 整理済みテキスト返却
@@ -893,7 +894,7 @@ sequenceDiagram
         API->>API: canAccessProjectで案件権限チェック
         API->>FS: 文字コード自動判定 ＆ 一時展開
         API->>DB: project_csv_files（メタ情報）にINSERT
-        API->>DB: documents に RAG連動用の親データをINSERT
+        API->>DB: documents に RAG連動用の共有アセット親データをINSERT
         loop 行（レコード）ごとに処理
             API->>DB: JSON形式で project_csv_rows にデータレコードをINSERT
         end
@@ -1115,9 +1116,9 @@ sequenceDiagram
 
       <div class="grid grid-cols-1 gap-6 text-sm md:text-base text-slate-700 leading-relaxed">
         <div class="bg-white border border-slate-200 rounded-xl p-6 shadow-sm border-l-4 border-l-teal-500">
-          <h3 class="text-lg font-bold text-slate-800 mb-2">10.1 非構造化データ（PDF）のVLMマルチ解析 ＆ チャンク最適化</h3>
+          <h3 class="text-lg font-bold text-slate-800 mb-2">10.1 非構造化データ（PDF）の vision_model マルチ解析 ＆ チャンク最適化</h3>
           <p class="text-xs md:text-sm text-slate-600 leading-relaxed">
-            PDF資料は、ネイティブテキスト抽出とVLM（視覚言語モデル）のスマート・ルーティング判定により、ページごとに最適な方法で文字起こしを実行。細かな図面や横長の表組みに対しては、「2x2タイル分割」や「1x8水平スライス（8分割）」を施して高精度に文字情報を抽出します。
+            PDF資料は、ネイティブテキスト抽出と <code>vision_model</code>（視覚言語モデル）のスマート・ルーティング判定により、ページごとに最適な方法で文字起こしを実行する。細かな図面や横長の表組みに対しては、「2x2タイル分割」や「1x8水平スライス（8分割）」を施して高精度に文字情報を抽出します。
           </p>
         </div>
         

@@ -3,14 +3,29 @@
 -- Target: MySQL 8.0.33
 -- Usage: phpMyAdmin で tepscoapp を選択して、このSQLを実行してください。
 -- Result:
+--   MISSING_TABLE  : 本番DBに不足しているテーブル
+--   EXTRA_TABLE    : 本番DBにだけ存在するテーブル
 --   MISSING_COLUMN : 本番DBに不足しているカラム
 --   EXTRA_COLUMN   : 本番DBにだけ存在するカラム
 --   TYPE_MISMATCH  : 型またはNULL許容が期待値と異なるカラム
+--   MISSING_INDEX  : 本番DBに不足している、または定義差のあるインデックス
+--   DEFAULT_MISMATCH : DBカラム既定値が期待値と異なる
+-- Note:
+--   schema_check.sql は主にテーブル / カラム / INDEX / DB既定値の整合を検査します。
+--   実行時の実効既定値は AI_System_Data/src/ModelRoleResolver.php を正本とし、
+--   OLLAMA_EMBED_MODEL などの環境変数上書きはこのSQLの検査対象外です。
 -- ==================================================================
 
 USE tepscoapp;
 
+DROP TEMPORARY TABLE IF EXISTS expected_schema_tables;
 DROP TEMPORARY TABLE IF EXISTS expected_schema_columns;
+DROP TEMPORARY TABLE IF EXISTS expected_schema_indexes;
+DROP TEMPORARY TABLE IF EXISTS expected_schema_defaults;
+
+CREATE TEMPORARY TABLE expected_schema_tables (
+    table_name VARCHAR(64) NOT NULL PRIMARY KEY
+);
 
 CREATE TEMPORARY TABLE expected_schema_columns (
     table_name VARCHAR(64) NOT NULL,
@@ -20,6 +35,40 @@ CREATE TEMPORARY TABLE expected_schema_columns (
     is_nullable VARCHAR(3) NOT NULL,
     PRIMARY KEY (table_name, column_name)
 );
+
+CREATE TEMPORARY TABLE expected_schema_indexes (
+    table_name VARCHAR(64) NOT NULL,
+    index_name VARCHAR(64) NOT NULL,
+    non_unique TINYINT(1) NOT NULL,
+    columns_csv VARCHAR(255) NOT NULL,
+    PRIMARY KEY (table_name, index_name)
+);
+
+CREATE TEMPORARY TABLE expected_schema_defaults (
+    table_name VARCHAR(64) NOT NULL,
+    column_name VARCHAR(64) NOT NULL,
+    expected_default VARCHAR(255) NULL,
+    PRIMARY KEY (table_name, column_name)
+);
+
+INSERT INTO expected_schema_tables (table_name)
+VALUES
+('chat_evaluations'),
+('chat_history'),
+('chat_reasoning_steps'),
+('chat_threads'),
+('doc_chunks'),
+('documents'),
+('embeddings'),
+('logs'),
+('project_comments'),
+('project_csv_files'),
+('project_csv_rows'),
+('project_faqs'),
+('project_members'),
+('project_meta'),
+('projects'),
+('users');
 
 INSERT INTO expected_schema_columns
     (table_name, ordinal_position, column_name, column_type, is_nullable)
@@ -36,10 +85,11 @@ VALUES
 ('chat_evaluations', 10, 'created_at', 'datetime', 'YES'),
 ('chat_history', 1, 'id', 'bigint unsigned', 'NO'),
 ('chat_history', 2, 'project_id', 'bigint unsigned', 'YES'),
-('chat_history', 3, 'user_id', 'bigint unsigned', 'NO'),
-('chat_history', 4, 'role', 'enum(''user'',''assistant'')', 'NO'),
-('chat_history', 5, 'message', 'text', 'NO'),
-('chat_history', 6, 'created_at', 'datetime', 'YES'),
+('chat_history', 3, 'thread_id', 'bigint unsigned', 'YES'),
+('chat_history', 4, 'user_id', 'bigint unsigned', 'NO'),
+('chat_history', 5, 'role', 'enum(''user'',''assistant'')', 'NO'),
+('chat_history', 6, 'message', 'text', 'NO'),
+('chat_history', 7, 'created_at', 'datetime', 'YES'),
 ('chat_reasoning_steps', 1, 'id', 'bigint unsigned', 'NO'),
 ('chat_reasoning_steps', 2, 'chat_history_id', 'bigint unsigned', 'YES'),
 ('chat_reasoning_steps', 3, 'project_id', 'bigint unsigned', 'NO'),
@@ -50,6 +100,12 @@ VALUES
 ('chat_reasoning_steps', 8, 'search_context', 'longtext', 'YES'),
 ('chat_reasoning_steps', 9, 'sub_answer', 'longtext', 'YES'),
 ('chat_reasoning_steps', 10, 'created_at', 'datetime', 'YES'),
+('chat_threads', 1, 'id', 'bigint unsigned', 'NO'),
+('chat_threads', 2, 'project_id', 'bigint unsigned', 'NO'),
+('chat_threads', 3, 'title', 'varchar(255)', 'NO'),
+('chat_threads', 4, 'created_by', 'bigint unsigned', 'YES'),
+('chat_threads', 5, 'created_at', 'datetime', 'YES'),
+('chat_threads', 6, 'updated_at', 'datetime', 'YES'),
 ('doc_chunks', 1, 'id', 'bigint unsigned', 'NO'),
 ('doc_chunks', 2, 'doc_id', 'bigint unsigned', 'NO'),
 ('doc_chunks', 3, 'chunk_text', 'longtext', 'NO'),
@@ -134,6 +190,50 @@ VALUES
 ('users', 14, 'embedding_model', 'varchar(100)', 'YES'),
 ('users', 15, 'vision_model', 'varchar(100)', 'YES');
 
+INSERT INTO expected_schema_indexes
+    (table_name, index_name, non_unique, columns_csv)
+VALUES
+('chat_history', 'idx_chat_history_context', 1, 'project_id,created_at'),
+('chat_history', 'idx_chat_history_project_id', 1, 'project_id'),
+('chat_history', 'idx_chat_history_thread_context', 1, 'thread_id,created_at'),
+('chat_history', 'idx_chat_history_thread_id', 1, 'thread_id'),
+('chat_history', 'idx_chat_history_user_id', 1, 'user_id'),
+('chat_threads', 'idx_chat_threads_project_id', 1, 'project_id'),
+('chat_threads', 'idx_chat_threads_updated_at', 1, 'updated_at');
+
+INSERT INTO expected_schema_defaults
+    (table_name, column_name, expected_default)
+VALUES
+('users', 'default_model', 'gemma4:e4b'),
+('users', 'ollama_host', 'http://127.0.0.1:11434'),
+('users', 'sub_model', 'gpt-oss:20b'),
+('users', 'sql_model', 'codellama:7b'),
+('users', 'embedding_model', 'mxbai-embed-large'),
+('users', 'vision_model', 'gemma4:e4b');
+
+SELECT
+    'MISSING_TABLE' AS issue,
+    e.table_name,
+    NULL AS detail
+FROM expected_schema_tables e
+LEFT JOIN INFORMATION_SCHEMA.TABLES t
+    ON t.TABLE_SCHEMA = DATABASE()
+   AND t.TABLE_NAME = e.table_name
+WHERE t.TABLE_NAME IS NULL
+ORDER BY e.table_name;
+
+SELECT
+    'EXTRA_TABLE' AS issue,
+    t.TABLE_NAME AS table_name,
+    NULL AS detail
+FROM INFORMATION_SCHEMA.TABLES t
+LEFT JOIN expected_schema_tables e
+    ON e.table_name = t.TABLE_NAME
+WHERE t.TABLE_SCHEMA = DATABASE()
+  AND t.TABLE_TYPE = 'BASE TABLE'
+  AND e.table_name IS NULL
+ORDER BY t.TABLE_NAME;
+
 SELECT
     'MISSING_COLUMN' AS issue,
     e.table_name,
@@ -183,6 +283,47 @@ WHERE LOWER(c.COLUMN_TYPE) <> LOWER(e.column_type)
    OR c.IS_NULLABLE <> e.is_nullable
 ORDER BY e.table_name, e.ordinal_position;
 
+SELECT
+    'MISSING_INDEX' AS issue,
+    e.table_name,
+    e.index_name,
+    e.columns_csv AS expected_columns_csv,
+    s.columns_csv AS actual_columns_csv,
+    e.non_unique AS expected_non_unique,
+    s.non_unique AS actual_non_unique
+FROM expected_schema_indexes e
+LEFT JOIN (
+    SELECT
+        TABLE_NAME,
+        INDEX_NAME,
+        MIN(NON_UNIQUE) AS non_unique,
+        GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX SEPARATOR ',') AS columns_csv
+    FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND INDEX_NAME <> 'PRIMARY'
+    GROUP BY TABLE_NAME, INDEX_NAME
+) s
+    ON s.TABLE_NAME = e.table_name
+   AND s.INDEX_NAME = e.index_name
+WHERE s.INDEX_NAME IS NULL
+   OR s.columns_csv <> e.columns_csv
+   OR s.non_unique <> e.non_unique
+ORDER BY e.table_name, e.index_name;
+
+SELECT
+    'DEFAULT_MISMATCH' AS issue,
+    e.table_name,
+    e.column_name,
+    e.expected_default AS expected_column_default,
+    c.COLUMN_DEFAULT AS actual_column_default
+FROM expected_schema_defaults e
+JOIN INFORMATION_SCHEMA.COLUMNS c
+    ON c.TABLE_SCHEMA = DATABASE()
+   AND c.TABLE_NAME = e.table_name
+   AND c.COLUMN_NAME = e.column_name
+WHERE COALESCE(c.COLUMN_DEFAULT, '__NULL__') <> COALESCE(e.expected_default, '__NULL__')
+ORDER BY e.table_name, e.column_name;
+
 SELECT COUNT(*) INTO @expected_column_count
 FROM expected_schema_columns;
 
@@ -195,7 +336,41 @@ WHERE c.TABLE_SCHEMA = DATABASE()
       WHERE e.table_name = c.TABLE_NAME
   );
 
+SELECT COUNT(*) INTO @expected_table_count
+FROM expected_schema_tables;
+
+SELECT COUNT(*) INTO @actual_table_count
+FROM INFORMATION_SCHEMA.TABLES t
+WHERE t.TABLE_SCHEMA = DATABASE()
+  AND t.TABLE_TYPE = 'BASE TABLE'
+  AND EXISTS (
+      SELECT 1
+      FROM expected_schema_tables e
+      WHERE e.table_name = t.TABLE_NAME
+  );
+
+SELECT COUNT(*) INTO @expected_index_count
+FROM expected_schema_indexes;
+
+SELECT COUNT(*) INTO @actual_index_count
+FROM (
+    SELECT DISTINCT s.TABLE_NAME, s.INDEX_NAME
+    FROM INFORMATION_SCHEMA.STATISTICS s
+    WHERE s.TABLE_SCHEMA = DATABASE()
+      AND s.INDEX_NAME <> 'PRIMARY'
+      AND EXISTS (
+          SELECT 1
+          FROM expected_schema_indexes e
+          WHERE e.table_name = s.TABLE_NAME
+            AND e.index_name = s.INDEX_NAME
+      )
+) actual_indexes;
+
 SELECT
     'SUMMARY' AS result_type,
+    @expected_table_count AS expected_tables,
+    @actual_table_count AS actual_tables_in_expected_set,
     @expected_column_count AS expected_columns,
-    @actual_column_count AS actual_columns_in_expected_tables;
+    @actual_column_count AS actual_columns_in_expected_tables,
+    @expected_index_count AS expected_indexes,
+    @actual_index_count AS actual_indexes_in_expected_set;

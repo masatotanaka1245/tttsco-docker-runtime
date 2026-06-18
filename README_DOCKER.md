@@ -13,7 +13,6 @@
 - PHP 8.2 + Apache
 - MySQL 8.0
 - phpMyAdmin
-- watchdog 用 PHP CLI コンテナ
 - PDF解析用の poppler-utils
 - 報告書PDF生成用の Chromium headless
 
@@ -22,6 +21,9 @@
 - Ollama
 - LLMモデル
 - Embeddingモデル
+- watchdog の常駐監視
+
+`watchdog` は現行構成では未実装扱いです。将来的な再導入候補ではありますが、このDocker READMEの運用対象には含めません。
 
 OllamaはWindows側の `http://localhost:11434` で起動し、Dockerコンテナ側からは `http://host.docker.internal:11434` でアクセスします。
 
@@ -53,6 +55,8 @@ AI_System_Data/
 ```
 
 `AI_System_Data/.env` はこのZIPに含まれているDocker用の値を参考にしてください。
+
+現行アプリは `chat_threads` / `chat_history.thread_id` を含むスレッド対応スキーマを前提にしています。DB初期化時は `AI_System_Data/config/db.sql` を使って `tepscoapp` を作成してください。
 
 ### 3. OllamaモデルをWindows側で準備
 
@@ -128,14 +132,22 @@ docker compose exec app curl http://host.docker.internal:11434/api/tags
 
 ```env
 DB_HOST=db
-DB_NAME=aisystem
+DB_NAME=tepscoapp
 DB_USER=newuser
 DB_PASS=password
 DATA_ROOT=/data/public
 OLLAMA_HOST=http://host.docker.internal:11434
 OLLAMA_EMBED_MODEL=mxbai-embed-large
-OLLAMA_CHAT_MODEL=llama3
+OLLAMA_CHAT_MODEL=gemma4:e4b
 ```
+
+補足:
+- 現行実装の実効既定値は `ModelRoleResolver.php` に従います。
+- `default_model=gemma4:e4b`
+- `sub_model=gpt-oss:20b`
+- `sql_model=codellama:7b`
+- `embedding_model=mxbai-embed-large`
+- `vision_model=gemma4:e4b`
 
 ## よくあるエラー
 
@@ -170,6 +182,8 @@ docker compose exec app curl http://host.docker.internal:11434/api/tags
 
 このZIPには起動確認用の仮 `index.php` しか入っていません。
 実アプリの `AI_System_Data/public` を配置してください。
+
+PDFプレビューの現行構成は `public/viewer.php` と `public/api/view_pdf.php` の組み合わせです。過去資料にある `serve_pdf.php` は現行構成では使いません。
 
 ### MySQLのテーブルを作り直したい
 

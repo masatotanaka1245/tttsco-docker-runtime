@@ -19,7 +19,9 @@ Tailwind CSS	3.x
 
 現行仕様サマリー（2026/06/03時点・最新実装反映）
 
-本システムは、Windows本番環境（PHP 8.2.8 / MySQL 8.0.33 / Apache 2.4.57）上で動作する、案件単位のAI業務支援プラットフォームです。単なる一問一答チャットではなく、「会話しながら成果品を育てて出荷する」ことを主目的とし、`AI_System_Data/public` をWeb公開ルートとして、PDF資料、Markdownベースの資料メモ、CSV/TSVデータ、案件コメント、FAQ、メンバー情報をMySQLに保存します。AI推論はOllama APIを利用し、ユーザーごとに接続先URL、既定モデル、サブモデル、SQLモデル、Embeddingモデルを設定できます。
+本システムは、Windows本番環境（PHP 8.2.8 / MySQL 8.0.33 / Apache 2.4.57）上で動作する、案件単位のAI業務支援プラットフォームです。単なる一問一答チャットではなく、「会話しながら成果品を育てて出荷する」ことを主目的とし、`AI_System_Data/public` をWeb公開ルートとして、PDF資料、Markdownベースの資料メモ、CSV/TSVデータ、案件コメント、FAQ、メンバー情報をMySQLに保存します。AI推論はOllama APIを利用し、ユーザーごとに接続先URL、既定モデル、サブモデル、SQLモデル、Embeddingモデル、Visionモデルを設定できます。
+
+現行実装では、案件チャットは `chat_threads` と `chat_history.thread_id` を用いたスレッド単位で保持されます。CSV/TSV は `project_csv_files` / `project_csv_rows` に保存されるだけでなく、RAG再利用用の親ノードとして `documents` にも登録され、PDFや資料メモと同じ資料基盤から横断参照されます。
 
 ## 資料メモ層（2026-06-08）
 
@@ -467,15 +469,15 @@ Text-to-SQL分析	AI生成SQLを `SqlExecutionEngine` で監査し、実在テ�
 1.2 機能要件
 機能	内容	主要ファイル
 対話型AI UI	専門業務をサポートするチャットインターフェース（PHP実装）	public/api/chat.php
-RAG検索	過去報告書等の意味検索（MySQL 上でベクトルデータを管理）	src/EmbeddingEngine.php, src/VectorSearch.php, src/RAGPipeline.php
-フォルダ監視自動化	共有フォルダ（public/）を常時監視し、ファイル投入時に自動で DB へインデックス化	scripts/watchdog.php
-PDF管理・閲覧	分野別の資料管理と、ブラウザ内でのセキュアな PDF ビューア機能	public/support.php, public/viewer.php, public/api/delete_pdf.php
+RAG検索	過去報告書、資料メモ、CSV連携ノードを横断する意味検索（MySQL 上でベクトルデータを管理）	src/EmbeddingEngine.php, src/VectorSearch.php, src/RAGPipeline.php
+チャットスレッド管理	案件内の会話を `chat_threads` / `chat_history.thread_id` 単位で保持し、履歴要約や follow-up 継続もスレッド基準で扱う	public/api/chat.php, src/ChatThreadManager.php
+PDF管理・閲覧	分野別の資料管理と、ブラウザ内でのセキュアな PDF ビューア機能。プレビューは `viewer.php` と `public/api/view_pdf.php` を用いる	public/support.php, public/viewer.php, public/api/view_pdf.php, public/api/delete_pdf.php
 PDF削除	既存 PDF をリストから削除できる機能	public/api/delete_pdf.php
 地理空間検索	案件座標に基づいた地図（Leaflet.js）上からの資料抽出	public/search.php
 検索結果の全分野横断	キーワード＋空間検索結果を一覧表示	public/search.php
 検索結果の PDF プレビュー	選択した資料を即座に確認	public/search.php
 ログ自動集計	監査ログ、チャットログ、ファイル操作ログを自動で集計	logs/, config/database.php
-API エンドポイント	chat.php, upload.php, delete_pdf.php, serve_pdf.php, search.php など	public/api/
+API エンドポイント	chat.php, upload.php, upload_csv.php, delete_pdf.php, view_pdf.php, search.php など	public/api/
 案件情報の編集support.phpで案件情報（案件名・住所・座標・備考など）を編集できるモーダルを実装。入力内容は`api/update_project.php`にPOSTされ、PDOで更新されます。public/support.php,api/update_project.php
 資料の検索search.phpでキーワード＋地理空間検索を実行し、該当PDFを一覧表示。選択したPDFはviewer.phpでプレビューします。public/search.php,public/viewer.php
 
@@ -504,22 +506,25 @@ API エンドポイント	chat.php, upload.php, delete_pdf.php, serve_pdf.php, s
 │   │   ├── login.php
 │   │   ├── logout.php
 │   │   ├── search.php
-│   │   ├── serve_pdf.php
 │   │   ├── support.php
 │   │   ├── user_management.php
 │   │   └── viewer.php
 │   ├── config
 │   │   ├── database.php
-│   │   ├── session.php
-│   │   ├── modules/
-│   │   │    ├── api.js       # (1) 共通通信処理・設定取得
-│   │   │    │    ├── map.js       # (2) Leaflet地図操作・住所検索
-│   │   │    │    ├── project.js   # (3) 案件のCRUD処理 (登録/更新/削除)
-│   │   │    │    ├── chat.js      # (4) AIチャット送受信・UI描画
-│   │   │    │    ├── upload.js    # (5) PDFアップロード・ポーリング進捗管理
-│   │   │    │    └── ui.js        # (6) タブ切替、モーダル開閉、リサイザー等の純粋なUI制御
-│   │   │    │
-│   │   │    └── support.js        # (7) エントリーポイント（各モジュールを束ねて起動するファイル）
+│   │   └── session.php
+│   ├── public
+│   │   ├── assets
+│   │   │   └── js
+│   │   │       ├── modules/
+│   │   │       │   ├── api.js        # (1) 共通通信処理・設定取得
+│   │   │       │   ├── map.js        # (2) Leaflet地図操作・住所検索
+│   │   │       │   ├── project.js    # (3) 案件のCRUD処理 (登録/更新/削除)
+│   │   │       │   ├── chat.js       # (4) AIチャット送受信・UI描画
+│   │   │       │   ├── upload.js     # (5) PDFアップロード・ポーリング進捗管理
+│   │   │       │   ├── csv.js        # (6) CSV一覧・CSV AI処理・集計系UI
+│   │   │       │   ├── ui.js         # (7) タブ切替、モーダル開閉、リサイザー等の純粋なUI制御
+│   │   │       │   └── aiRenderer.js # (8) AI回答描画補助
+│   │   │       └── support.js        # (9) エントリーポイント（各モジュールを束ねて起動するファイル）
 │   └── src
 │       ├── Auth.php
 │       ├── User.php
@@ -549,44 +554,42 @@ DB_NAME=tepscoapp
 DB_USER=newuser
 DB_PASS=password
 DATA_ROOT=D:\AI_System_Data\public
-OLLAMA_HOST=http://tsc23ews009:11434
+OLLAMA_HOST=http://127.0.0.1:11434
 OLLAMA_EMBED_MODEL=mxbai-embed-large
-OLLAMA_CHAT_MODEL=gpt-oss:20b
+OLLAMA_CHAT_MODEL=gemma4:e4b
 1.5 データベース構成
 テーブル	主なカラム	備考
 projects	id, project_name, latitude, longitude, address
-documents	id, project_id, title, file_path, created_at
+documents	id, project_id, title, file_path, created_at	PDF/資料メモ/CSV連携ノードの親テーブル
 doc_chunks	id, doc_id, chunk_text, embedding, image_description, page_number	ベクトル検索・RAG用
-chat_history	id, project_id, user_id, role, message, created_at
+chat_threads	id, project_id, title, created_by, created_at, updated_at	案件内会話スレッド
+chat_history	id, project_id, thread_id, user_id, role, message, created_at	現在はスレッド単位で履歴保持
 logs	id, user_id, action, details, created_at
 1.6 セットアップ手順（変更点）
 Ollama のセットアップ
 Bash
 Run
 ollama pull mxbai-embed-large
+ollama pull gemma4:e4b
 ollama pull gpt-oss:20b
+ollama pull codellama:7b
 MySQL テーブル作成
 Sql
 
 Apply
-CREATE TABLE doc_chunks (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    doc_id INT NOT NULL,
-    chunk_text TEXT NOT NULL,
-    embedding JSON NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-watchdog の実行
-scripts/watchdog.php を Windows タスクスケジューラに登録し、public/01_RAG_Documents/ を監視。新規 PDF が追加されると自動でベクトル化・インデックス化されます。
+mysql -u newuser -p tepscoapp < config/db.sql
+補足:
+- `config/db.sql` には `chat_threads` と `chat_history.thread_id` を含む現行スキーマを定義している
+- `users` の既定モデルは `ModelRoleResolver.php` を正とし、`default_model=gemma4:e4b`、`sub_model=gpt-oss:20b`、`sql_model=codellama:7b`、`embedding_model=mxbai-embed-large`、`vision_model=gemma4:e4b` を採用する
+- `config/schema_check.sql` は主にテーブル / カラム / INDEX / DB既定値の整合を確認する。実行時の実効既定値は `ModelRoleResolver.php` を正本とし、`OLLAMA_EMBED_MODEL` などの環境変数上書きは schema check の対象外とする
+- `watchdog` は現行構成では未実装扱いであり、常駐監視の再導入は将来検討とする
 
 1.7 運用・監視
-watchdog：public/01_RAG_Documents/ を監視し、ファイル投入時に EmbeddingEngine で埋め込みを生成、doc_chunks に保存。
 phpMyAdmin：データベース管理。
 定期バックアップ：mysqldump で自動ダンプ。
 ログ監視：logs/ 配下にアプリケーションログを出力。
-API レート制限：
-chat.php
- で簡易レート制限を実装（オプション）。
+重複送信抑止・短時間再送ガード：
+`chat.php` は、同一ユーザー・同一案件・同一メッセージの短時間再送をロックファイルで抑止する。汎用的なAPIレート制限ではなく、誤連打や二重送信を防ぐためのガードとして扱う。
 
 1.8 開発・拡張
 UI コンポーネント：Tailwind CSS をベースに分野別配色切替。
@@ -622,7 +625,7 @@ Apply
 ┌───────────────────────┐
 │  Windows Server (Head)│
 │  ├─ PHP UI (Admin/Chat)│
-│  ├─ watchdog (Scanner) │
+│  ├─ Optional Scanner   │
 │  ├─ MySQL (Vector DB)  │
 │  └─ Apache / Leaflet.js│
 └───────┬────────────────┘
@@ -642,10 +645,10 @@ src/VectorSearch.php	MySQL の doc_chunks からベクトル検索を行うク�
 src/RAGPipeline.php	EmbeddingEngine と VectorSearch を組み合わせ、RAG 検索＋チャット生成を行う。
 public/api/chat.php	RAGPipeline を呼び出し、チャット履歴を chat_history に保存。
 public/api/delete_pdf.php	PDF ファイルと DB レコードを削除。
-public/api/serve_pdf.php	doc_chunks ではなく documents からファイルパスを取得し PDF をストリーム。
+public/api/view_pdf.php	documents からファイルパスを取得し、viewer.php から参照される PDF ストリームを返す。
 public/search.php	FULLTEXT 検索を使用し、doc_chunks ではなく documents を検索。
 public/support.php	PDF リストに「削除」ボタンを追加。
-scripts/watchdog.php	PDF 追加を検知し、EmbeddingEngine で埋め込みを生成、doc_chunks に保存。
+scripts/watchdog.php	現行構成では未実装。PDF常駐監視の再導入時に配置を検討する候補パス。
 config/database.php	PDO 接続設定。
 config/session.php	セッション開始。
 src/Auth.php	ログイン状態判定。
@@ -653,7 +656,7 @@ public/index.php	トップページ。
 public/login.php	ログイン画面。
 public/logout.php	ログアウト。
 public/viewer.php	PDF.js ビューア。
-public/serve_pdf.php	PDF ファイルを返却。
+public/api/view_pdf.php	PDF ファイルを返却。
 public/api/upload.php	PDF アップロード。
 public/api/user_api.php	ユーザー情報取得。
 public/.htaccess	Apache 設定。
@@ -667,7 +670,7 @@ RAG 改善	VectorSearch を導入し、ベクトル検索で類似文書を取�
 API エンドポイント	chat.php が RAGPipeline を呼び出すよう更新	チャットの回答精度向上。
 データベース	doc_chunks / project_csv_files / project_csv_rows / chat_evaluations / project_faqs を利用	ベクトル、CSV、評価、FAQを格納。
 環境変数	OLLAMA_HOST, OLLAMA_EMBED_MODEL, OLLAMA_CHAT_MODEL を追加	Ollama サーバー設定を簡易化。
-監視スクリプト	watchdog.php を追加	PDF 追加時に自動で埋め込み化。
+監視スクリプト	watchdog は現行構成では未実装	再導入時は別途実装・運用確認が必要。
 UI	support.php に削除ボタン、search.php に PDF プレビューを追加	UX が向上。
 
 6. 使い方（簡易フロー）
@@ -704,12 +707,7 @@ cp .env.example .env
 # 4. データベースを作成
 mysql -u newuser -p tepscoapp < config/db.sql
 
-# 5. watchdog を Windows タスクスケジューラに登録
-#   - 実行ファイル: php.exe
-#   - 引数: scripts/watchdog.php
-#   - トリガー: 毎分
-
-# 6. Apache を再起動
+# 5. Apache を再起動
 
 8. 参考資料
 Ollama ドキュメント
@@ -810,7 +808,6 @@ https://dev.mysql.com/doc/
 \\10.5.98.129\htdocs\tepscoapp1\AI_System_Data\public\login.php
 \\10.5.98.129\htdocs\tepscoapp1\AI_System_Data\public\logout.php
 \\10.5.98.129\htdocs\tepscoapp1\AI_System_Data\public\search.php
-\\10.5.98.129\htdocs\tepscoapp1\AI_System_Data\public\serve_pdf.php
 \\10.5.98.129\htdocs\tepscoapp1\AI_System_Data\public\support.php
 \\10.5.98.129\htdocs\tepscoapp1\AI_System_Data\public\user_management.php
 \\10.5.98.129\htdocs\tepscoapp1\AI_System_Data\public\viewer.php
@@ -857,10 +854,17 @@ chat_evaluations	9	retry_count	int	YES		0
 chat_evaluations	10	created_at	datetime	YES		CURRENT_TIMESTAMP
 chat_history	1	id	bigint unsigned	NO	PRI	NULL
 chat_history	2	project_id	bigint unsigned	YES	MUL	NULL	関連業務ID (NULLの場合は汎用対話)
-chat_history	3	user_id	bigint unsigned	NO	MUL	NULL	対話者ID
-chat_history	4	role	enum('user','assistant')	NO		NULL	発話者区分
-chat_history	5	message	text	NO		NULL	メッセージ内容
-chat_history	6	created_at	datetime	YES		CURRENT_TIMESTAMP
+chat_history	3	thread_id	bigint unsigned	YES	MUL	NULL	案件内会話スレッドID
+chat_history	4	user_id	bigint unsigned	NO	MUL	NULL	対話者ID
+chat_history	5	role	enum('user','assistant')	NO		NULL	発話者区分
+chat_history	6	message	text	NO		NULL	メッセージ内容
+chat_history	7	created_at	datetime	YES		CURRENT_TIMESTAMP
+chat_threads	1	id	bigint unsigned	NO	PRI	NULL
+chat_threads	2	project_id	bigint unsigned	NO	MUL	NULL
+chat_threads	3	title	varchar(255)	NO		NULL	案件内会話スレッドの表示名
+chat_threads	4	created_by	bigint unsigned	YES	MUL	NULL	スレッド作成ユーザー
+chat_threads	5	created_at	datetime	YES		CURRENT_TIMESTAMP
+chat_threads	6	updated_at	datetime	YES		CURRENT_TIMESTAMP
 chat_reasoning_steps	1	id	bigint unsigned	NO	PRI	NULL
 chat_reasoning_steps	2	chat_history_id	bigint unsigned	YES		NULL	最終的なチャット履歴との紐づけ
 chat_reasoning_steps	3	project_id	bigint unsigned	NO	MUL	NULL
@@ -949,9 +953,9 @@ users	6	created_at	datetime	YES		CURRENT_TIMESTAMP
 users	7	updated_at	datetime	YES		CURRENT_TIMESTAMP
 users	8	default_prompt	varchar(50)	YES		construction_consultant	デフォルトプロンプトの識別子
 users	9	default_lang	varchar(10)	YES		ja	表示言語設定
-users	10	default_model	varchar(50)	YES		gpt-oss:20b	優先使用モデル
-users	11	ollama_host	varchar(255)	YES		http://tsc25dtp116:11434	Ollama接続先URL
+users	10	default_model	varchar(50)	YES		gemma4:e4b	優先使用モデル
+users	11	ollama_host	varchar(255)	YES		http://127.0.0.1:11434	Ollama接続先URL
 users	12	sub_model	varchar(100)	YES		gpt-oss:20b	中間処理・補助分析用サブモデル
-users	13	sql_model	varchar(100)	YES		gpt-oss:20b	Text-to-SQL・SQL自己修復用モデル
+users	13	sql_model	varchar(100)	YES		codellama:7b	Text-to-SQL・SQL自己修復用モデル
 users	14	embedding_model	varchar(100)	YES		mxbai-embed-large	ベクトル化専用モデル
 users	15	vision_model	varchar(100)	YES		gemma4:e4b	PDF・画像解析用ビジョンモデル
