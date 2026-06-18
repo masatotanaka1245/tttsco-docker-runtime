@@ -8,6 +8,7 @@ class PromptManager {
     private const PROJECT_MEMORY_AUTO_MAX_CHARS = 1400;
     private const PROJECT_MEMORY_MANUAL_MAX_CHARS = 700;
     private const PROJECT_MEMORY_TOTAL_MAX_CHARS = 5200;
+    private const PROJECT_MEMORY_HIGHLIGHT_VALUE_MAX_CHARS = 160;
 
     /**
      * 指定された識別子に対応するベースプロンプトを取得する
@@ -188,8 +189,11 @@ class PromptManager {
             return '';
         }
 
+        $highlightBlock = self::buildActiveArtifactHighlight($memoryDocs);
+
         return "\n【案件運用メモ】\n"
              . "以下は、この案件に対する補助メモです。自動生成メモと手動メモが分かれている場合は、自動生成メモを先に参照してください。\n"
+             . $highlightBlock
              . "1. AGENTS は回答方針・禁止事項・優先ルールとして扱ってください。\n"
              . "2. README は案件やシステムの前提知識として扱ってください。\n"
              . "3. TODO は現在の課題や優先論点として扱ってください。ただし、TODO の内容を根拠資料の代わりに断定してはいけません。\n"
@@ -204,6 +208,70 @@ class PromptManager {
              . "9. 手動メモは補助的な補正・上書き候補として扱ってください。自動生成メモと手動メモが矛盾する場合は、まず自動生成メモを主仮説として採用し、必要に応じて手動メモの補足を参照してください。\n"
              . "10. 資料本文・DB実データ・FAQ・コメント・案件情報の間に差異がある場合は、事実断定は資料本文とDB実データを優先しつつ、成果品の方針や補足には他の情報源も活用してください。\n\n"
              . implode("\n\n", $sections) . "\n";
+    }
+
+    private static function buildActiveArtifactHighlight(array $memoryDocs): string
+    {
+        $candidateTexts = [
+            (string)($memoryDocs['todo']['auto_content'] ?? ''),
+            (string)($memoryDocs['agents']['auto_content'] ?? ''),
+        ];
+
+        $artifact = [];
+        foreach ($candidateTexts as $text) {
+            $artifact = self::extractActiveArtifactFields($text);
+            if ($artifact !== []) {
+                break;
+            }
+        }
+
+        if ($artifact === []) {
+            return '';
+        }
+
+        $lines = ["【主成果品ハイライト】"];
+        if (($artifact['lane'] ?? '') !== '') {
+            $lines[] = '- 現在の主成果品: ' . $artifact['lane'];
+        }
+        if (($artifact['target'] ?? '') !== '') {
+            $lines[] = '- 主対象: ' . $artifact['target'];
+        }
+        if (($artifact['reason'] ?? '') !== '') {
+            $lines[] = '- 理由: ' . $artifact['reason'];
+        }
+        if (($artifact['current_task'] ?? '') !== '') {
+            $lines[] = '- 進行中タスク: ' . $artifact['current_task'];
+        }
+
+        if (count($lines) <= 1) {
+            return '';
+        }
+
+        return implode("\n", $lines) . "\n";
+    }
+
+    private static function extractActiveArtifactFields(string $text): array
+    {
+        $text = trim((string)$text);
+        if ($text === '') {
+            return [];
+        }
+
+        $artifact = [];
+        $map = [
+            'lane' => 'レーン',
+            'target' => '主対象',
+            'reason' => '理由',
+            'current_task' => '進行中タスク',
+        ];
+
+        foreach ($map as $key => $label) {
+            if (preg_match('/^- ' . preg_quote($label, '/') . ':\s*(.+)$/mu', $text, $matches) === 1) {
+                $artifact[$key] = self::clipText(trim((string)($matches[1] ?? '')), self::PROJECT_MEMORY_HIGHLIGHT_VALUE_MAX_CHARS);
+            }
+        }
+
+        return $artifact;
     }
 
     public static function compactHistorySummaryText(
