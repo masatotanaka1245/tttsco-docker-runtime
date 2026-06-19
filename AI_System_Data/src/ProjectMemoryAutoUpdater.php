@@ -38,6 +38,7 @@ final class ProjectMemoryAutoUpdater
             return ProjectContextMemory::load($pdo, $projectId);
         }
 
+        $beforeDocs = ProjectContextMemory::load($pdo, $projectId);
         $snapshot = self::collectSnapshot($pdo, $projectId, $threadId, $userId);
         $autoDocs = [
             'agents' => self::buildAgentsDoc($snapshot),
@@ -56,6 +57,7 @@ final class ProjectMemoryAutoUpdater
                 . ' | chars=' . ProjectContextMemory::totalChars($loadedDocs)
                 . ' | thread_id=' . ($threadId === null ? 'NULL' : (string)$threadId)
             );
+            $logger('[PROJECT-MEMORY-AUTO] diff | ' . self::buildAutoRefreshDiffSummary($beforeDocs, $loadedDocs));
         }
 
         return $loadedDocs;
@@ -275,6 +277,158 @@ final class ProjectMemoryAutoUpdater
             . ' | score=' . $score
             . ' | response=' . ($responsePreview !== '' ? $responsePreview : '(empty)')
         );
+    }
+
+    private static function buildAutoRefreshDiffSummary(array $beforeDocs, array $afterDocs): string
+    {
+        $beforeAutoDocs = self::extractAutoDocContents($beforeDocs);
+        $afterAutoDocs = self::extractAutoDocContents($afterDocs);
+        $changed = [];
+
+        foreach (ProjectContextMemory::AUTO_META_KEYS as $type => $_metaKey) {
+            $before = trim((string)($beforeAutoDocs[$type] ?? ''));
+            $after = trim((string)($afterAutoDocs[$type] ?? ''));
+            if ($before !== $after) {
+                $changed[] = $type;
+            }
+        }
+
+        $beforeHighlights = self::extractAutoRefreshHighlights($beforeAutoDocs);
+        $afterHighlights = self::extractAutoRefreshHighlights($afterAutoDocs);
+
+        return implode(' | ', [
+            'changed=' . ($changed === [] ? 'none' : implode(',', $changed)),
+            'lane_before=' . self::formatDiffLogValue($beforeHighlights['lane'] ?? ''),
+            'lane_after=' . self::formatDiffLogValue($afterHighlights['lane'] ?? ''),
+            'target_before=' . self::formatDiffLogValue($beforeHighlights['target'] ?? ''),
+            'target_after=' . self::formatDiffLogValue($afterHighlights['target'] ?? ''),
+            'task_before=' . self::formatDiffLogValue($beforeHighlights['current_task'] ?? ''),
+            'task_after=' . self::formatDiffLogValue($afterHighlights['current_task'] ?? ''),
+            'next_before=' . self::formatDiffLogValue($beforeHighlights['next_action'] ?? ''),
+            'next_after=' . self::formatDiffLogValue($afterHighlights['next_action'] ?? ''),
+            'chars_before=' . self::countDocChars($beforeAutoDocs),
+            'chars_after=' . self::countDocChars($afterAutoDocs),
+        ]);
+    }
+
+    private static function extractAutoDocContents(array $docs): array
+    {
+        $contents = [];
+        foreach (ProjectContextMemory::AUTO_META_KEYS as $type => $_metaKey) {
+            $doc = $docs[$type] ?? '';
+            if (is_array($doc)) {
+                $contents[$type] = trim((string)($doc['auto_content'] ?? ''));
+                continue;
+            }
+            $contents[$type] = trim((string)$doc);
+        }
+
+        return $contents;
+    }
+
+    private static function extractAutoRefreshHighlights(array $autoDocs): array
+    {
+        $todoText = trim((string)($autoDocs['todo'] ?? ''));
+        $agentsText = trim((string)($autoDocs['agents'] ?? ''));
+
+        $lane = self::extractMarkdownLineValue($todoText, ['レーン', '現在の主成果品']);
+        if ($lane === '') {
+            $lane = self::extractMarkdownLineValue($agentsText, ['レーン', '現在の主成果品']);
+        }
+
+        $target = self::extractMarkdownLineValue($todoText, ['主対象']);
+        if ($target === '') {
+            $target = self::extractMarkdownLineValue($agentsText, ['主対象']);
+        }
+
+        $currentTask = self::extractMarkdownLineValue($todoText, ['進行中タスク']);
+        if ($currentTask === '') {
+            $currentTask = self::extractFirstTaskInSection($todoText, '進行中');
+        }
+        if ($currentTask === '') {
+            $currentTask = self::extractMarkdownLineValue($agentsText, ['進行中タスク']);
+        }
+
+        $nextAction = self::extractFirstTaskInSection($todoText, '未着手');
+        if ($nextAction === '' || str_contains($nextAction, '追加タスクはまだ抽出されていません')) {
+            $nextAction = '';
+        }
+        if ($nextAction === '') {
+            $nextAction = $currentTask;
+        }
+
+        return [
+            'lane' => $lane,
+            'target' => $target,
+            'current_task' => $currentTask,
+            'next_action' => $nextAction,
+        ];
+    }
+
+    private static function extractMarkdownLineValue(string $text, array $labels): string
+    {
+        $text = trim($text);
+        if ($text === '') {
+            return '';
+        }
+
+        foreach ($labels as $label) {
+            if (preg_match('/^- ' . preg_quote($label, '/') . ':\s*(.+)$/mu', $text, $matches) === 1) {
+                return self::compactLine(trim((string)($matches[1] ?? '')), 80);
+            }
+        }
+
+        return '';
+    }
+
+    private static function extractFirstTaskInSection(string $text, string $sectionTitle): string
+    {
+        $text = trim($text);
+        if ($text === '') {
+            return '';
+        }
+
+        $pattern = '/^##\s*' . preg_quote($sectionTitle, '/') . '\s*$\R(?P<body>.*?)(?=^\#\#\s|\z)/msu';
+        if (preg_match($pattern, $text, $matches) !== 1) {
+            return '';
+        }
+
+        $body = (string)($matches['body'] ?? '');
+        $lines = preg_split('/\R/u', $body) ?: [];
+        foreach ($lines as $line) {
+            $line = trim((string)$line);
+            if ($line === '') {
+                continue;
+            }
+            if (preg_match('/^- \[(?:進行中|未着手|検証中|完了|保留)\]\s*(.+)$/u', $line, $taskMatches) === 1) {
+                return self::compactLine(trim((string)($taskMatches[1] ?? '')), 80);
+            }
+            if (preg_match('/^- (.+)$/u', $line, $taskMatches) === 1) {
+                return self::compactLine(trim((string)($taskMatches[1] ?? '')), 80);
+            }
+        }
+
+        return '';
+    }
+
+    private static function countDocChars(array $docs): int
+    {
+        $chars = 0;
+        foreach ($docs as $doc) {
+            $chars += mb_strlen(trim((string)$doc));
+        }
+
+        return $chars;
+    }
+
+    private static function formatDiffLogValue(string $value): string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return 'none';
+        }
+
+        return self::compactLine($value, 80);
     }
 
     private static function collectSnapshot(PDO $pdo, int $projectId, ?int $threadId, int $userId): array
