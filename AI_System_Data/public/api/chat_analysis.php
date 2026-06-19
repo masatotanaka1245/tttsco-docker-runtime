@@ -406,6 +406,7 @@ class AdvancedReasoningRouteProcessor {
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
         $this->applyReportModeFinalPolishIfNeeded();
+        $this->applyFallbackFinalAnswerGuardIfNeeded();
 
         // 5. チャット対話履歴、進行ステップ、品質評価スコアの安全な一括永続化
         $this->saveHistoryAndEvaluations();
@@ -877,6 +878,7 @@ class AdvancedReasoningRouteProcessor {
     private function completeCsvRoute(): void {
         $this->runLightweightFinalAnswerGuard('data_analysis_lightweight');
         $this->applyReportModeFinalPolishIfNeeded();
+        $this->applyFallbackFinalAnswerGuardIfNeeded();
         $this->insertReasoningStep(99, '最終報告書・グラフの統合生成', '完了');
         $this->saveHistoryAndEvaluations();
         $this->sendFinalResult();
@@ -934,6 +936,26 @@ class AdvancedReasoningRouteProcessor {
             $reasoningText,
             $currentDraft
         );
+    }
+
+    private function applyFallbackFinalAnswerGuardIfNeeded(): void
+    {
+        $fallbackGuardReason = $this->getDownstreamFallbackGuardReason();
+        if ($fallbackGuardReason === null) {
+            return;
+        }
+
+        if (is_array($this->evalResult) && (($this->evalResult['needs_revision'] ?? false) === true)) {
+            return;
+        }
+
+        $unsafeReason = $this->detectUnsafeFallbackFinalAnswerReason($this->finalResponse);
+        if ($unsafeReason === null) {
+            return;
+        }
+
+        chatLogger("[EVAL-FALLBACK-GUARD] blocked=final_answer | route=analysis | reason={$fallbackGuardReason} | unsafe={$unsafeReason}");
+        $this->finalResponse = $this->buildFallbackClarificationResponse();
     }
 
     private function createFinalResponseSetter(): callable {
@@ -2429,5 +2451,142 @@ class AdvancedReasoningRouteProcessor {
         }
 
         return null;
+    }
+
+    private function detectUnsafeFallbackFinalAnswerReason(string $response): ?string
+    {
+        $normalized = $this->normalizeFallbackGuardText($response);
+        if ($normalized === '') {
+            return 'empty_response';
+        }
+
+        if ($this->looksLikeProvisionalOnlyAnswer($normalized)) {
+            return 'provisional_only';
+        }
+
+        if ($this->looksLikeInsufficientOnlyAnswer($normalized)) {
+            return 'insufficient_only';
+        }
+
+        if ($this->looksLikeOperationOnlyFallbackAnswer($normalized)) {
+            return 'operation_only';
+        }
+
+        if ($this->looksLikeProcessingNoticeOnlyAnswer($normalized)) {
+            return 'processing_notice_only';
+        }
+
+        if ($this->hasUnclosedStructuredBlock($response)) {
+            return 'unclosed_structure';
+        }
+
+        if ($this->looksLikeIncompleteFallbackAnswer($response, $normalized)) {
+            return 'incomplete_response';
+        }
+
+        return null;
+    }
+
+    private function buildFallbackClarificationResponse(): string
+    {
+        return '回答を確定するための評価が完了しなかったため、このまま断定せず確認させてください。対象ファイル・列・期間・目的など、分かる条件をもう少し指定してください。';
+    }
+
+    private function normalizeFallbackGuardText(string $text): string
+    {
+        $normalized = trim($this->normalizeUtf8($text));
+        $normalized = preg_replace('/\s+/u', ' ', $normalized);
+        return $normalized !== null ? trim($normalized) : trim($text);
+    }
+
+    private function looksLikeProvisionalOnlyAnswer(string $text): bool
+    {
+        return preg_match('/^(以下のように修正します|以下の通り修正します|以下のように対応します|確認しました|対応しました)(。|\.|！|!|\s*)$/u', $text) === 1;
+    }
+
+    private function looksLikeInsufficientOnlyAnswer(string $text): bool
+    {
+        return preg_match('/^(情報がありません|判断できません|見つかりません|根拠が不足しています|追加情報が必要です)(。|\.|！|!|\s*)$/u', $text) === 1;
+    }
+
+    private function looksLikeOperationOnlyFallbackAnswer(string $text): bool
+    {
+        $segments = preg_split('/[。.!！?\n]+/u', $text, -1, PREG_SPLIT_NO_EMPTY);
+        if (!is_array($segments) || $segments === [] || count($segments) > 3) {
+            return false;
+        }
+
+        foreach ($segments as $segment) {
+            $segment = trim($segment);
+            if ($segment === '') {
+                continue;
+            }
+            if (preg_match('/(アップロード|再アップロード|選択|指定|クリック|入力|保存|送信|確認).*(してください|して下さい)/u', $segment) !== 1) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function looksLikeProcessingNoticeOnlyAnswer(string $text): bool
+    {
+        return preg_match('/^(処理中です|少々お待ちください|しばらくお待ちください|お待ちください)(。|\.|！|!|\s*)$/u', $text) === 1;
+    }
+
+    private function hasUnclosedStructuredBlock(string $text): bool
+    {
+        if (substr_count($text, '```') % 2 !== 0) {
+            return true;
+        }
+
+        if (preg_match('/^\s*[\{\[]/u', $text) === 1) {
+            if (substr_count($text, '{') !== substr_count($text, '}')) {
+                return true;
+            }
+            if (substr_count($text, '[') !== substr_count($text, ']')) {
+                return true;
+            }
+        }
+
+        $tagPairs = [
+            'table',
+            'ul',
+            'ol',
+            'div',
+            'section',
+            'article',
+            'pre',
+            'code',
+        ];
+        foreach ($tagPairs as $tag) {
+            if (preg_match('/<' . $tag . '\b/i', $text) === 1 && preg_match('/<\/' . $tag . '>/i', $text) !== 1) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function looksLikeIncompleteFallbackAnswer(string $rawText, string $normalized): bool
+    {
+        if ($normalized === '') {
+            return true;
+        }
+
+        if (preg_match('/[：:、,\(\[「『\-]$/u', $normalized) === 1) {
+            return true;
+        }
+
+        if (preg_match('/(\.\.\.|…)\s*$/u', $normalized) === 1) {
+            return true;
+        }
+
+        $trimmedRaw = rtrim($rawText);
+        if ($trimmedRaw !== '' && preg_match('/[。.!！?）】」』>]\s*$/u', $trimmedRaw) !== 1 && mb_strlen($normalized) <= 120) {
+            return true;
+        }
+
+        return false;
     }
 }
