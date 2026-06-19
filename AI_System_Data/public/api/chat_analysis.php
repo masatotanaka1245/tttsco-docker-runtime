@@ -2186,7 +2186,11 @@ class AdvancedReasoningRouteProcessor {
 
             $this->pdo->commit();
             chatLogger("[DEBUG] DBトランザクションコミット成功。すべての書き込みデータ整合性を完全保護しました。");
-            if (ProjectMemoryAutoUpdater::shouldRefreshFromEvaluation($this->evalResult, $this->finalResponse)) {
+            $fallbackGuardReason = $this->getDownstreamFallbackGuardReason();
+            if ($fallbackGuardReason !== null) {
+                chatLogger("[EVAL-FALLBACK-GUARD] blocked=project_memory_refresh | route=analysis | reason={$fallbackGuardReason}");
+                chatLogger("[PROJECT-MEMORY-AUTO] skipped=quality_guard | thread_id=" . ($this->threadId === null ? 'NULL' : (string)$this->threadId));
+            } elseif (ProjectMemoryAutoUpdater::shouldRefreshFromEvaluation($this->evalResult, $this->finalResponse)) {
                 ProjectMemoryAutoUpdater::refresh(
                     $this->pdo,
                     (int)$this->projectId,
@@ -2210,6 +2214,15 @@ class AdvancedReasoningRouteProcessor {
 
     private function createReportDocumentIfRequested(int $historyId): void {
         if (!$this->reportMode || $this->projectId === null) {
+            return;
+        }
+        $fallbackGuardReason = $this->getDownstreamFallbackGuardReason();
+        if ($fallbackGuardReason !== null) {
+            chatLogger("[EVAL-FALLBACK-GUARD] blocked=report_generation | route=analysis | reason={$fallbackGuardReason}");
+            sendSSE('status', [
+                'step' => 6,
+                'message' => '⚠️ 評価が不安定なため、報告書PDF生成はスキップしました。'
+            ]);
             return;
         }
         if (($this->evalResult['verdict'] ?? '') === 'reject') {
@@ -2256,6 +2269,11 @@ class AdvancedReasoningRouteProcessor {
 
     private function createCsvExportIfRequested(int $historyId): void {
         if (!$this->csvMode || $this->projectId === null) {
+            return;
+        }
+        $fallbackGuardReason = $this->getDownstreamFallbackGuardReason();
+        if ($fallbackGuardReason !== null) {
+            chatLogger("[EVAL-FALLBACK-GUARD] blocked=csv_generation | route=analysis | reason={$fallbackGuardReason}");
             return;
         }
         if (($this->evalResult['verdict'] ?? '') === 'reject') {
@@ -2331,5 +2349,35 @@ class AdvancedReasoningRouteProcessor {
         chatLogger("[FINAL-ANSWER] route={$routeName} | questionChars=" . mb_strlen($question) . " | responseChars=" . mb_strlen($response) . " | truncated=" . ($isTruncated ? 'yes' : 'no'));
         chatLogger("[FINAL-ANSWER-QUESTION] {$question}");
         chatLogger("[FINAL-ANSWER-BODY] " . $preview);
+    }
+
+    private function getDownstreamFallbackGuardReason(): ?string {
+        if (!is_array($this->evalResult) || $this->evalResult === []) {
+            return 'missing_eval';
+        }
+
+        if (($this->evalResult['judge_fallback'] ?? false) === true) {
+            return 'judge_fallback';
+        }
+
+        $evaluationMode = trim((string)($this->evalResult['evaluation_mode'] ?? ''));
+        if ($evaluationMode === 'fallback') {
+            return 'evaluation_mode_fallback';
+        }
+
+        $evaluationSource = trim((string)($this->evalResult['evaluation_source'] ?? ''));
+        if ($evaluationSource === 'judge_fallback') {
+            return 'judge_fallback';
+        }
+
+        $feedback = trim((string)($this->evalResult['feedback'] ?? ''));
+        if (
+            $feedback !== ''
+            && preg_match('/(フェイルセーフ|タイムアウト|初期ドラフトを採用|評価プロセス.*エラー)/u', $feedback) === 1
+        ) {
+            return 'fallback_feedback';
+        }
+
+        return null;
     }
 }

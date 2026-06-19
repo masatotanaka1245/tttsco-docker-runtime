@@ -154,7 +154,11 @@ final class AdvancedRouteFinalizer
 
             $this->pdo->commit();
             $this->log("[DEBUG] DBトランザクションコミット成功。すべての書き込みデータ整合性を完全保護しました。");
-            if (ProjectMemoryAutoUpdater::shouldRefreshFromEvaluation($this->evalResult, $this->finalResponse)) {
+            $fallbackGuardReason = $this->getDownstreamFallbackGuardReason();
+            if ($fallbackGuardReason !== null) {
+                $this->log("[EVAL-FALLBACK-GUARD] blocked=project_memory_refresh | route=advanced | reason={$fallbackGuardReason}");
+                $this->log("[PROJECT-MEMORY-AUTO] skipped=quality_guard | thread_id=" . ($this->threadId === null ? 'NULL' : (string)$this->threadId));
+            } elseif (ProjectMemoryAutoUpdater::shouldRefreshFromEvaluation($this->evalResult, $this->finalResponse)) {
                 ProjectMemoryAutoUpdater::refresh(
                     $this->pdo,
                     $this->projectId,
@@ -213,6 +217,15 @@ final class AdvancedRouteFinalizer
         if (!$this->reportMode || $this->projectId === 0) {
             return null;
         }
+        $fallbackGuardReason = $this->getDownstreamFallbackGuardReason();
+        if ($fallbackGuardReason !== null) {
+            $this->log("[EVAL-FALLBACK-GUARD] blocked=report_generation | route=advanced | reason={$fallbackGuardReason}");
+            sendSSE('status', [
+                'step' => 6,
+                'message' => '⚠️ 評価が不安定なため、報告書PDF生成はスキップしました。'
+            ]);
+            return null;
+        }
         if (($this->evalResult['verdict'] ?? '') === 'reject') {
             $this->log('[REPORT] 品質評価がrejectのため、報告書PDF生成をスキップしました。chat_history_id=' . $historyId);
             sendSSE('status', [
@@ -262,6 +275,11 @@ final class AdvancedRouteFinalizer
     private function createCsvExportIfRequested(int $historyId)
     {
         if (!$this->csvMode || $this->projectId === 0) {
+            return null;
+        }
+        $fallbackGuardReason = $this->getDownstreamFallbackGuardReason();
+        if ($fallbackGuardReason !== null) {
+            $this->log("[EVAL-FALLBACK-GUARD] blocked=csv_generation | route=advanced | reason={$fallbackGuardReason}");
             return null;
         }
         if (($this->evalResult['verdict'] ?? '') === 'reject') {
@@ -328,5 +346,36 @@ final class AdvancedRouteFinalizer
         if ($this->logger !== null) {
             call_user_func($this->logger, $message);
         }
+    }
+
+    private function getDownstreamFallbackGuardReason(): ?string
+    {
+        if (!is_array($this->evalResult) || $this->evalResult === []) {
+            return 'missing_eval';
+        }
+
+        if (($this->evalResult['judge_fallback'] ?? false) === true) {
+            return 'judge_fallback';
+        }
+
+        $evaluationMode = trim((string)($this->evalResult['evaluation_mode'] ?? ''));
+        if ($evaluationMode === 'fallback') {
+            return 'evaluation_mode_fallback';
+        }
+
+        $evaluationSource = trim((string)($this->evalResult['evaluation_source'] ?? ''));
+        if ($evaluationSource === 'judge_fallback') {
+            return 'judge_fallback';
+        }
+
+        $feedback = trim((string)($this->evalResult['feedback'] ?? ''));
+        if (
+            $feedback !== ''
+            && preg_match('/(フェイルセーフ|タイムアウト|初期ドラフトを採用|評価プロセス.*エラー)/u', $feedback) === 1
+        ) {
+            return 'fallback_feedback';
+        }
+
+        return null;
     }
 }
