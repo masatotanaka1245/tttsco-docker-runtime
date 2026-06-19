@@ -99,8 +99,10 @@ class CsvAggregationPlanner
         $hasDateIntent = $this->hasDateIntent($question);
         $hasTimeBandIntent = $this->hasTimeBandIntent($question);
         $targetFileName = $this->findMentionedCsvFileName($question);
+        $explicitTargetFileName = $targetFileName;
         $explicitColumnReference = $this->findExplicitColumnReference($question);
         $targetColumn = $explicitColumnReference;
+        $explicitColumnTarget = null;
         if ($targetColumn === null && $targetFileName !== null) {
             $targetColumn = $this->findMentionedColumnName($question, $targetFileName);
         }
@@ -116,10 +118,10 @@ class CsvAggregationPlanner
         $routeDetail = trim((string)($options['route_detail'] ?? ''));
         $routeLockActive = $routeDetail === 'data_analysis.csv_agg.route_lock';
         if (($targetFileName === null || $targetColumn === null) && $explicitColumnReference === null) {
-            $columnTarget = $this->findMentionedColumnTarget($question);
-            if ($columnTarget !== null && ($targetFileName === null || $targetFileName === (string)$columnTarget['file_name'])) {
-                $targetFileName = (string)$columnTarget['file_name'];
-                $targetColumn = (string)$columnTarget['column_name'];
+            $explicitColumnTarget = $this->findMentionedColumnTarget($question);
+            if ($explicitColumnTarget !== null && ($targetFileName === null || $targetFileName === (string)$explicitColumnTarget['file_name'])) {
+                $targetFileName = (string)$explicitColumnTarget['file_name'];
+                $targetColumn = (string)$explicitColumnTarget['column_name'];
                 $contextSource = 'explicit_column_target';
             }
         }
@@ -284,13 +286,13 @@ class CsvAggregationPlanner
                 : 'none';
             $aggregateType = $recentAggregationMode === 'date_histogram' ? 'count' : $recentAggregationMode;
             $usedRecentAggregationMode = true;
+        } elseif ($targetColumn !== null && $isDateLikeColumn && ($hasDateIntent || preg_match('/(若い順|古い順|昇順|降順)/u', $question) === 1)) {
+            $aggregationMode = 'date_histogram';
+            $aggregateType = 'count';
         } elseif ($targetColumn !== null && $hasValueDistributionIntent) {
             $aggregationMode = 'value_distribution';
             $dateGranularity = 'none';
             $aggregateType = 'value_distribution';
-        } elseif ($targetColumn !== null && $isDateLikeColumn && ($hasDateIntent || preg_match('/(若い順|古い順|昇順|降順)/u', $question) === 1)) {
-            $aggregationMode = 'date_histogram';
-            $aggregateType = 'count';
         } elseif ($targetColumn !== null && $sourceColumn !== null && $categoryFilterLabel !== null) {
             $aggregationMode = 'category_filtered_distribution';
             $dateGranularity = 'none';
@@ -304,6 +306,25 @@ class CsvAggregationPlanner
             $dateGranularity = 'none';
             $aggregateType = 'value_distribution';
         }
+
+        $clarificationMeta = $this->buildClarificationMeta(
+            $question,
+            [
+                'explicit_target_file_name' => $explicitTargetFileName,
+                'explicit_column_reference' => $explicitColumnReference,
+                'explicit_column_target' => $explicitColumnTarget,
+                'target_file_name' => $targetFileName,
+                'target_column' => $targetColumn,
+                'aggregation_mode' => $aggregationMode,
+                'context_source' => $contextSource,
+                'has_date_intent' => $hasDateIntent,
+                'has_time_band_intent' => $hasTimeBandIntent,
+                'has_semantic_category_intent' => $hasSemanticCategoryIntent,
+                'is_aggregation_follow_up' => $isAggregationFollowUp,
+                'route_lock_active' => $routeLockActive,
+                'targets_all_csv' => $this->targetsAllCsv($question),
+            ]
+        );
 
         return [
             'scope' => $targetFileName !== null ? 'single_file' : 'all_files',
@@ -331,6 +352,106 @@ class CsvAggregationPlanner
             'route_lock_active' => $routeLockActive,
             'route_detail' => $routeDetail,
             'last_success_route' => $recentAggregationContext['last_success_route'] ?? null,
+            'needs_clarification' => $clarificationMeta['needs_clarification'],
+            'clarification_reason' => $clarificationMeta['clarification_reason'],
+            'missing_dimensions' => $clarificationMeta['missing_dimensions'],
+        ];
+    }
+
+    private function buildClarificationMeta(string $question, array $context): array
+    {
+        $hasAggregateIntent = preg_match('/(集計|件数|合計|平均|表に|一覧|推移|時系列|別に|グループ|何種類|ユニーク|distinct|重複なし|分布|分類|カテゴリ|抽出して件数|抽出して、件数|若い順|古い順|昇順|降順|グラフ|グラフ化|チャート|ピーク時間|多い時間帯|ランキング|多い順|少ない順|上位|TOP|トップ|全件|すべて表示|続きを表示)/iu', $question) === 1;
+        $hasCategoryGroupingIntent = preg_match('/(カテゴリ別|カテゴリー別|分類別|項目別|列ごと|内訳|分布|ランキング|多い順|少ない順|上位|TOP|トップ)/u', $question) === 1;
+        $hasChartIntent = preg_match('/(グラフ|グラフ化|チャート|棒グラフ|折れ線|円グラフ|可視化)/u', $question) === 1;
+        $hasExploratoryAnalysisIntent = preg_match('/(分析してください|分析して|傾向を教えて|傾向を見て|見てください|問題点を教えて)/u', $question) === 1;
+        $hasBroadAggregateQuestion = $hasAggregateIntent
+            || !empty($context['has_date_intent'])
+            || !empty($context['has_time_band_intent'])
+            || $hasChartIntent;
+        $hasBroadAggregateQuestion = $hasBroadAggregateQuestion || $hasExploratoryAnalysisIntent;
+
+        if (!$hasBroadAggregateQuestion) {
+            return [
+                'needs_clarification' => false,
+                'clarification_reason' => '',
+                'missing_dimensions' => [],
+            ];
+        }
+
+        $explicitTargetFileName = trim((string)($context['explicit_target_file_name'] ?? ''));
+        $explicitColumnReference = trim((string)($context['explicit_column_reference'] ?? ''));
+        $targetFileName = trim((string)($context['target_file_name'] ?? ''));
+        $targetColumn = trim((string)($context['target_column'] ?? ''));
+        $aggregationMode = trim((string)($context['aggregation_mode'] ?? ''));
+        $contextSource = trim((string)($context['context_source'] ?? ''));
+        $isAggregationFollowUp = !empty($context['is_aggregation_follow_up']);
+        $targetsAllCsv = !empty($context['targets_all_csv']);
+        $availableCsvCount = $this->countAvailableCsvFiles();
+        $questionHasExplicitColumnMarker = preg_match('/([「『"].+[」』"]\s*(?:カラム|列|項目)|(?:カラム|列|項目))/u', $question) === 1;
+        $usesWeakImplicitColumnTarget = $explicitTargetFileName === ''
+            && $explicitColumnReference === ''
+            && !empty($context['explicit_column_target'])
+            && !$questionHasExplicitColumnMarker
+            && (
+                $hasCategoryGroupingIntent
+                || preg_match('/(件数|売上)/u', $question) === 1
+            );
+
+        $missingDimensions = [];
+        $clarificationReason = '';
+
+        if (
+            $availableCsvCount > 1
+            && $targetFileName === ''
+            && !$targetsAllCsv
+            && !$isAggregationFollowUp
+        ) {
+            $missingDimensions[] = 'target_file_name';
+            $clarificationReason = 'missing_target_file';
+        }
+
+        if (!empty($context['has_date_intent']) || !empty($context['has_time_band_intent'])) {
+            if ($targetColumn === '') {
+                $missingDimensions[] = 'target_column';
+                $missingDimensions[] = 'date_axis';
+                $clarificationReason = $clarificationReason !== '' ? $clarificationReason : 'missing_target_column';
+            }
+        } elseif ($hasCategoryGroupingIntent || $hasChartIntent || $hasAggregateIntent) {
+            if ($targetColumn === '') {
+                $missingDimensions[] = 'target_column';
+                $missingDimensions[] = 'group_axis';
+                $clarificationReason = $clarificationReason !== '' ? $clarificationReason : 'missing_target_column';
+            }
+        }
+
+        if ($usesWeakImplicitColumnTarget) {
+            if ($availableCsvCount > 1 && !$targetsAllCsv && !$isAggregationFollowUp) {
+                $missingDimensions[] = 'target_file_name';
+            }
+            $missingDimensions[] = 'target_column';
+            $missingDimensions[] = 'group_axis';
+            $clarificationReason = $clarificationReason !== '' ? $clarificationReason : 'weak_implicit_column_match';
+        }
+
+        if (
+            $aggregationMode === 'value_distribution'
+            && $targetColumn !== ''
+            && in_array($contextSource, ['recent_history', 'recent_history_followup'], true)
+            && $explicitTargetFileName === ''
+            && $explicitColumnReference === ''
+            && empty($context['explicit_column_target'])
+            && !$isAggregationFollowUp
+        ) {
+            $missingDimensions[] = 'group_axis';
+            $clarificationReason = $clarificationReason !== '' ? $clarificationReason : 'weak_value_distribution_context';
+        }
+
+        $missingDimensions = array_values(array_unique(array_filter($missingDimensions)));
+
+        return [
+            'needs_clarification' => !empty($missingDimensions),
+            'clarification_reason' => $clarificationReason,
+            'missing_dimensions' => $missingDimensions,
         ];
     }
 
@@ -816,5 +937,17 @@ class CsvAggregationPlanner
 
         $metadata = call_user_func($this->metadataLoader);
         return is_array($metadata) ? $metadata : [];
+    }
+
+    private function countAvailableCsvFiles(): int
+    {
+        return count(array_values(array_filter($this->loadMetadata(), static function ($file): bool {
+            return trim((string)($file['file_name'] ?? '')) !== '';
+        })));
+    }
+
+    private function targetsAllCsv(string $question): bool
+    {
+        return preg_match('/(全てのCSV|すべてのCSV|全CSV|登録済みCSV全体|すべてのデータ|全データ|全ファイル)/u', $question) === 1;
     }
 }

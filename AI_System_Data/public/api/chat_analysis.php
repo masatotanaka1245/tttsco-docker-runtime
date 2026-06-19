@@ -501,22 +501,38 @@ class AdvancedReasoningRouteProcessor {
             . " | target_value: " . ($plan['target_value'] ?? 'none')
         );
 
-        if (!empty($plan['wants_chart']) && !empty($plan['target_file_name']) && empty($plan['target_column'])) {
-            $fileTarget = $targetResolver->findFileTarget((string)$plan['target_file_name']);
-            if ($fileTarget !== null) {
+        if (!empty($plan['needs_clarification'])) {
+            $fileTarget = !empty($plan['target_file_name'])
+                ? $targetResolver->findFileTarget((string)$plan['target_file_name'])
+                : null;
+            $useChartClarification = !empty($plan['wants_chart'])
+                && !empty($plan['target_file_name'])
+                && empty($plan['target_column'])
+                && $fileTarget !== null;
+
+            if ($useChartClarification) {
                 $finalResponse = $csvAggregationAnswerFormatter->buildChartColumnClarificationAnswer($plan, $fileTarget);
-                $this->finalResponse = $finalResponse;
-                $this->subAnswers[] = $finalResponse;
-                $this->insertReasoningStep(
-                    1,
-                    'CSVグラフ化の列指定確認',
-                    "【集計計画】\n" . json_encode($plan, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
-                    . "\n\n【確認対象CSV】\n" . json_encode($fileTarget, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
-                );
-                chatLogger("[CSV-AGG] グラフ化要求だが対象列が未指定のため、確認質問で終了します。file=" . $plan['target_file_name']);
-                $this->completeCsvRoute();
-                return true;
+                $reasoningTitle = 'CSVグラフ化の列指定確認';
+                $reasoningContext = "【集計計画】\n" . json_encode($plan, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
+                    . "\n\n【確認対象CSV】\n" . json_encode($fileTarget, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+            } else {
+                $finalResponse = $this->buildCsvAggregationClarificationAnswer($plan);
+                $reasoningTitle = 'CSV集計条件の確認';
+                $reasoningContext = "【集計計画】\n" . json_encode($plan, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
             }
+
+            $this->finalResponse = $finalResponse;
+            $this->subAnswers[] = $finalResponse;
+            $this->insertReasoningStep(1, $reasoningTitle, $reasoningContext);
+            chatLogger(
+                "[CSV-CLARIFICATION] reason=" . ($plan['clarification_reason'] ?? 'unknown')
+                . " | missing=" . implode(',', array_map('strval', (array)($plan['missing_dimensions'] ?? [])))
+                . " | route=data_analysis.csv_agg"
+                . " | target_file=" . (($plan['target_file_name'] ?? '') !== '' ? (string)$plan['target_file_name'] : 'none')
+                . " | target_column=" . (($plan['target_column'] ?? '') !== '' ? (string)$plan['target_column'] : 'none')
+            );
+            $this->completeCsvRoute();
+            return true;
         }
 
         switch ((string)($plan['aggregation_mode'] ?? '')) {
@@ -588,6 +604,40 @@ class AdvancedReasoningRouteProcessor {
             $csvAggregationAnswerFormatter,
             $effectiveDiagramMode
         );
+    }
+
+    private function buildCsvAggregationClarificationAnswer(array $plan): string
+    {
+        $targetFileName = trim((string)($plan['target_file_name'] ?? ''));
+        $targetColumn = trim((string)($plan['target_column'] ?? ''));
+        $missingDimensions = array_values(array_filter(array_map('strval', (array)($plan['missing_dimensions'] ?? []))));
+
+        $dimensionLabels = [
+            'target_file_name' => '対象CSV',
+            'target_column' => '対象列',
+            'group_axis' => '集計軸',
+            'date_axis' => '日付軸',
+        ];
+        $missingLabels = [];
+        foreach ($missingDimensions as $dimension) {
+            $missingLabels[] = $dimensionLabels[$dimension] ?? $dimension;
+        }
+        $missingLabels = array_values(array_unique(array_filter($missingLabels)));
+
+        $lines = [];
+        $lines[] = "集計自体は可能ですが、まだ条件が足りないため実行していません。";
+        $lines[] = "";
+        $lines[] = "- 対象CSV: " . ($targetFileName !== '' ? $targetFileName : '未指定');
+        $lines[] = "- 対象列: " . ($targetColumn !== '' ? $targetColumn : '未指定');
+        if (!empty($missingLabels)) {
+            $lines[] = "- 不足している条件: " . implode(' / ', $missingLabels);
+        }
+        $lines[] = "- 状態: 条件不足のため、推測集計や概況回答には進めていません。";
+        $lines[] = "";
+        $lines[] = "どのCSVファイルの、どの列を、どの軸で集計するかを指定してください。";
+        $lines[] = "例: 出荷一覧表を月別に集計 / aaa.csv の ステータス列を件数集計 / 出荷一覧表の『年月』列を集計";
+
+        return implode("\n", $lines);
     }
 
     private function loadRecentArtifactState(array $recentHistory): ?array
