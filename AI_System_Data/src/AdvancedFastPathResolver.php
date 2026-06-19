@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/ProjectContextMemory.php';
+
 final class AdvancedFastPathResolver
 {
     private $pdo;
@@ -87,25 +89,38 @@ final class AdvancedFastPathResolver
 
         $csvFiles = $this->loadProjectCsvFiles();
         $pdfDocs = $this->loadProjectPdfDocuments();
-        if (empty($csvFiles) && empty($pdfDocs)) {
+        $materialDocs = $this->loadProjectMaterialDocuments();
+        $projectMemoryDocs = ProjectContextMemory::load($this->pdo, $this->projectId);
+        $projectMemorySnapshot = $this->buildProjectMemorySnapshot($projectMemoryDocs);
+        $recentContext = $this->buildRecentAdviceContext($this->loadCurrentThreadHistory(8));
+
+        if (
+            empty($csvFiles)
+            && empty($pdfDocs)
+            && empty($materialDocs)
+            && empty($projectMemorySnapshot['highlights'])
+        ) {
             return null;
         }
 
         $isSummaryMode = $hasProjectSummaryIntent && !$hasAdviceIntent;
         $finalResponse = $isSummaryMode
-            ? $this->buildDeterministicProjectAssetSummary($csvFiles, $pdfDocs)
-            : $this->buildDeterministicMultiSourceAdvice($csvFiles, $pdfDocs);
-        $summary = "CSV件数=" . count($csvFiles) . " / PDF件数=" . count($pdfDocs);
+            ? $this->buildDeterministicProjectAssetSummary($csvFiles, $pdfDocs, $materialDocs, $projectMemorySnapshot, $recentContext)
+            : $this->buildDeterministicMultiSourceAdvice($csvFiles, $pdfDocs, $materialDocs, $projectMemorySnapshot, $recentContext);
+        $summary = "CSV件数=" . count($csvFiles)
+            . " / PDF件数=" . count($pdfDocs)
+            . " / 資料メモ件数=" . count($materialDocs)
+            . " / 運用メモ要点=" . count((array)($projectMemorySnapshot['highlights'] ?? []));
 
         return [
             'final_response' => $finalResponse,
             'reasoning_steps' => [
                 [
-                    'sub_query' => 'CSV/PDF の資産構成を収集',
+                    'sub_query' => '案件メモ・資料メモ・CSV/PDF の advisory 用メタ情報を収集',
                     'sub_answer' => $summary,
                 ],
                 [
-                    'sub_query' => $isSummaryMode ? '資産構成から案件の全体像を整理' : '資産構成から推奨分析観点を組み立て',
+                    'sub_query' => $isSummaryMode ? '資産構成から案件の全体像を整理' : '資産構成と現在地から推奨分析観点を組み立て',
                     'sub_answer' => $finalResponse,
                 ],
             ],
@@ -115,23 +130,38 @@ final class AdvancedFastPathResolver
         ];
     }
 
-    private function buildDeterministicProjectAssetSummary(array $csvFiles, array $pdfDocs): string
+    private function buildDeterministicProjectAssetSummary(
+        array $csvFiles,
+        array $pdfDocs,
+        array $materialDocs,
+        array $projectMemorySnapshot,
+        string $recentContext
+    ): string
     {
         $lines = [];
         $lines[] = "案件の内容を、現在確認できる成果品から整理します。";
         $lines[] = "";
         $lines[] = "## 全体像";
-        if (!empty($csvFiles) && !empty($pdfDocs)) {
-            $lines[] = "この案件では、CSVによる定量データとPDF資料による規程・説明資料の両方が存在しており、数値集計と文書根拠を組み合わせて進める前提の構成になっています。";
+        if (!empty($csvFiles) && (!empty($pdfDocs) || !empty($materialDocs))) {
+            $lines[] = "この案件では、CSVによる定量データに加えて、PDFや資料メモによる文書系成果品も存在しており、数値把握と文書根拠整理を組み合わせて進める前提の構成になっています。";
         } elseif (!empty($csvFiles)) {
             $lines[] = "この案件では、CSVによる構造化データが主な成果品であり、まず件数分布や時系列などの定量把握から進めやすい状態です。";
+        } elseif (!empty($materialDocs)) {
+            $lines[] = "この案件では、資料メモや運用メモが作業用成果品として育っており、まず現在の主成果品と進行中タスクを確認してから深掘り対象を決める進め方が中心になります。";
         } else {
             $lines[] = "この案件では、PDF資料が主な成果品であり、留意点・制約・確認事項をページ番号付きで整理する進め方が中心になります。";
+        }
+        foreach ((array)($projectMemorySnapshot['highlights'] ?? []) as $highlight) {
+            $lines[] = "- " . $highlight;
+        }
+        if ($recentContext !== '') {
+            $lines[] = "- 直近の相談文脈: " . $recentContext;
         }
         $lines[] = "";
         $lines[] = "## 現在確認できる成果品";
         $lines[] = "- CSVファイル数: " . count($csvFiles) . "件";
         $lines[] = "- PDF資料数: " . count($pdfDocs) . "件";
+        $lines[] = "- 資料メモ数: " . count($materialDocs) . "件";
         if (!empty($csvFiles)) {
             foreach (array_slice($csvFiles, 0, 5) as $csv) {
                 $lines[] = "- CSV: " . (string)($csv['file_name'] ?? '名称不明') . " (" . (int)($csv['row_count'] ?? 0) . "件)";
@@ -142,20 +172,27 @@ final class AdvancedFastPathResolver
                 $lines[] = "- PDF: " . (string)($doc['title'] ?? basename((string)($doc['file_path'] ?? '資料PDF')));
             }
         }
+        if (!empty($materialDocs)) {
+            foreach (array_slice($materialDocs, 0, 5) as $doc) {
+                $lines[] = "- 資料メモ: " . $this->describeDocumentTitle($doc, '資料メモ');
+            }
+        }
         $lines[] = "";
         $lines[] = "## 進め方の見立て";
-        foreach ($this->buildMultiSourceAdviceWorkflow(!empty($csvFiles), !empty($pdfDocs)) as $step) {
+        foreach ($this->buildMultiSourceAdviceWorkflow(!empty($csvFiles), !empty($pdfDocs), !empty($materialDocs)) as $step) {
             $lines[] = $step;
         }
         $lines[] = "";
         $lines[] = "## 次に着手しやすいこと";
-        foreach ($this->buildMultiSourceAdviceFirstActions(!empty($csvFiles), !empty($pdfDocs)) as $step) {
+        foreach ($this->buildMultiSourceAdviceFirstActions(!empty($csvFiles), !empty($pdfDocs), !empty($materialDocs), $projectMemorySnapshot) as $step) {
             $lines[] = $step;
         }
         $lines[] = "";
         $lines[] = "## 出典";
         $lines[] = "- `project_csv_files`: " . count($csvFiles) . "件";
         $lines[] = "- `documents` (PDF): " . count($pdfDocs) . "件";
+        $lines[] = "- `documents` (Markdown資料メモ): " . count($materialDocs) . "件";
+        $lines[] = "- `project_meta` advisory要点: " . count((array)($projectMemorySnapshot['highlights'] ?? [])) . "件";
 
         return implode("\n", $lines);
     }
@@ -205,6 +242,36 @@ final class AdvancedFastPathResolver
             WHERE project_id = ? AND LOWER(file_path) LIKE '%.pdf' AND title NOT LIKE 'AI報告書%'
             ORDER BY created_at DESC, id DESC
             LIMIT 20
+        ");
+        $stmt->execute([$this->projectId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    private function loadProjectMaterialDocuments(): array
+    {
+        if ($this->projectId <= 0) {
+            return [];
+        }
+
+        $stmt = $this->pdo->prepare("
+            SELECT d.id, d.title, d.file_path, d.created_at, c.chunk_text
+            FROM documents d
+            LEFT JOIN (
+                SELECT c1.doc_id, c1.chunk_text
+                FROM doc_chunks c1
+                INNER JOIN (
+                    SELECT doc_id, MIN(id) AS min_chunk_id
+                    FROM doc_chunks
+                    WHERE page_number = 1
+                    GROUP BY doc_id
+                ) picked
+                  ON picked.min_chunk_id = c1.id
+            ) c
+              ON c.doc_id = d.id
+            WHERE d.project_id = ?
+              AND LOWER(d.file_path) LIKE '%.md'
+            ORDER BY d.created_at DESC, d.id DESC
+            LIMIT 6
         ");
         $stmt->execute([$this->projectId]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -267,90 +334,130 @@ final class AdvancedFastPathResolver
         return implode("\n", $lines);
     }
 
-    private function buildDeterministicMultiSourceAdvice(array $csvFiles, array $pdfDocs): string
+    private function buildDeterministicMultiSourceAdvice(
+        array $csvFiles,
+        array $pdfDocs,
+        array $materialDocs,
+        array $projectMemorySnapshot,
+        string $recentContext
+    ): string
     {
         $hasCsv = !empty($csvFiles);
         $hasPdf = !empty($pdfDocs);
+        $hasMaterial = !empty($materialDocs);
         $lines = [];
-        $lines[] = $this->buildMultiSourceAdviceLead($hasCsv, $hasPdf);
+        $lines[] = $this->buildMultiSourceAdviceLead($hasCsv, $hasPdf, $hasMaterial, $projectMemorySnapshot);
         $lines[] = "";
-        $lines[] = "## おすすめの進め方";
-        foreach ($this->buildMultiSourceAdviceWorkflow($hasCsv, $hasPdf) as $step) {
+        $lines[] = "## まず見るべきもの";
+        foreach ($this->buildPriorityFocusLines($csvFiles, $pdfDocs, $materialDocs, $projectMemorySnapshot, $recentContext) as $step) {
             $lines[] = $step;
         }
 
+        $lines[] = "";
+        $lines[] = "## CSVで確認する観点";
         if ($hasCsv) {
-            $lines[] = "";
-            $lines[] = "## CSVでおすすめの集計";
-            foreach ($csvFiles as $csv) {
+            foreach (array_slice($csvFiles, 0, 2) as $csv) {
                 $lines[] = $this->buildCsvAdviceLine($csv);
             }
-        }
-
-        if ($hasPdf) {
-            $lines[] = "";
-            $lines[] = "## PDFでおすすめの分析";
-            foreach (array_slice($pdfDocs, 0, 3) as $doc) {
-                $title = (string)($doc['title'] ?? basename((string)($doc['file_path'] ?? '資料PDF')));
-                $lines[] = "- `{$title}`: 留意点、禁止事項、確認事項、寸法・条件値などをページ番号付きで抽出し、CSV集計とは別に根拠一覧化するのがおすすめです。";
-            }
-        } elseif ($hasCsv) {
-            $lines[] = "";
-            $lines[] = "## PDFでおすすめの分析";
-            $lines[] = "- 現在、対象PDFは確認できませんでした。まずはCSVだけで定量把握を進め、必要な資料が追加された時点で留意点抽出を組み合わせるのが自然です。";
+        } else {
+            $lines[] = "- 現在、確認できるCSVはありません。まずは資料メモや運用メモから、集計したい指標や対象期間を固めるのが自然です。";
         }
 
         $lines[] = "";
-        $lines[] = "## まず最初にやるとよい分析";
-        foreach ($this->buildMultiSourceAdviceFirstActions($hasCsv, $hasPdf) as $step) {
+        $lines[] = "## PDF/資料メモで確認する観点";
+        if ($hasMaterial || $hasPdf) {
+            foreach (array_slice($materialDocs, 0, 1) as $doc) {
+                $title = $this->describeDocumentTitle($doc, '資料メモ');
+                $summary = $this->extractMaterialDocSummary($doc);
+                $lines[] = "- 資料メモ `{$title}`: 既存の章立てや追記ポイントを確認し、今回の観点をどこへ反映するかを先に決めるのがおすすめです。"
+                    . ($summary !== '' ? " 概要: {$summary}" : '');
+            }
+            foreach (array_slice($pdfDocs, 0, 1) as $doc) {
+                $title = (string)($doc['title'] ?? basename((string)($doc['file_path'] ?? '資料PDF')));
+                $lines[] = "- `{$title}`: 留意点や制約条件をページ付きで抜き出し、CSV結果とは別に根拠整理するのがおすすめです。";
+            }
+        } elseif ($hasCsv) {
+            $lines[] = "- 現在、対象PDFや資料メモは確認できませんでした。まずはCSVだけで定量把握を進め、必要な資料が追加された時点で留意点抽出を組み合わせるのが自然です。";
+        } else {
+            $lines[] = "- 現在は文書系や運用メモの整理が主になります。資料メモの見出しと運用メモの次アクションを照らし合わせ、何を成果品として育てるかを先に決めるのがおすすめです。";
+        }
+
+        $lines[] = "";
+        $lines[] = "## 次に実行するとよい具体アクション";
+        foreach ($this->buildMultiSourceAdviceFirstActions($hasCsv, $hasPdf, $hasMaterial, $projectMemorySnapshot) as $step) {
             $lines[] = $step;
         }
         $lines[] = "";
         $lines[] = "## 出典";
         if ($hasCsv) {
             $lines[] = "- CSVファイル数: " . count($csvFiles) . "件";
-            foreach (array_slice($csvFiles, 0, 5) as $csv) {
-                $lines[] = "- CSV: " . (string)($csv['file_name'] ?? '名称不明');
-            }
+            $lines[] = "- 主なCSV: " . $this->describeCsvTitle((array)$csvFiles[0]);
         }
         if ($hasPdf) {
             $lines[] = "- PDF件数: " . count($pdfDocs) . "件";
-            foreach (array_slice($pdfDocs, 0, 5) as $doc) {
-                $lines[] = "- PDF: " . (string)($doc['title'] ?? basename((string)($doc['file_path'] ?? '資料PDF')));
-            }
+            $lines[] = "- 主なPDF: " . $this->describeDocumentTitle((array)$pdfDocs[0], 'PDF');
+        }
+        if ($hasMaterial) {
+            $lines[] = "- 資料メモ件数: " . count($materialDocs) . "件";
+            $lines[] = "- 主な資料メモ: " . $this->describeDocumentTitle((array)$materialDocs[0], '資料メモ');
+        }
+        foreach (array_slice((array)($projectMemorySnapshot['highlights'] ?? []), 0, 2) as $highlight) {
+            $lines[] = "- project_meta: " . $highlight;
         }
 
         return implode("\n", $lines);
     }
 
-    private function buildMultiSourceAdviceLead(bool $hasCsv, bool $hasPdf): string
+    private function buildMultiSourceAdviceLead(bool $hasCsv, bool $hasPdf, bool $hasMaterial, array $projectMemorySnapshot): string
     {
-        if ($hasCsv && $hasPdf) {
-            return "CSVとPDFの両方を活かすなら、まず『CSVで定量把握』『PDFで留意点整理』『両者の照合』の3段で進めるのがおすすめです。";
+        $activeArtifact = trim((string)($projectMemorySnapshot['active_artifact'] ?? ''));
+        $currentTask = trim((string)($projectMemorySnapshot['current_task'] ?? ''));
+
+        if ($activeArtifact !== '' || $currentTask !== '') {
+            $lead = "現在の主成果品と進行中タスクを軸に、必要なCSV・PDF・資料メモを順番に当てていく進め方がおすすめです。";
+            if ($activeArtifact !== '') {
+                $lead .= " 主成果品は {$activeArtifact} です。";
+            }
+            return $lead;
+        }
+
+        if ($hasCsv && ($hasPdf || $hasMaterial)) {
+            return "CSVと文書系成果品を両方活かすなら、まず『CSVで定量把握』『PDF/資料メモで留意点整理』『両者の照合』の3段で進めるのがおすすめです。";
         }
 
         if ($hasCsv) {
             return "今回はCSV資産が中心なので、まず『全体像の把握』『主要列の分布確認』『業務に近い指標の深掘り』の順で進めるのがおすすめです。";
         }
 
+        if ($hasMaterial) {
+            return "今回は資料メモや運用メモが先に育っているため、まず『既存メモの見出し確認』『不足観点の洗い出し』『必要な資料の追加参照』の順で進めるのがおすすめです。";
+        }
+
         return "今回は資料PDFが中心なので、まず『留意点抽出』『制約条件の整理』『ページ番号付き根拠の一覧化』の順で進めるのがおすすめです。";
     }
 
-    private function buildMultiSourceAdviceWorkflow(bool $hasCsv, bool $hasPdf): array
+    private function buildMultiSourceAdviceWorkflow(bool $hasCsv, bool $hasPdf, bool $hasMaterial): array
     {
-        if ($hasCsv && $hasPdf) {
+        if ($hasCsv && ($hasPdf || $hasMaterial)) {
             return [
-                "- 1. CSVのファイル一覧と列構成を確認し、どのファイルが件数集計・分布集計・時系列集計に向くかを切り分ける。",
-                "- 2. PDFからは、留意点・制約・確認事項をページ番号付きで抽出し、定量集計とは別レイヤーで整理する。",
-                "- 3. 最後に、CSVの集計結果とPDFの注意事項を並べ、運用判断に使える形へまとめる。",
+                "- 1. 主要CSVを決め、件数分布・時系列・ランキングのどれを見るか先に切る。",
+                "- 2. PDFや資料メモから留意点や制約条件を拾い、定量結果とは別レイヤーで整理する。",
+                "- 3. 数値結果と文書側の注意事項を並べ、成果品更新に使える形へまとめる。",
             ];
         }
 
         if ($hasCsv) {
             return [
-                "- 1. CSVのファイル一覧と列構成を確認し、業務系・属性系・履歴系に分けて見る。",
-                "- 2. 各CSVで件数分布、ランキング、時系列など基本集計を出し、どこに偏りがあるかを把握する。",
-                "- 3. その後、深掘りしたいCSVを1本選び、列同士の比較や期間別の傾向分析へ進む。",
+                "- 1. 主要CSVを1本決め、件数分布や時系列の傾向を確認する。",
+                "- 2. その後、偏りが見えた列を対象にランキングや比較へ進む。",
+            ];
+        }
+
+        if ($hasMaterial) {
+            return [
+                "- 1. 今の依頼に近い資料メモを1本選ぶ。",
+                "- 2. 運用メモの進行中タスクを見て、資料メモへ足すべき観点を決める。",
+                "- 3. 必要なときだけPDFを補助参照し、差分を具体化する。",
             ];
         }
 
@@ -361,29 +468,88 @@ final class AdvancedFastPathResolver
         ];
     }
 
-    private function buildMultiSourceAdviceFirstActions(bool $hasCsv, bool $hasPdf): array
+    private function buildMultiSourceAdviceFirstActions(bool $hasCsv, bool $hasPdf, bool $hasMaterial, array $projectMemorySnapshot): array
     {
-        if ($hasCsv && $hasPdf) {
+        $tasks = [];
+        $currentTask = trim((string)($projectMemorySnapshot['current_task'] ?? ''));
+        $nextAction = trim((string)($projectMemorySnapshot['next_action'] ?? ''));
+
+        if ($currentTask !== '') {
+            $tasks[] = "- 進行中タスクを確認する: {$currentTask}";
+        }
+        if ($nextAction !== '' && $nextAction !== $currentTask) {
+            $tasks[] = "- 次アクション候補を確認する: {$nextAction}";
+        }
+
+        if ($hasCsv && ($hasPdf || $hasMaterial)) {
             return [
+                ...$tasks,
                 "- CSV全体の概要を出す",
-                "- 次に業務系CSVを1本選び、列別件数分布やランキングを出す",
-                "- その後、PDFの留意点一覧を抽出して、CSVの数値結果と矛盾や確認事項がないかを見る",
+                "- 業務系CSVを1本選び、件数分布か時系列のどちらを先に見るか決める",
+                "- PDFや資料メモの留意点と、CSVの数値結果を照合する",
             ];
         }
 
         if ($hasCsv) {
             return [
+                ...$tasks,
                 "- CSV全体の概要を出す",
-                "- 業務に近いCSVを1本選び、列別件数分布やランキングを出す",
+                "- 業務に近いCSVを1本選び、件数分布かランキングを出す",
                 "- 必要なら時系列や特定条件で絞った集計へ進む",
             ];
         }
 
+        if ($hasMaterial) {
+            return [
+                ...$tasks,
+                "- 資料メモの中で今の依頼に一番近いものを1本開く",
+                "- 既存の章立てや追記ポイントを確認し、どの観点を先に埋めるか決める",
+                "- 不足する根拠がある場合だけ、関連PDFを追加参照する",
+            ];
+        }
+
         return [
+            ...$tasks,
             "- PDF全体から主要な留意点を抽出する",
             "- 次にページ番号付きで制約条件を一覧化する",
             "- その後、判断に必要な確認事項リストへ整理する",
         ];
+    }
+
+    private function buildPriorityFocusLines(
+        array $csvFiles,
+        array $pdfDocs,
+        array $materialDocs,
+        array $projectMemorySnapshot,
+        string $recentContext
+    ): array {
+        $lines = [];
+
+        foreach ((array)($projectMemorySnapshot['highlights'] ?? []) as $highlight) {
+            $lines[] = '- ' . $highlight;
+        }
+
+        if (!empty($materialDocs)) {
+            $lines[] = '- 既存の資料メモ: ' . $this->describeDocumentTitle((array)$materialDocs[0], '資料メモ') . ' から、今の依頼に近い章や追記ポイントを確認する';
+        }
+
+        if (!empty($csvFiles)) {
+            $lines[] = '- 主要CSV: ' . $this->describeCsvTitle((array)$csvFiles[0]) . ' の列構成と件数から、先に出せる定量観点を見極める';
+        }
+
+        if (!empty($pdfDocs)) {
+            $lines[] = '- 主要PDF: ' . $this->describeDocumentTitle((array)$pdfDocs[0], 'PDF') . ' から、留意点や制約条件の根拠を拾えるか確認する';
+        }
+
+        if ($recentContext !== '') {
+            $lines[] = '- 直近の相談文脈: ' . $this->compactLine($recentContext, 60);
+        }
+
+        if (empty($lines)) {
+            $lines[] = '- まず案件運用メモから、今の主成果品と次アクションを確認する';
+        }
+
+        return array_slice($lines, 0, 4);
     }
 
     private function buildCsvAdviceLine(array $csv): string
@@ -396,19 +562,19 @@ final class AdvancedFastPathResolver
         }
 
         if (preg_match('/language-locales/i', $fileName)) {
-            return "- `{$fileName}` ({$rowCount}件): 言語別件数、部署別件数、アカウント属性の分布確認が向いています。";
+            return "- `{$fileName}` ({$rowCount}件): 言語別や部署別の分布確認から入るのが向いています。";
         }
         if (preg_match('/username-or-email/i', $fileName)) {
-            return "- `{$fileName}` ({$rowCount}件): ユーザー識別子、メールアドレス、氏名の重複有無や属性分布の確認が向いています。";
+            return "- `{$fileName}` ({$rowCount}件): 識別子やメールの重複、属性分布の確認が向いています。";
         }
         if (preg_match('/入荷実績一覧/u', $fileName)) {
-            return "- `{$fileName}` ({$rowCount}件): 品番別件数、品名別件数、仕入先別件数、サイズ別件数、発注数/入荷数/未入荷数の比較がおすすめです。";
+            return "- `{$fileName}` ({$rowCount}件): 品番別件数や仕入先別件数、発注数と入荷数の比較がおすすめです。";
         }
         if (preg_match('/健康診断一覧/u', $fileName)) {
-            return "- `{$fileName}` ({$rowCount}件): 年齢分布、身長・体重・血圧・血糖値の要約統計、性別や年代別の比較が有効です。";
+            return "- `{$fileName}` ({$rowCount}件): 年齢分布や主要指標の要約統計、年代別比較が有効です。";
         }
         if (preg_match('/出荷一覧表/u', $fileName)) {
-            return "- `{$fileName}` ({$rowCount}件): 商品別件数、顧客別件数、受注日ベースの時系列、本数と合計のランキング集計が向いています。";
+            return "- `{$fileName}` ({$rowCount}件): 商品別件数や受注日の時系列、本数や合計のランキング確認が向いています。";
         }
 
         $headerPreview = implode(' / ', array_slice($headers, 0, 5));
@@ -416,7 +582,168 @@ final class AdvancedFastPathResolver
             $headerPreview = '主要列';
         }
 
-        return "- `{$fileName}` ({$rowCount}件): まず主要列（{$headerPreview}）の値分布と欠損有無を確認するのがおすすめです。";
+        return "- `{$fileName}` ({$rowCount}件): 主要列（{$headerPreview}）の値分布と欠損有無から確認するのがおすすめです。";
+    }
+
+    private function buildProjectMemorySnapshot(array $projectMemoryDocs): array
+    {
+        $snapshot = [
+            'active_artifact' => '',
+            'target' => '',
+            'current_task' => '',
+            'next_action' => '',
+            'highlights' => [],
+        ];
+
+        $text = $this->flattenProjectMemoryText($projectMemoryDocs);
+        if ($text === '') {
+            return $snapshot;
+        }
+
+        $snapshot['active_artifact'] = $this->extractLabeledValue($text, ['現在の主成果品', '現在の主レーン', 'レーン']);
+        $snapshot['target'] = $this->extractLabeledValue($text, ['主対象']);
+        $snapshot['current_task'] = $this->extractLabeledValue($text, ['進行中タスク']);
+        $snapshot['next_action'] = $this->extractLabeledValue($text, ['次アクション', '次に実行するとよい具体アクション', '次に着手しやすいこと']);
+
+        if ($snapshot['current_task'] === '') {
+            $snapshot['current_task'] = $this->extractSectionBullet($text, '進行中');
+        }
+        if ($snapshot['next_action'] === '') {
+            $snapshot['next_action'] = $this->extractSectionBullet($text, '次に着手しやすいこと');
+        }
+
+        foreach ([
+            '現在の主成果品' => $snapshot['active_artifact'],
+            '主対象' => $snapshot['target'],
+            '進行中タスク' => $snapshot['current_task'],
+            '次アクション' => $snapshot['next_action'],
+        ] as $label => $value) {
+            $value = trim($value);
+            if ($value === '') {
+                continue;
+            }
+            $snapshot['highlights'][] = $label . ': ' . $value;
+        }
+
+        return $snapshot;
+    }
+
+    private function flattenProjectMemoryText(array $projectMemoryDocs): string
+    {
+        $parts = [];
+        foreach (['todo', 'agents', 'readme'] as $type) {
+            $autoContent = trim((string)($projectMemoryDocs[$type]['auto_content'] ?? ''));
+            $content = trim((string)($projectMemoryDocs[$type]['content'] ?? ''));
+            if ($autoContent !== '') {
+                $parts[] = $autoContent;
+            }
+            if ($content !== '') {
+                $parts[] = $content;
+            }
+        }
+
+        return implode("\n\n", $parts);
+    }
+
+    private function extractLabeledValue(string $text, array $labels): string
+    {
+        foreach ($labels as $label) {
+            $quoted = preg_quote($label, '/');
+            if (preg_match('/^[\-\*\d\.\s]*' . $quoted . '\s*[:：]\s*(.+)$/mu', $text, $matches) === 1) {
+                return $this->compactLine(trim((string)($matches[1] ?? '')), 120);
+            }
+        }
+
+        return '';
+    }
+
+    private function extractSectionBullet(string $text, string $heading): string
+    {
+        $quoted = preg_quote($heading, '/');
+        if (preg_match('/^##\s*' . $quoted . '\s*(?:\R|$)([\s\S]*?)(?=^##\s|\z)/mu', $text, $matches) !== 1) {
+            return '';
+        }
+
+        $section = trim((string)($matches[1] ?? ''));
+        if ($section === '') {
+            return '';
+        }
+
+        $lines = preg_split('/\R/u', $section) ?: [];
+        foreach ($lines as $line) {
+            $normalized = trim((string)preg_replace('/^[\-\*\d\.\s]+/u', '', $line));
+            if ($normalized !== '') {
+                return $this->compactLine($normalized, 120);
+            }
+        }
+
+        return '';
+    }
+
+    private function buildRecentAdviceContext(array $history): string
+    {
+        if (empty($history)) {
+            return '';
+        }
+
+        $userLines = [];
+        foreach ($history as $row) {
+            if ((string)($row['role'] ?? '') !== 'user') {
+                continue;
+            }
+            $message = trim((string)($row['message'] ?? ''));
+            if ($message === '') {
+                continue;
+            }
+            $userLines[] = $this->compactLine($message, 80);
+        }
+
+        if (empty($userLines)) {
+            return '';
+        }
+
+        return implode(' / ', array_slice($userLines, -2));
+    }
+
+    private function describeDocumentTitle(array $document, string $fallback): string
+    {
+        $title = trim((string)($document['title'] ?? ''));
+        if ($title !== '') {
+            return $this->compactLine($title, 60);
+        }
+
+        $filePath = trim((string)($document['file_path'] ?? ''));
+        if ($filePath !== '') {
+            return $this->compactLine(basename($filePath), 60);
+        }
+
+        return $fallback;
+    }
+
+    private function describeCsvTitle(array $csv): string
+    {
+        $fileName = trim((string)($csv['file_name'] ?? ''));
+        if ($fileName === '') {
+            return '対象CSV';
+        }
+
+        return $this->compactLine($fileName, 60);
+    }
+
+    private function extractMaterialDocSummary(array $document): string
+    {
+        $chunkText = trim((string)($document['chunk_text'] ?? ''));
+        if ($chunkText === '') {
+            return '';
+        }
+
+        $chunkText = preg_replace('/^#.+$/mu', '', $chunkText) ?? $chunkText;
+        $chunkText = trim((string)preg_replace('/\s+/u', ' ', $chunkText));
+        if ($chunkText === '') {
+            return '';
+        }
+
+        return $this->compactLine($chunkText, 40);
     }
 
     private function buildHistoryCollectionSnapshot(array $history): string
