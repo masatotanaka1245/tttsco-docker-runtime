@@ -166,6 +166,9 @@ class CsvAggregationPlanner
         $categoryFilterLabel = $targetFileName !== null ? $this->extractRequestedCategoryLabel($question, $targetFileName) : null;
 
         $dateGranularity = $this->detectDateGranularity($question, $hasTimeBandIntent);
+        $dateFilterMeta = $this->detectDateFilterMeta($question);
+        $temporalBucketMode = $this->detectTemporalBucketMode($question, $hasTimeBandIntent);
+        $dateAxisCandidates = $this->detectDateAxisCandidates($targetFileName !== '' ? $targetFileName : null, $targetColumn);
 
         $hasExplicitSortIntent = preg_match('/(若い順|古い順|昇順|降順|新しい順|新しいものから|古いものから)/u', $question) === 1;
         $sortOrder = 'asc';
@@ -323,6 +326,10 @@ class CsvAggregationPlanner
                 'is_aggregation_follow_up' => $isAggregationFollowUp,
                 'route_lock_active' => $routeLockActive,
                 'targets_all_csv' => $this->targetsAllCsv($question),
+                'date_filter_mode' => $dateFilterMeta['mode'],
+                'date_filter_value' => $dateFilterMeta['value'],
+                'temporal_bucket_mode' => $temporalBucketMode,
+                'date_axis_candidates' => $dateAxisCandidates,
             ]
         );
 
@@ -339,6 +346,10 @@ class CsvAggregationPlanner
             'used_recent_aggregation_mode' => $usedRecentAggregationMode,
             'recent_aggregation_mode' => $recentAggregationMode,
             'date_granularity' => $dateGranularity,
+            'date_filter_mode' => $dateFilterMeta['mode'],
+            'date_filter_value' => $dateFilterMeta['value'],
+            'date_axis_candidates' => $dateAxisCandidates,
+            'temporal_bucket_mode' => $temporalBucketMode,
             'sort_order' => $sortOrder,
             'uses_value_ordering' => $usesValueOrdering,
             'wants_chart' => $wantsChart,
@@ -367,7 +378,9 @@ class CsvAggregationPlanner
         $hasBroadAggregateQuestion = $hasAggregateIntent
             || !empty($context['has_date_intent'])
             || !empty($context['has_time_band_intent'])
-            || $hasChartIntent;
+            || $hasChartIntent
+            || $dateFilterMode !== ''
+            || ($temporalBucketMode !== '' && $temporalBucketMode !== 'none');
         $hasBroadAggregateQuestion = $hasBroadAggregateQuestion || $hasExploratoryAnalysisIntent;
 
         if (!$hasBroadAggregateQuestion) {
@@ -386,6 +399,9 @@ class CsvAggregationPlanner
         $contextSource = trim((string)($context['context_source'] ?? ''));
         $isAggregationFollowUp = !empty($context['is_aggregation_follow_up']);
         $targetsAllCsv = !empty($context['targets_all_csv']);
+        $dateFilterMode = trim((string)($context['date_filter_mode'] ?? ''));
+        $temporalBucketMode = trim((string)($context['temporal_bucket_mode'] ?? ''));
+        $dateAxisCandidates = array_values(array_filter(array_map('strval', (array)($context['date_axis_candidates'] ?? []))));
         $availableCsvCount = $this->countAvailableCsvFiles();
         $questionHasExplicitColumnMarker = preg_match('/([「『"].+[」』"]\s*(?:カラム|列|項目)|(?:カラム|列|項目))/u', $question) === 1;
         $usesWeakImplicitColumnTarget = $explicitTargetFileName === ''
@@ -410,11 +426,60 @@ class CsvAggregationPlanner
             $clarificationReason = 'missing_target_file';
         }
 
+        if ($dateFilterMode === 'month_only') {
+            $missingDimensions[] = 'period';
+            $clarificationReason = 'ambiguous_period_without_year';
+        } elseif (in_array($dateFilterMode, ['relative_month', 'relative_year'], true)) {
+            $missingDimensions[] = 'period';
+            $clarificationReason = 'relative_period_requires_reference_date';
+        } elseif (
+            $dateFilterMode === 'explicit_year_month'
+            && $explicitColumnReference === ''
+            && empty($context['explicit_column_target'])
+            && $targetColumn === ''
+        ) {
+            $missingDimensions[] = 'target_column';
+            $missingDimensions[] = 'period_filter';
+            $clarificationReason = 'explicit_period_filter_not_supported';
+        }
+
+        if ($temporalBucketMode === 'weekday') {
+            $missingDimensions[] = 'temporal_bucket';
+            $clarificationReason = 'unsupported_temporal_bucket_weekday';
+        } elseif ($temporalBucketMode === 'am_pm') {
+            $missingDimensions[] = 'temporal_bucket';
+            $clarificationReason = 'unsupported_temporal_bucket_am_pm';
+        } elseif ($temporalBucketMode === 'time_band') {
+            $missingDimensions[] = 'temporal_bucket';
+            $clarificationReason = 'unsupported_temporal_bucket_time_band';
+        }
+
         if (!empty($context['has_date_intent']) || !empty($context['has_time_band_intent'])) {
-            if ($targetColumn === '') {
-                $missingDimensions[] = 'target_column';
+            if ($targetColumn !== '' && !$this->isDateLikeColumnName($targetColumn)) {
                 $missingDimensions[] = 'date_axis';
-                $clarificationReason = $clarificationReason !== '' ? $clarificationReason : 'missing_target_column';
+                if ($clarificationReason === '') {
+                    $clarificationReason = 'invalid_date_axis';
+                }
+            } elseif ($targetColumn === '') {
+                if (count($dateAxisCandidates) > 1 && ($targetFileName !== '' || $availableCsvCount <= 1 || $targetsAllCsv)) {
+                    $missingDimensions[] = 'target_column';
+                    $missingDimensions[] = 'date_axis';
+                    if ($clarificationReason === '') {
+                        $clarificationReason = 'ambiguous_date_axis';
+                    }
+                } elseif (count($dateAxisCandidates) === 0 && ($targetFileName !== '' || $availableCsvCount <= 1 || $targetsAllCsv)) {
+                    $missingDimensions[] = 'target_column';
+                    $missingDimensions[] = 'date_axis';
+                    if ($clarificationReason === '') {
+                        $clarificationReason = 'missing_date_axis';
+                    }
+                } else {
+                    $missingDimensions[] = 'target_column';
+                    $missingDimensions[] = 'date_axis';
+                    if ($clarificationReason === '') {
+                        $clarificationReason = 'missing_target_column';
+                    }
+                }
             }
         } elseif ($hasCategoryGroupingIntent || $hasChartIntent || $hasAggregateIntent) {
             if ($targetColumn === '') {
@@ -819,12 +884,12 @@ class CsvAggregationPlanner
 
     private function hasDateIntent(string $question): bool
     {
-        return preg_match('/(日付|日時|年月日|年月|月別|月ごと|年別|年ごと|date|timestamp|時刻|日時は不要|月単位)/iu', $question) === 1;
+        return preg_match('/(日付|日時|年月日|年月|月別|月ごと|日別|年別|年ごと|date|timestamp|時刻|日時は不要|月単位|\d{1,2}月分|先月|今月|今年)/iu', $question) === 1;
     }
 
     private function hasTimeBandIntent(string $question): bool
     {
-        return preg_match('/(時間帯|時刻帯|時間ごと|時ごと|hour|何時台|時台|ピーク時間|多い時間帯)/iu', $question) === 1;
+        return preg_match('/(時間帯|時間帯別|時刻帯|時刻帯別|時間ごと|時ごと|hour|何時台|時台|ピーク時間|多い時間帯|午前|午後|曜日別)/iu', $question) === 1;
     }
 
     private function detectDateGranularity(string $question, bool $hasTimeBandIntent): string
@@ -844,6 +909,94 @@ class CsvAggregationPlanner
         return 'day';
     }
 
+    private function detectDateFilterMeta(string $question): array
+    {
+        if (preg_match('/(\d{1,2})月分/u', $question, $matches) === 1) {
+            return [
+                'mode' => 'month_only',
+                'value' => sprintf('%02d', (int)($matches[1] ?? 0)),
+            ];
+        }
+
+        if (preg_match('/\b(\d{4})[\-\/](\d{1,2})\b/u', $question, $matches) === 1) {
+            return [
+                'mode' => 'explicit_year_month',
+                'value' => sprintf('%04d-%02d', (int)($matches[1] ?? 0), (int)($matches[2] ?? 0)),
+            ];
+        }
+
+        if (preg_match('/(\d{4})年(\d{1,2})月/u', $question, $matches) === 1) {
+            return [
+                'mode' => 'explicit_year_month',
+                'value' => sprintf('%04d-%02d', (int)($matches[1] ?? 0), (int)($matches[2] ?? 0)),
+            ];
+        }
+
+        if (preg_match('/先月/u', $question) === 1 || preg_match('/今月/u', $question) === 1) {
+            return [
+                'mode' => 'relative_month',
+                'value' => preg_match('/先月/u', $question) === 1 ? '先月' : '今月',
+            ];
+        }
+
+        if (preg_match('/今年/u', $question) === 1) {
+            return [
+                'mode' => 'relative_year',
+                'value' => '今年',
+            ];
+        }
+
+        return [
+            'mode' => '',
+            'value' => '',
+        ];
+    }
+
+    private function detectTemporalBucketMode(string $question, bool $hasTimeBandIntent): string
+    {
+        if (preg_match('/曜日別/u', $question) === 1) {
+            return 'weekday';
+        }
+
+        if (preg_match('/(午前|午後)/u', $question) === 1) {
+            return 'am_pm';
+        }
+
+        if (preg_match('/(時間帯別|時刻帯別|時間帯ごと|時刻帯ごと)/u', $question) === 1) {
+            return 'time_band';
+        }
+
+        if ($hasTimeBandIntent) {
+            return 'hour';
+        }
+
+        return 'none';
+    }
+
+    private function detectDateAxisCandidates(?string $targetFileName, ?string $targetColumn): array
+    {
+        if ($targetColumn !== null && $targetColumn !== '' && $this->isDateLikeColumnName($targetColumn)) {
+            return [$targetColumn];
+        }
+
+        $candidates = [];
+        foreach ($this->loadMetadata() as $file) {
+            if ($targetFileName !== null && $targetFileName !== '' && (string)($file['file_name'] ?? '') !== $targetFileName) {
+                continue;
+            }
+
+            foreach ((array)($file['columns'] ?? []) as $column) {
+                $column = trim((string)$column);
+                if ($column === '' || !$this->isDateLikeColumnName($column)) {
+                    continue;
+                }
+                $candidates[$column] = true;
+            }
+        }
+
+        return array_keys($candidates);
+    }
+
     private function isRecentContextCarryOverIntent(string $question): bool
     {
         if ($this->isAggregationFollowUpIntent($question)) {
@@ -859,7 +1012,7 @@ class CsvAggregationPlanner
 
     private function isDateLikeColumnName(string $column): bool
     {
-        return preg_match('/(日付|日時|年月日|年月|date|datetime|timestamp|access_date|time|時刻)/iu', $column) === 1;
+        return preg_match('/(登録日|更新日|作成日|公開日|受付日|発生日|日付|日時|年月日|年月|date|datetime|timestamp|access_date|created_at|updated_at|time|時刻)/iu', $column) === 1;
     }
 
     private function detectRequestedChartType(string $question): ?string
