@@ -53,8 +53,9 @@ class ChatRouteFactorizer
         $hasHistoryReportRequest = preg_match('/((会話|やりとり|チャット|履歴).*(報告書|レポート|PDF))|((報告書|レポート|PDF).*(会話|やりとり|チャット|履歴))|((会話|やりとり|チャット|履歴).*(報告書|レポート|PDF).*(作成|作って|出力|生成|にして|化して))|((報告書|レポート|PDF).*(作成|作って|出力|生成|にして|化して).*(会話|やりとり|チャット|履歴))/u', $message) === 1;
         $hasDocReference = preg_match('/(PDF|pdf|資料|図面|仕様書|文書|設計書|報告書)/u', $message) === 1;
         $hasDocActionIntent = preg_match('/(留意点|注意点|確認すべき|確認事項|法規|基準|安全面|設計上|施工前|不明点|見落とし|箇条書きで抽出|箇条書きで|抽出してください)/u', $message) === 1;
-        $hasRecommendationIntent = preg_match('/(おすすめ|オススメ|提案|良い案|よい案|案はありますか|どう書|どう表現|言い換え|追加したい|追加する項目|分析方法|集計方法|どう分析|どう集計|どのように.*分析|分析したら.*よい|どう進め|見るべき|観点|切り口|方針)/u', $message) === 1;
+        $hasRecommendationIntent = preg_match('/(おすすめ|オススメ|提案|良い案|よい案|案はありますか|どう書|どう表現|言い換え|追加したい|追加する項目|分析方法|集計方法|どう分析|どう集計|どのように.*分析|分析したら.*よい|どう進め|まずどこから見れば|どこから見れば|どこから手を付け|何から見れば|最初に見るべき|優先して見るべき|見る順番|確認する順番|着手順|分析の入口|分析の進め方|見るべき|観点|切り口|方針)/u', $message) === 1;
         $hasProjectSummaryIntent = preg_match('/(案件|プロジェクト).*(内容|概要|全体像|まとめ|要約|詳細)|((内容|概要|全体像|まとめ|要約|詳細).*(案件|プロジェクト))/u', $message) === 1;
+        $hasProjectAdviceAnchor = preg_match('/(この案件|このプロジェクト|案件で|プロジェクトで)/u', $message) === 1;
         $hasMaterialReference = preg_match('/(資料メモ|markdown|Markdown|mdファイル|MDファイル|(?:^|[^A-Za-z])md(?:$|[^A-Za-z]))/u', $message) === 1;
         $hasMaterialActionIntent = preg_match('/(開いて|開く|追加|追記|追記ポイント|作成|作って|作っていく|育て|更新|修正|整理|まとめ|章立て|見出し|ドラフト|たたき台|下書き|構成)/u', $message) === 1;
         $hasMaterialWorkflowIntent = $hasMaterialReference && $hasMaterialActionIntent;
@@ -165,7 +166,7 @@ class ChatRouteFactorizer
             $operation = 'status_alignment';
             $route = 'normal_rag.project_memory_consultation';
             $setRouteMeta('high', ['project_status_question'], ['task_status_keyword']);
-        } elseif ($hasRecommendationIntent && ($hasCsvContext || $hasDocReference || $this->hasRecentProjectAssetContext($recentHistory))) {
+        } elseif ($hasRecommendationIntent && ($hasCsvContext || $hasDocReference || $hasProjectAdviceAnchor || $this->hasRecentProjectAssetContext($recentHistory))) {
             $intent = 'analyze';
             $target = 'project_assets';
             $scope = 'project_wide';
@@ -175,6 +176,7 @@ class ChatRouteFactorizer
                 'recommendation_keyword',
                 $hasCsvContext ? 'csv_context_keyword' : null,
                 $hasDocReference ? 'document_context_keyword' : null,
+                $hasProjectAdviceAnchor ? 'project_advice_anchor' : null,
                 $this->hasRecentProjectAssetContext($recentHistory) ? 'recent_project_asset_context' : null,
             ])));
         } elseif ($hasCsvOperationIntent && $hasCsvContext) {
