@@ -162,6 +162,10 @@ class CsvAggregationTargetResolver
     {
         $csvFileId = (int)$target['csv_file_id'];
         $sql = $this->queryBuilder->buildDateAggregationSql($csvFileId, $dateColumn);
+        $dateFilterMode = trim((string)($plan['date_filter_mode'] ?? ''));
+        $dateFilterValue = trim((string)($plan['date_filter_value'] ?? ''));
+        $usesExplicitYearMonthFilter = $dateFilterMode === 'explicit_year_month'
+            && preg_match('/^\d{4}-\d{2}$/', $dateFilterValue) === 1;
 
         $this->log("[CSV-AGG-SQL] file={$target['file_name']} | column={$dateColumn} | sql={$sql}");
 
@@ -170,7 +174,12 @@ class CsvAggregationTargetResolver
 
         $normalized = [];
         foreach ($rows as $row) {
-            $bucket = $this->dateColumnDetector->normalizeDateBucket((string)($row['raw_date'] ?? ''), $plan['date_granularity']);
+            $rawDate = (string)($row['raw_date'] ?? '');
+            if ($usesExplicitYearMonthFilter && !$this->matchesExplicitYearMonthFilter($rawDate, $dateFilterValue)) {
+                continue;
+            }
+
+            $bucket = $this->dateColumnDetector->normalizeDateBucket($rawDate, $plan['date_granularity']);
             if ($bucket === null) {
                 continue;
             }
@@ -192,6 +201,11 @@ class CsvAggregationTargetResolver
             'raw_group_count' => count($rows),
             'rows' => array_values($normalized),
         ];
+    }
+
+    private function matchesExplicitYearMonthFilter(string $rawDate, string $dateFilterValue): bool
+    {
+        return $this->dateColumnDetector->normalizeDateBucket($rawDate, 'month') === $dateFilterValue;
     }
 
     public function executeDistinctCountQuery(array $target, string $targetColumn): array

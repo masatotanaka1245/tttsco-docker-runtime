@@ -64,6 +64,9 @@ class CsvDateColumnDetector
         if (preg_match('/^\d{4}年\d{1,2}月\d{1,2}日/u', $value)) {
             return true;
         }
+        if ($this->isMonthOnlyValue($value)) {
+            return true;
+        }
         if ($this->isCompactDateValue($value)) {
             return true;
         }
@@ -80,10 +83,12 @@ class CsvDateColumnDetector
         $value = preg_replace('/\s+/u', ' ', $value);
         $value = str_replace(['年', '月', '日', '.'], ['-', '-', '', '-'], $value);
         $value = str_replace('/', '-', $value);
+        $value = rtrim($value, '-');
 
         $formats = [
             'Y-m-d H:i:s', 'Y-m-d H:i', 'Y-m-d',
             'Y-n-j H:i:s', 'Y-n-j H:i', 'Y-n-j',
+            '!Y-m', '!Y-n',
             'Ymd', 'Ymd His',
         ];
 
@@ -141,6 +146,10 @@ class CsvDateColumnDetector
             return 2;
         }
 
+        if ($this->isMonthOnlyValue($normalized)) {
+            return 2;
+        }
+
         if ($this->isDateLikeColumnName($column) && $this->isCompactDateValue($normalized)) {
             return 2;
         }
@@ -159,6 +168,11 @@ class CsvDateColumnDetector
         $day = (int)substr($value, 6, 2);
 
         return $year >= 1900 && $year <= 2100 && checkdate($month, $day, $year);
+    }
+
+    private function isMonthOnlyValue(string $value): bool
+    {
+        return preg_match('/^\d{4}(?:[\/\-]\d{1,2}|年\d{1,2}月)$/u', $value) === 1;
     }
 
     private function normalizeUtf8(string $text): string
