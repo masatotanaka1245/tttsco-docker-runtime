@@ -154,19 +154,48 @@ class CsvAggregationPlanner
                 $contextSource = $this->isAggregationFollowUpIntent($question) ? 'recent_history_followup' : 'recent_history';
             }
         }
-        if ($targetColumn === null && ($hasDateIntent || $hasTimeBandIntent)) {
-            $inferredDateTarget = $this->findSingleDateLikeColumnTarget($question);
+        $dateGranularity = $this->detectDateGranularity($question, $hasTimeBandIntent);
+        $dateFilterMeta = $this->detectDateFilterMeta($question);
+        $questionHasExplicitColumnMarker = preg_match('/([「『"].+[」』"]\s*(?:カラム|列|項目)|(?:カラム|列|項目))/u', $question) === 1;
+        $preferExplicitYearMonthDateAxis = $dateFilterMeta['mode'] === 'explicit_year_month'
+            && !$hasTimeBandIntent
+            && !$questionHasExplicitColumnMarker;
+
+        if (
+            $preferExplicitYearMonthDateAxis
+            && $targetColumn !== null
+            && !$this->isDateLikeColumnName($targetColumn)
+            && $explicitColumnReference === null
+            && in_array($contextSource, ['explicit_column_target', 'explicit_column_name'], true)
+        ) {
+            if ($contextSource === 'explicit_column_target' && $explicitTargetFileName === null) {
+                $targetFileName = null;
+            }
+            $targetColumn = null;
+            $explicitColumnTarget = null;
+            $contextSource = 'none';
+        }
+
+        if ($targetColumn === null && ($hasDateIntent || $hasTimeBandIntent || $preferExplicitYearMonthDateAxis)) {
+            $inferredDateTarget = $this->findSingleDateLikeColumnTarget($targetFileName);
             if ($inferredDateTarget !== null) {
                 $targetFileName = (string)$inferredDateTarget['file_name'];
                 $targetColumn = (string)$inferredDateTarget['column_name'];
                 $contextSource = 'inferred_date_column';
             }
         }
+
+        if (
+            $preferExplicitYearMonthDateAxis
+            && $dateGranularity === 'day'
+            && preg_match('/(日別|日ごと|日単位)/u', $question) !== 1
+        ) {
+            $dateGranularity = 'month';
+        }
+
         $sourceColumn = $targetFileName !== null ? $this->findSemanticSourceColumn($targetFileName, [$targetColumn]) : null;
         $categoryFilterLabel = $targetFileName !== null ? $this->extractRequestedCategoryLabel($question, $targetFileName) : null;
 
-        $dateGranularity = $this->detectDateGranularity($question, $hasTimeBandIntent);
-        $dateFilterMeta = $this->detectDateFilterMeta($question);
         $temporalBucketMode = $this->detectTemporalBucketMode($question, $hasTimeBandIntent);
         $dateAxisCandidates = $this->detectDateAxisCandidates($targetFileName !== '' ? $targetFileName : null, $targetColumn);
 
@@ -193,6 +222,9 @@ class CsvAggregationPlanner
             && $targetValue !== null
             && preg_match('/(件数|何件|件ありますか|件ある|集計)/u', $question) === 1;
         $isDateLikeColumn = $targetColumn !== null && $this->isDateLikeColumnName($targetColumn);
+        if ($preferExplicitYearMonthDateAxis && $isDateLikeColumn) {
+            $wantsExactCount = false;
+        }
         $isAggregationFollowUp = $this->isAggregationFollowUpIntent($question);
         $recentAggregationMode = (string)($recentAggregationContext['aggregation_mode'] ?? '');
         $recentDateGranularity = (string)($recentAggregationContext['date_granularity'] ?? '');
@@ -289,7 +321,15 @@ class CsvAggregationPlanner
                 : 'none';
             $aggregateType = $recentAggregationMode === 'date_histogram' ? 'count' : $recentAggregationMode;
             $usedRecentAggregationMode = true;
-        } elseif ($targetColumn !== null && $isDateLikeColumn && ($hasDateIntent || preg_match('/(若い順|古い順|昇順|降順)/u', $question) === 1)) {
+        } elseif (
+            $targetColumn !== null
+            && $isDateLikeColumn
+            && (
+                $hasDateIntent
+                || $dateFilterMeta['mode'] === 'explicit_year_month'
+                || preg_match('/(若い順|古い順|昇順|降順)/u', $question) === 1
+            )
+        ) {
             $aggregationMode = 'date_histogram';
             $aggregateType = 'count';
         } elseif ($targetColumn !== null && $hasValueDistributionIntent) {
@@ -765,18 +805,26 @@ class CsvAggregationPlanner
         return null;
     }
 
-    private function findSingleDateLikeColumnTarget(string $question): ?array
+    private function findSingleDateLikeColumnTarget(?string $targetFileName = null): ?array
     {
+        if (($targetFileName === null || $targetFileName === '') && $this->countAvailableCsvFiles() !== 1) {
+            return null;
+        }
+
         $matches = [];
         foreach ($this->loadMetadata() as $file) {
+            $fileName = (string)($file['file_name'] ?? '');
+            if ($targetFileName !== null && $targetFileName !== '' && $fileName !== $targetFileName) {
+                continue;
+            }
             foreach ((array)($file['columns'] ?? []) as $column) {
                 $column = (string)$column;
                 if ($column === '' || !$this->isDateLikeColumnName($column)) {
                     continue;
                 }
-                $key = (string)($file['file_name'] ?? '') . '|' . $column;
+                $key = $fileName . '|' . $column;
                 $matches[$key] = [
-                    'file_name' => (string)($file['file_name'] ?? ''),
+                    'file_name' => $fileName,
                     'column_name' => $column,
                 ];
             }
@@ -911,10 +959,17 @@ class CsvAggregationPlanner
 
     private function detectDateFilterMeta(string $question): array
     {
-        if (preg_match('/(\d{1,2})月分/u', $question, $matches) === 1) {
+        if (preg_match('/\b(\d{4})[\-\/](\d{1,2})分\b/u', $question, $matches) === 1) {
             return [
-                'mode' => 'month_only',
-                'value' => sprintf('%02d', (int)($matches[1] ?? 0)),
+                'mode' => 'explicit_year_month',
+                'value' => sprintf('%04d-%02d', (int)($matches[1] ?? 0), (int)($matches[2] ?? 0)),
+            ];
+        }
+
+        if (preg_match('/(\d{4})年(\d{1,2})月分/u', $question, $matches) === 1) {
+            return [
+                'mode' => 'explicit_year_month',
+                'value' => sprintf('%04d-%02d', (int)($matches[1] ?? 0), (int)($matches[2] ?? 0)),
             ];
         }
 
@@ -929,6 +984,13 @@ class CsvAggregationPlanner
             return [
                 'mode' => 'explicit_year_month',
                 'value' => sprintf('%04d-%02d', (int)($matches[1] ?? 0), (int)($matches[2] ?? 0)),
+            ];
+        }
+
+        if (preg_match('/(\d{1,2})月分/u', $question, $matches) === 1) {
+            return [
+                'mode' => 'month_only',
+                'value' => sprintf('%02d', (int)($matches[1] ?? 0)),
             ];
         }
 
