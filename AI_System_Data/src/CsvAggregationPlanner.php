@@ -236,6 +236,7 @@ class CsvAggregationPlanner
         $explicitChartIntent = preg_match('/(グラフ|グラフ化|チャート|可視化|棒グラフ|折れ線|円グラフ)/u', $question) === 1;
         $explicitTableIntent = preg_match('/(表にして|表で|表形式|一覧にして|一覧で|テーブルで|グラフではなく表)/u', $question) === 1;
         $explicitOutputIntent = $explicitChartIntent || $explicitTableIntent;
+        $countOnlyRequest = $this->detectCountOnlyRequest($question, $dateFilterMeta);
         $wantsChart = $explicitChartIntent;
         if (
             !$explicitOutputIntent
@@ -397,6 +398,7 @@ class CsvAggregationPlanner
             'wants_table' => $wantsTable,
             'output_format' => $outputFormat,
             'used_recent_output_format' => $usedRecentOutputFormat,
+            'count_only_request' => $countOnlyRequest,
             'wants_all_values' => preg_match('/(全ての値|すべての値|各値|値ごとの件数|各レコード数|それぞれの件数|全件|全部|すべて表示|続きを表示|すべてのランキング|ランキングを表示)/u', $question) === 1,
             'wants_detail' => preg_match('/(どのような情報|内容|項目|レコードを特定)/u', $question) === 1,
             'base_sql' => $recentAggregationContext['base_sql'] ?? null,
@@ -411,6 +413,8 @@ class CsvAggregationPlanner
 
     private function buildClarificationMeta(string $question, array $context): array
     {
+        $dateFilterMode = trim((string)($context['date_filter_mode'] ?? ''));
+        $temporalBucketMode = trim((string)($context['temporal_bucket_mode'] ?? ''));
         $hasAggregateIntent = preg_match('/(集計|件数|合計|平均|表に|一覧|推移|時系列|別に|グループ|何種類|ユニーク|distinct|重複なし|分布|分類|カテゴリ|抽出して件数|抽出して、件数|若い順|古い順|昇順|降順|グラフ|グラフ化|チャート|ピーク時間|多い時間帯|ランキング|多い順|少ない順|上位|TOP|トップ|全件|すべて表示|続きを表示)/iu', $question) === 1;
         $hasCategoryGroupingIntent = preg_match('/(カテゴリ別|カテゴリー別|分類別|項目別|列ごと|内訳|分布|ランキング|多い順|少ない順|上位|TOP|トップ)/u', $question) === 1;
         $hasChartIntent = preg_match('/(グラフ|グラフ化|チャート|棒グラフ|折れ線|円グラフ|可視化)/u', $question) === 1;
@@ -439,8 +443,6 @@ class CsvAggregationPlanner
         $contextSource = trim((string)($context['context_source'] ?? ''));
         $isAggregationFollowUp = !empty($context['is_aggregation_follow_up']);
         $targetsAllCsv = !empty($context['targets_all_csv']);
-        $dateFilterMode = trim((string)($context['date_filter_mode'] ?? ''));
-        $temporalBucketMode = trim((string)($context['temporal_bucket_mode'] ?? ''));
         $dateAxisCandidates = array_values(array_filter(array_map('strval', (array)($context['date_axis_candidates'] ?? []))));
         $availableCsvCount = $this->countAvailableCsvFiles();
         $questionHasExplicitColumnMarker = preg_match('/([「『"].+[」』"]\s*(?:カラム|列|項目)|(?:カラム|列|項目))/u', $question) === 1;
@@ -499,6 +501,20 @@ class CsvAggregationPlanner
                 $missingDimensions[] = 'date_axis';
                 if ($clarificationReason === '') {
                     $clarificationReason = 'invalid_date_axis';
+                }
+            } elseif ($targetColumn !== '') {
+                if (count($dateAxisCandidates) > 1 && ($targetFileName !== '' || $availableCsvCount <= 1 || $targetsAllCsv)) {
+                    $missingDimensions[] = 'target_column';
+                    $missingDimensions[] = 'date_axis';
+                    if ($clarificationReason === '') {
+                        $clarificationReason = 'ambiguous_date_axis';
+                    }
+                } elseif (count($dateAxisCandidates) === 0 && ($targetFileName !== '' || $availableCsvCount <= 1 || $targetsAllCsv)) {
+                    $missingDimensions[] = 'target_column';
+                    $missingDimensions[] = 'date_axis';
+                    if ($clarificationReason === '') {
+                        $clarificationReason = 'missing_date_axis';
+                    }
                 }
             } elseif ($targetColumn === '') {
                 if (count($dateAxisCandidates) > 1 && ($targetFileName !== '' || $availableCsvCount <= 1 || $targetsAllCsv)) {
@@ -959,7 +975,7 @@ class CsvAggregationPlanner
 
     private function detectDateFilterMeta(string $question): array
     {
-        if (preg_match('/\b(\d{4})[\-\/](\d{1,2})分\b/u', $question, $matches) === 1) {
+        if (preg_match('/(?:^|[^0-9])(\d{4})[\-\/](\d{1,2})分(?=$|[^0-9])/u', $question, $matches) === 1) {
             return [
                 'mode' => 'explicit_year_month',
                 'value' => sprintf('%04d-%02d', (int)($matches[1] ?? 0), (int)($matches[2] ?? 0)),
@@ -973,7 +989,7 @@ class CsvAggregationPlanner
             ];
         }
 
-        if (preg_match('/\b(\d{4})[\-\/](\d{1,2})\b/u', $question, $matches) === 1) {
+        if (preg_match('/(?:^|[^0-9])(\d{4})[\-\/](\d{1,2})(?=$|[^0-9])/u', $question, $matches) === 1) {
             return [
                 'mode' => 'explicit_year_month',
                 'value' => sprintf('%04d-%02d', (int)($matches[1] ?? 0), (int)($matches[2] ?? 0)),
@@ -1014,6 +1030,22 @@ class CsvAggregationPlanner
         ];
     }
 
+    private function detectCountOnlyRequest(string $question, array $dateFilterMeta): bool
+    {
+        if ((string)($dateFilterMeta['mode'] ?? '') !== 'explicit_year_month') {
+            return false;
+        }
+
+        $hasCountIntent = preg_match('/(件数を(?:出して|教えて)|何件(?:ですか)?|件数)/u', $question) === 1;
+        if (!$hasCountIntent) {
+            return false;
+        }
+
+        $hasHistogramIntent = preg_match('/(月別に集計|月別に見て|月ごと|日別に集計|日別に見て|日ごと|日別件数|推移|グラフ|グラフ化|チャート|可視化)/u', $question) === 1;
+
+        return !$hasHistogramIntent;
+    }
+
     private function detectTemporalBucketMode(string $question, bool $hasTimeBandIntent): string
     {
         if (preg_match('/曜日別/u', $question) === 1) {
@@ -1037,7 +1069,12 @@ class CsvAggregationPlanner
 
     private function detectDateAxisCandidates(?string $targetFileName, ?string $targetColumn): array
     {
-        if ($targetColumn !== null && $targetColumn !== '' && $this->isDateLikeColumnName($targetColumn)) {
+        if (
+            $targetColumn !== null
+            && $targetColumn !== ''
+            && $this->isDateLikeColumnName($targetColumn)
+            && $this->dateLikeColumnExistsInScope($targetFileName, $targetColumn)
+        ) {
             return [$targetColumn];
         }
 
@@ -1057,6 +1094,22 @@ class CsvAggregationPlanner
         }
 
         return array_keys($candidates);
+    }
+
+    private function dateLikeColumnExistsInScope(?string $targetFileName, string $targetColumn): bool
+    {
+        foreach ($this->loadMetadata() as $file) {
+            if ($targetFileName !== null && $targetFileName !== '' && (string)($file['file_name'] ?? '') !== $targetFileName) {
+                continue;
+            }
+
+            $columns = array_map('strval', (array)($file['columns'] ?? []));
+            if (in_array($targetColumn, $columns, true)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function isRecentContextCarryOverIntent(string $question): bool

@@ -505,6 +505,10 @@ class CsvAggregationAnswerFormatter
 
     public function buildStructuredAggregationAnswer(array $plan, array $aggregatedRows, array $targets, bool $diagramMode = false): string
     {
+        if ($this->shouldBuildExplicitPeriodCountOnlyAnswer($plan, $aggregatedRows)) {
+            return $this->buildExplicitPeriodCountOnlyAnswer($plan, $aggregatedRows);
+        }
+
         $targetFileCount = count(array_unique(array_map(fn($row) => $row['file_name'], $aggregatedRows)));
         $dateColumnCount = count(array_unique(array_map(fn($row) => $row['file_name'] . '|' . $row['date_column'], $aggregatedRows)));
         $totalCount = array_sum(array_map(fn($row) => (int)$row['record_count'], $aggregatedRows));
@@ -558,6 +562,50 @@ class CsvAggregationAnswerFormatter
                 $lines[] = $chartBlock;
             }
         }
+
+        return implode("\n", $lines);
+    }
+
+    private function shouldBuildExplicitPeriodCountOnlyAnswer(array $plan, array $aggregatedRows): bool
+    {
+        if (($plan['aggregation_mode'] ?? '') !== 'date_histogram') {
+            return false;
+        }
+
+        if (($plan['date_filter_mode'] ?? '') !== 'explicit_year_month') {
+            return false;
+        }
+
+        if (empty($plan['count_only_request'])) {
+            return false;
+        }
+
+        if (count($aggregatedRows) !== 1) {
+            return false;
+        }
+
+        $row = $aggregatedRows[0] ?? null;
+        if (!is_array($row)) {
+            return false;
+        }
+
+        return preg_match('/^\d{4}-\d{2}$/', (string)($row['date'] ?? '')) === 1;
+    }
+
+    private function buildExplicitPeriodCountOnlyAnswer(array $plan, array $aggregatedRows): string
+    {
+        $row = $aggregatedRows[0];
+        $period = (string)($row['date'] ?? ($plan['date_filter_value'] ?? ''));
+        $count = (int)($row['record_count'] ?? 0);
+        $fileName = (string)($row['file_name'] ?? ($plan['target_file_name'] ?? '対象CSV'));
+        $dateColumn = (string)($row['date_column'] ?? ($plan['target_column'] ?? '日付列'));
+
+        $lines = [];
+        $lines[] = "{$period} の該当件数は {$count} 件です。";
+        $lines[] = "";
+        $lines[] = "- 対象CSV: {$fileName}";
+        $lines[] = "- 対象列: {$dateColumn}";
+        $lines[] = "- 対象期間: {$period}";
 
         return implode("\n", $lines);
     }
