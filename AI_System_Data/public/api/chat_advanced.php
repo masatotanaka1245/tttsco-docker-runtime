@@ -656,6 +656,13 @@ class AdvancedReasoningRouteProcessor {
             sendSSE('status', ['step' => 3, 'message' => '🧠 【シーケンス2/3】資料手順計画（Planner） of 策定及び動的マスキング巡回を開始...']);
             $plan = $this->generateExecutionPlan();
         }
+        if ($this->tryPlannerFallbackFastPath($plan)) {
+            $this->logAdvancedTiming('シーケンス2 planner fallback 再委譲完了', $phaseStart, [
+                'planSteps' => count($plan),
+            ]);
+            chatLogger("[ADV-TIMING] planner fallback fast path 完了 | totalElapsed: " . $this->elapsedSeconds($pipelineStart));
+            return;
+        }
         $stepResults = $this->executePlanSteps($plan);
         $this->logAdvancedTiming('シーケンス2 資料RAG巡回完了', $phaseStart, [
             'planSteps' => count($plan),
@@ -772,6 +779,50 @@ class AdvancedReasoningRouteProcessor {
         }
         $this->completeAdvancedRoute();
         return true;
+    }
+
+    private function tryPlannerFallbackFastPath(array $plan): bool {
+        $firstStep = is_array($plan[0] ?? null) ? $plan[0] : [];
+        $fallbackFamily = trim((string)($firstStep['fallback_family'] ?? ''));
+        if ($fallbackFamily !== 'csv_metadata_advisory') {
+            return false;
+        }
+
+        chatLogger("[PLANNER-FALLBACK] family=csv_metadata_advisory | action=fastpath_redelegate");
+        $gateResult = $this->buildFastPathResolver()->resolveSqlAdmissionGate();
+        if ($gateResult !== null) {
+            $gateReason = (string)($gateResult['sql_gate_reason'] ?? 'planner_csv_metadata_fallback');
+            $fastPathType = (string)($gateResult['fast_path_type'] ?? 'csv_metadata_advisory');
+            chatLogger("[ADV-SQL-GATE] blocked=planner_csv_metadata_fallback | route=advanced_hybrid | reason={$gateReason} | fast_path={$fastPathType}");
+            $this->finalResponse = (string)($gateResult['final_response'] ?? '');
+            foreach ((array)($gateResult['reasoning_steps'] ?? []) as $index => $step) {
+                $this->buildReasoningStepRecorder()->recordFastPathStep(
+                    $index + 1,
+                    (string)($step['sub_query'] ?? ''),
+                    (string)($step['sub_answer'] ?? '')
+                );
+            }
+            $this->completeAdvancedRoute();
+            return true;
+        }
+
+        chatLogger("[PLANNER-FALLBACK] family=csv_metadata_advisory | action=clarification_short_circuit");
+        $this->finalResponse = $this->buildPlannerCsvMetadataClarificationResponse();
+        $this->buildReasoningStepRecorder()->recordFastPathStep(
+            1,
+            'planner parse failure 後の CSV metadata/advisory fallback を確認',
+            'Fast path 再委譲では回答を確定できなかったため、CSV metadata/advisory 用の確認質問へ切り替えました。'
+        );
+        $this->completeAdvancedRoute();
+        return true;
+    }
+
+    private function buildPlannerCsvMetadataClarificationResponse(): string
+    {
+        return "CSVの構造比較や統合観点として整理できますが、比較対象や見たい観点がまだ曖昧です。\n\n"
+            . "次のどちらかを指定してください。\n"
+            . "- 比較したいCSV名やツール名\n"
+            . "- 見たい観点（共通項目 / 差異項目 / 統合キー候補 / まず見るべき列 など）";
     }
 
     private function completeAdvancedRoute(?array $guardSpec = null): void {

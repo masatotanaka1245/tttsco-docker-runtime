@@ -119,27 +119,7 @@ final class AdvancedRoutePlanner
 
         if (!is_array($plan) || empty($plan) || !isset($plan[0]['table'])) {
             $this->log("[PLANNER-PARSE-FAILED] 計画JSONのパースに失敗したため、安全フォールバック回路が起動しました。対象質問: " . $this->searchQuery);
-
-            if (preg_match('/(集計|件数|平均|合計|割合)/u', $this->searchQuery)) {
-                $fallbackTable = 'project_csv_rows';
-            } elseif (preg_match('/(会話|履歴|チャット|これまでの|まとめ)/u', $this->searchQuery)) {
-                $fallbackTable = 'chat_history';
-            } else {
-                $fallbackTable = 'doc_chunks';
-            }
-
-            $fallbackPurpose = match ($fallbackTable) {
-                'project_csv_rows' => 'CSV行データから質問に関連する集計・傾向を抽出する',
-                'chat_history' => '過去の対話履歴から質問に関連する文脈を抽出する',
-                default => '関連資料PDFの本文チャンクから主要な留意点・根拠を抽出する',
-            };
-
-            $plan = [[
-                'step' => 1,
-                'table' => $fallbackTable,
-                'purpose' => $fallbackPurpose,
-                'operation_type' => (string)call_user_func($this->inferOperationType, $this->searchQuery),
-            ]];
+            $plan = $this->buildParseFailureFallbackPlan();
         }
 
         $this->log("策定された実行計画ステップ数: " . count($plan));
@@ -151,5 +131,57 @@ final class AdvancedRoutePlanner
         if ($this->logger !== null) {
             call_user_func($this->logger, $message);
         }
+    }
+
+    private function buildParseFailureFallbackPlan(): array
+    {
+        if ($this->isCsvMetadataAdvisoryQuestion($this->searchQuery)) {
+            $this->log("[PLANNER-FALLBACK] family=csv_metadata_advisory | action=marker_plan");
+            return [[
+                'step' => 1,
+                'table' => 'project_csv_files',
+                'purpose' => 'CSVメタデータと advisory 観点の整理へ再委譲する',
+                'operation_type' => 'metadata_lookup',
+                'target_tables' => ['project_csv_files', 'project_csv_rows'],
+                'fallback_family' => 'csv_metadata_advisory',
+                'fallback_route_hint' => 'csv_metadata_advisory',
+            ]];
+        }
+
+        if (preg_match('/(集計|件数|平均|合計|割合)/u', $this->searchQuery)) {
+            $fallbackTable = 'project_csv_rows';
+        } elseif (preg_match('/(会話|履歴|チャット|これまでの|まとめ)/u', $this->searchQuery)) {
+            $fallbackTable = 'chat_history';
+        } else {
+            $fallbackTable = 'doc_chunks';
+        }
+
+        $fallbackPurpose = match ($fallbackTable) {
+            'project_csv_rows' => 'CSV行データから質問に関連する集計・傾向を抽出する',
+            'chat_history' => '過去の対話履歴から質問に関連する文脈を抽出する',
+            default => '関連資料PDFの本文チャンクから主要な留意点・根拠を抽出する',
+        };
+
+        return [[
+            'step' => 1,
+            'table' => $fallbackTable,
+            'purpose' => $fallbackPurpose,
+            'operation_type' => (string)call_user_func($this->inferOperationType, $this->searchQuery),
+        ]];
+    }
+
+    private function isCsvMetadataAdvisoryQuestion(string $question): bool
+    {
+        $hasCsvContext = preg_match('/(CSV|csv|データ|ログ|列|カラム|項目|構造|キー|フィールド|ToolSource|Timestamp|UserID|LogID)/u', $question) === 1;
+        $hasMetadataIntent = preg_match('/(比較|共通|差異|統合|整理|どう分析|どのように.*分析|どこから見れば|観点|切り口|傾向|見るべき項目|確認すべき列|どう進め)/u', $question) === 1;
+        $hasStrongAggregateIntent = preg_match('/(月別|日別|件数|合計|平均|ランキング|グラフ|チャート|推移|割合)/u', $question) === 1;
+        $hasStrongHistoryIntent = preg_match('/(会話履歴|会話の履歴|これまでの会話|チャット履歴|報告書化|構成案)/u', $question) === 1;
+        $hasStrongDocIntent = preg_match('/(PDF|pdf|資料|文書).*(要点|要約|抽出|引用|根拠|ページ)|((要点|要約|抽出|引用|根拠|ページ).*(PDF|pdf|資料|文書))/u', $question) === 1;
+
+        return $hasCsvContext
+            && $hasMetadataIntent
+            && !$hasStrongAggregateIntent
+            && !$hasStrongHistoryIntent
+            && !$hasStrongDocIntent;
     }
 }
