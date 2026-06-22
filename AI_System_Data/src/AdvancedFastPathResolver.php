@@ -75,6 +75,11 @@ final class AdvancedFastPathResolver
 
     public function resolveMultiSourceAdvice(): ?array
     {
+        $csvLogMetadataCompare = $this->resolveCsvLogMetadataCompare();
+        if ($csvLogMetadataCompare !== null) {
+            return $csvLogMetadataCompare;
+        }
+
         $forcedByRoute = $this->routeDetail === 'advanced_hybrid.multi_source_advice';
         $hasAdviceIntent = preg_match('/(おすすめ|オススメ|提案|分析方法|集計方法|どう分析|どう集計|どのように.*分析|分析したら.*よい|どう進め|見るべき|観点|切り口|方針)/u', $this->searchQuery) === 1;
         $hasProjectSummaryIntent = preg_match('/(案件|プロジェクト).*(内容|概要|全体像|まとめ|要約|詳細)|((内容|概要|全体像|まとめ|要約|詳細).*(案件|プロジェクト))/u', $this->searchQuery) === 1;
@@ -121,6 +126,83 @@ final class AdvancedFastPathResolver
                 ],
                 [
                     'sub_query' => $isSummaryMode ? '資産構成から案件の全体像を整理' : '資産構成と現在地から推奨分析観点を組み立て',
+                    'sub_answer' => $finalResponse,
+                ],
+            ],
+            'guard_route' => null,
+            'guard_context' => null,
+            'force_report_mode_off' => false,
+        ];
+    }
+
+    private function resolveCsvLogMetadataCompare(): ?array
+    {
+        if (!$this->shouldResolveCsvLogMetadataCompare()) {
+            return null;
+        }
+
+        $csvFiles = $this->loadProjectCsvFiles();
+        if (empty($csvFiles)) {
+            return null;
+        }
+
+        $toolTerms = $this->extractQuotedTerms($this->searchQuery);
+        $profiles = [];
+        foreach ($csvFiles as $csv) {
+            $profile = $this->buildCsvLogMetadataProfile($csv, $toolTerms);
+            if ($profile !== null) {
+                $profiles[] = $profile;
+            }
+        }
+
+        if (empty($profiles)) {
+            return null;
+        }
+
+        $relevantProfiles = array_values(array_filter($profiles, function (array $profile): bool {
+            return !empty($profile['is_relevant']);
+        }));
+
+        if (empty($relevantProfiles)) {
+            $logLikeProfiles = array_values(array_filter($profiles, function (array $profile): bool {
+                return !empty($profile['is_log_like']);
+            }));
+            $relevantProfiles = !empty($logLikeProfiles) ? $logLikeProfiles : array_slice($profiles, 0, 2);
+        }
+
+        if (empty($relevantProfiles)) {
+            return null;
+        }
+
+        $commonKeys = $this->computeCommonKeys($relevantProfiles);
+        $diffKeys = $this->computeDistinctKeys($relevantProfiles, $commonKeys);
+        $integrationKeys = $this->buildIntegrationKeyCandidates($relevantProfiles);
+        $matchedTerms = $this->buildMatchedToolTerms($relevantProfiles, $toolTerms);
+
+        $this->log(
+            "[ADV-FASTPATH] csv_log_metadata_compare matched | csv_files=" . count($relevantProfiles)
+            . " | common_keys=" . count($commonKeys)
+            . " | diff_keys=" . count($diffKeys)
+            . " | matched_terms=" . count($matchedTerms)
+        );
+
+        $finalResponse = $this->buildCsvLogMetadataCompareAnswer(
+            $relevantProfiles,
+            $commonKeys,
+            $diffKeys,
+            $integrationKeys,
+            $matchedTerms
+        );
+
+        return [
+            'final_response' => $finalResponse,
+            'reasoning_steps' => [
+                [
+                    'sub_query' => 'CSVファイル一覧・列ヘッダ・row_data JSON keys を deterministic に収集',
+                    'sub_answer' => $this->buildCsvLogMetadataCompareSnapshot($relevantProfiles, $matchedTerms),
+                ],
+                [
+                    'sub_query' => 'ログ構造の共通項目・差異・統合観点を整理',
                     'sub_answer' => $finalResponse,
                 ],
             ],
@@ -221,7 +303,7 @@ final class AdvancedFastPathResolver
         }
 
         $stmt = $this->pdo->prepare("
-            SELECT file_name, column_headers, row_count
+            SELECT id, file_name, column_headers, row_count
             FROM project_csv_files
             WHERE project_id = ?
             ORDER BY id ASC
@@ -703,6 +785,395 @@ final class AdvancedFastPathResolver
         }
 
         return implode(' / ', array_slice($userLines, -2));
+    }
+
+    private function shouldResolveCsvLogMetadataCompare(): bool
+    {
+        $message = $this->searchQuery;
+        $quotedTerms = $this->extractQuotedTerms($message);
+        $listedTerms = $this->extractListedToolTerms($message);
+
+        $hasKeyHint = preg_match('/(ToolSource|Timestamp|UserID|LogID|ActionType|ActionDetail|EventType|SessionID|InputPrompt|OutputResult)/u', $message) === 1;
+        $hasLogContext = preg_match('/(ログ|記録|記録して|記録され|項目|カラム|列|構造|キー|フィールド)/u', $message) === 1;
+        $hasCompareIntent = preg_match('/(比較|共通|差異|統合|揃え|そろえ|マッピング|対応付け|整理|どのような情報|何が記録|見るべき項目|確認すべき列)/u', $message) === 1;
+        $hasMultiToolHint = count(array_unique(array_merge($quotedTerms, $listedTerms))) >= 2
+            || preg_match('/(複数ツール|各AIツール|各ツール|複数の生成AI|3つの生成AI|統合する場合)/u', $message) === 1;
+        $hasNumericAggregateIntent = preg_match('/(月別|日別|件数|合計|平均|ランキング|グラフ|推移|割合)/u', $message) === 1;
+
+        return ($hasLogContext || $hasKeyHint)
+            && $hasCompareIntent
+            && ($hasMultiToolHint || $hasKeyHint)
+            && !$hasNumericAggregateIntent;
+    }
+
+    private function extractQuotedTerms(string $text): array
+    {
+        $terms = [];
+        if (preg_match_all('/[「『"]([^"」』]{2,40})["」』]/u', $text, $matches) === 1) {
+            foreach ((array)($matches[1] ?? []) as $term) {
+                $normalized = trim((string)$term);
+                if ($normalized !== '') {
+                    $terms[] = $normalized;
+                }
+            }
+        }
+        return array_values(array_unique($terms));
+    }
+
+    private function extractListedToolTerms(string $text): array
+    {
+        if (preg_match('/(.{0,80})のログ/u', $text, $matches) !== 1) {
+            return [];
+        }
+
+        $segment = trim((string)($matches[1] ?? ''));
+        if ($segment === '' || preg_match('/(案件|プロジェクト|今回|この案件)/u', $segment) === 1) {
+            return [];
+        }
+
+        $parts = preg_split('/[、,\/／]+/u', $segment) ?: [];
+        $terms = [];
+        foreach ($parts as $part) {
+            $term = trim((string)preg_replace('/(の|に関する|について|生成AI|AIツール|ツール)$/u', '', $part));
+            if ($term === '' || mb_strlen($term) < 2 || mb_strlen($term) > 30) {
+                continue;
+            }
+            if (preg_match('/(ログ|項目|構造|比較|統合|共通|差異)/u', $term) === 1) {
+                continue;
+            }
+            $terms[] = $term;
+        }
+
+        return array_values(array_unique($terms));
+    }
+
+    private function buildCsvLogMetadataProfile(array $csv, array $toolTerms): ?array
+    {
+        $csvFileId = (int)($csv['id'] ?? 0);
+        if ($csvFileId <= 0) {
+            return null;
+        }
+
+        $headers = $this->parseCsvHeaders((string)($csv['column_headers'] ?? ''));
+        $sampleRows = $this->loadCsvRowSamples($csvFileId, 8);
+        $sampleKeys = $this->extractJsonKeysFromRows($sampleRows);
+        $allKeys = array_values(array_unique(array_merge($headers, $sampleKeys)));
+        $toolSourceKey = $this->findMatchingKey($allKeys, ['ToolSource', 'toolsource', 'tool_source']);
+        $sampleToolValues = $toolSourceKey !== null
+            ? $this->loadDistinctJsonValues($csvFileId, $toolSourceKey, 8)
+            : [];
+
+        $isLogLike = $this->isLogLikeCsvProfile($allKeys, $sampleToolValues, (string)($csv['file_name'] ?? ''));
+        $matchedTerms = [];
+        foreach ($toolTerms as $term) {
+            $termLower = mb_strtolower($term);
+            $fileNameLower = mb_strtolower((string)($csv['file_name'] ?? ''));
+            if ($fileNameLower !== '' && mb_strpos($fileNameLower, $termLower) !== false) {
+                $matchedTerms[] = $term;
+                continue;
+            }
+            foreach ($sampleToolValues as $toolValue) {
+                if (mb_strpos(mb_strtolower($toolValue), $termLower) !== false) {
+                    $matchedTerms[] = $term;
+                    break;
+                }
+            }
+        }
+
+        return [
+            'csv_file_id' => $csvFileId,
+            'file_name' => (string)($csv['file_name'] ?? ''),
+            'row_count' => (int)($csv['row_count'] ?? 0),
+            'headers' => $headers,
+            'sample_keys' => $sampleKeys,
+            'all_keys' => $allKeys,
+            'sample_tool_values' => $sampleToolValues,
+            'tool_source_key' => $toolSourceKey,
+            'is_log_like' => $isLogLike,
+            'matched_terms' => array_values(array_unique($matchedTerms)),
+            'is_relevant' => $isLogLike && (!empty($matchedTerms) || count($toolTerms) === 0),
+        ];
+    }
+
+    private function parseCsvHeaders(string $rawHeaders): array
+    {
+        $headers = json_decode($rawHeaders, true);
+        if (!is_array($headers)) {
+            $headers = array_filter(array_map('trim', explode(',', $rawHeaders)));
+        }
+
+        $normalized = [];
+        foreach ($headers as $header) {
+            $header = trim((string)$header);
+            if ($header !== '') {
+                $normalized[] = $header;
+            }
+        }
+
+        return array_values(array_unique($normalized));
+    }
+
+    private function loadCsvRowSamples(int $csvFileId, int $limit): array
+    {
+        $stmt = $this->pdo->prepare("
+            SELECT row_data
+            FROM project_csv_rows
+            WHERE csv_file_id = ?
+            ORDER BY row_index ASC
+            LIMIT {$limit}
+        ");
+        $stmt->execute([$csvFileId]);
+        return $stmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
+    }
+
+    private function extractJsonKeysFromRows(array $sampleRows): array
+    {
+        $keys = [];
+        foreach ($sampleRows as $rowJson) {
+            $decoded = json_decode((string)$rowJson, true);
+            if (!is_array($decoded)) {
+                continue;
+            }
+            foreach (array_keys($decoded) as $key) {
+                $key = trim((string)$key);
+                if ($key !== '') {
+                    $keys[] = $key;
+                }
+            }
+        }
+
+        return array_values(array_unique($keys));
+    }
+
+    private function findMatchingKey(array $keys, array $candidates): ?string
+    {
+        foreach ($keys as $key) {
+            foreach ($candidates as $candidate) {
+                if (mb_strtolower($key) === mb_strtolower($candidate)) {
+                    return $key;
+                }
+            }
+        }
+        return null;
+    }
+
+    private function loadDistinctJsonValues(int $csvFileId, string $jsonKey, int $limit): array
+    {
+        $escapedKey = str_replace(['\\', '"'], ['\\\\', '\\"'], $jsonKey);
+        $stmt = $this->pdo->prepare("
+            SELECT DISTINCT JSON_UNQUOTE(JSON_EXTRACT(row_data, '$.\"{$escapedKey}\"')) AS item
+            FROM project_csv_rows
+            WHERE csv_file_id = ?
+              AND JSON_EXTRACT(row_data, '$.\"{$escapedKey}\"') IS NOT NULL
+            ORDER BY item ASC
+            LIMIT {$limit}
+        ");
+        $stmt->execute([$csvFileId]);
+        $values = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $value) {
+            $value = trim((string)$value);
+            if ($value !== '') {
+                $values[] = $value;
+            }
+        }
+        return array_values(array_unique($values));
+    }
+
+    private function isLogLikeCsvProfile(array $keys, array $toolValues, string $fileName): bool
+    {
+        $signals = 0;
+        $lowerKeys = array_map('mb_strtolower', $keys);
+
+        foreach (['timestamp', 'userid', 'toolsource', 'actiontype', 'actiondetail', 'eventtype', 'logid'] as $required) {
+            if (in_array($required, $lowerKeys, true)) {
+                $signals++;
+            }
+        }
+
+        if (!empty($toolValues)) {
+            $signals++;
+        }
+
+        if (preg_match('/(ログ|log|統合|audit|event)/iu', $fileName) === 1) {
+            $signals++;
+        }
+
+        return $signals >= 2;
+    }
+
+    private function computeCommonKeys(array $profiles): array
+    {
+        $keySets = [];
+        foreach ($profiles as $profile) {
+            $keys = array_values(array_unique(array_map('strval', (array)($profile['all_keys'] ?? []))));
+            if (!empty($keys)) {
+                $keySets[] = $keys;
+            }
+        }
+
+        if (empty($keySets)) {
+            return [];
+        }
+
+        $common = $keySets[0];
+        foreach (array_slice($keySets, 1) as $keys) {
+            $common = array_values(array_intersect($common, $keys));
+        }
+
+        return array_slice($common, 0, 12);
+    }
+
+    private function computeDistinctKeys(array $profiles, array $commonKeys): array
+    {
+        $commonLookup = array_fill_keys($commonKeys, true);
+        $distinct = [];
+        foreach ($profiles as $profile) {
+            foreach ((array)($profile['all_keys'] ?? []) as $key) {
+                if (!isset($commonLookup[$key])) {
+                    $distinct[] = (string)$key;
+                }
+            }
+        }
+
+        return array_slice(array_values(array_unique($distinct)), 0, 16);
+    }
+
+    private function buildIntegrationKeyCandidates(array $profiles): array
+    {
+        $priority = ['Timestamp', 'UserID', 'Email', 'Name', 'ToolSource', 'LogID', 'SessionID', 'ActionType', 'ActionDetail', 'EventType'];
+        $available = [];
+        foreach ($profiles as $profile) {
+            foreach ((array)($profile['all_keys'] ?? []) as $key) {
+                $available[mb_strtolower((string)$key)] = (string)$key;
+            }
+        }
+
+        $candidates = [];
+        foreach ($priority as $key) {
+            $lower = mb_strtolower($key);
+            if (isset($available[$lower])) {
+                $candidates[] = $available[$lower];
+            }
+        }
+
+        return $candidates;
+    }
+
+    private function buildMatchedToolTerms(array $profiles, array $toolTerms): array
+    {
+        $matched = [];
+        foreach ($profiles as $profile) {
+            foreach ((array)($profile['matched_terms'] ?? []) as $term) {
+                $matched[] = (string)$term;
+            }
+            foreach ((array)($profile['sample_tool_values'] ?? []) as $toolValue) {
+                foreach ($toolTerms as $term) {
+                    if (mb_strpos(mb_strtolower($toolValue), mb_strtolower($term)) !== false) {
+                        $matched[] = $term;
+                    }
+                }
+            }
+        }
+
+        return array_values(array_unique($matched));
+    }
+
+    private function buildCsvLogMetadataCompareAnswer(
+        array $profiles,
+        array $commonKeys,
+        array $diffKeys,
+        array $integrationKeys,
+        array $matchedTerms
+    ): string {
+        $lines = [];
+        $lines[] = "確認できるCSVメタデータと少数サンプルの `row_data` JSON keys をもとに、ログ構造の比較観点を整理します。今回は汎用 Text-to-SQL 集計ではなく、列構造とキー構成の把握を優先しています。";
+        $lines[] = "";
+        $lines[] = "## 各CSV/各ツールで記録している主な項目";
+
+        foreach (array_slice($profiles, 0, 3) as $profile) {
+            $title = $this->describeCsvTitle($profile);
+            $keys = array_slice((array)($profile['all_keys'] ?? []), 0, 10);
+            $toolValues = array_slice((array)($profile['sample_tool_values'] ?? []), 0, 5);
+            $matched = array_slice((array)($profile['matched_terms'] ?? []), 0, 3);
+            $line = "- `{$title}`";
+            $line .= " (" . (int)($profile['row_count'] ?? 0) . "件)";
+            if (!empty($matched)) {
+                $line .= ": 質問中のツール名と一致した候補は " . implode(' / ', $matched) . " です。";
+            } elseif (!empty($toolValues)) {
+                $line .= ": `ToolSource` サンプル値として " . implode(' / ', $toolValues) . " を確認できました。";
+            } else {
+                $line .= ": `ToolSource` の値までは少数サンプルでは断定できませんでした。";
+            }
+            if (!empty($keys)) {
+                $line .= " 主な項目は " . implode(' / ', $keys) . " です。";
+            }
+            $lines[] = $line;
+        }
+
+        $lines[] = "";
+        $lines[] = "## 共通項目";
+        if (!empty($commonKeys)) {
+            $lines[] = "- 共通して確認できたキー: " . implode(' / ', array_slice($commonKeys, 0, 12));
+        } else {
+            $lines[] = "- 少数サンプル時点では、複数CSVをまたいで安定して共通と断定できるキーは限定的です。少なくとも `Timestamp` / `UserID` / `ToolSource` の有無を優先確認するのが安全です。";
+        }
+
+        $lines[] = "";
+        $lines[] = "## 差異項目";
+        if (!empty($diffKeys)) {
+            $lines[] = "- 差異として見えた候補キー: " . implode(' / ', array_slice($diffKeys, 0, 12));
+        } else {
+            $lines[] = "- 少数サンプルでは、ツールごとの専用キー差分よりも共通スキーマで管理されている可能性が高く見えます。";
+        }
+
+        $lines[] = "";
+        $lines[] = "## 統合キー候補";
+        if (!empty($integrationKeys)) {
+            $lines[] = "- まず候補にしやすいキー: " . implode(' / ', $integrationKeys);
+        } else {
+            $lines[] = "- `Timestamp` / `UserID` / `ToolSource` / `LogID` の有無をまず確認してください。これらが無い場合は、統合キーを別途設計する必要があります。";
+        }
+
+        $lines[] = "";
+        $lines[] = "## 注意点";
+        $lines[] = "- `Timestamp` がある場合は、時刻形式とタイムゾーン表記を先に揃える必要があります。";
+        $lines[] = "- `UserID` と `Email` / `Name` が混在する場合は、ユーザー同定ルールを先に決めないと重複や取り違えが起きやすくなります。";
+        $lines[] = "- `ToolSource` が同一CSV内の識別子として使われている場合は、ツール別CSVとして分けて考えるより、共通スキーマ + ツール種別列として扱う方が整理しやすいです。";
+        $lines[] = "- `LogID` や `SessionID` が無いCSVでは、イベント単位の厳密突合は難しいため、時刻 + ユーザー + 操作種別の複合キーを検討する必要があります。";
+
+        $lines[] = "";
+        $lines[] = "## 次に確認すべきCSV列";
+        $nextColumns = !empty($integrationKeys)
+            ? array_slice($integrationKeys, 0, 6)
+            : ['Timestamp', 'UserID', 'ToolSource', 'LogID', 'ActionType', 'ActionDetail'];
+        $lines[] = "- 優先確認列: " . implode(' / ', $nextColumns);
+        if (!empty($matchedTerms)) {
+            $lines[] = "- 今回の質問で挙がったツール名候補: " . implode(' / ', array_slice($matchedTerms, 0, 6));
+        }
+
+        $lines[] = "";
+        $lines[] = "## 出典";
+        foreach (array_slice($profiles, 0, 3) as $profile) {
+            $lines[] = "- `project_csv_files`: " . $this->describeCsvTitle($profile) . " / rows=" . (int)($profile['row_count'] ?? 0);
+            $lines[] = "- `project_csv_rows.row_data` sample keys: " . implode(' / ', array_slice((array)($profile['sample_keys'] ?? []), 0, 8));
+        }
+
+        return implode("\n", $lines);
+    }
+
+    private function buildCsvLogMetadataCompareSnapshot(array $profiles, array $matchedTerms): string
+    {
+        $lines = [];
+        $lines[] = "対象CSV数: " . count($profiles);
+        if (!empty($matchedTerms)) {
+            $lines[] = "一致ツール候補: " . implode(' / ', array_slice($matchedTerms, 0, 6));
+        }
+        foreach (array_slice($profiles, 0, 3) as $profile) {
+            $lines[] = "- " . $this->describeCsvTitle($profile)
+                . " | rows=" . (int)($profile['row_count'] ?? 0)
+                . " | keys=" . implode(', ', array_slice((array)($profile['all_keys'] ?? []), 0, 8));
+        }
+        return implode("\n", $lines);
     }
 
     private function describeDocumentTitle(array $document, string $fallback): string
