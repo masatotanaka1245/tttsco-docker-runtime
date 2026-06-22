@@ -739,7 +739,25 @@ class AdvancedReasoningRouteProcessor {
     }
 
     private function tryMultiSourceAdviceFastPath(): bool {
-        $result = $this->buildFastPathResolver()->resolveMultiSourceAdvice();
+        $resolver = $this->buildFastPathResolver();
+        $gateResult = $resolver->resolveSqlAdmissionGate();
+        if ($gateResult !== null) {
+            $gateReason = (string)($gateResult['sql_gate_reason'] ?? 'fastpath_csv_metadata_advisory');
+            $fastPathType = (string)($gateResult['fast_path_type'] ?? 'csv_metadata_advisory');
+            chatLogger("[ADV-SQL-GATE] blocked=csv_metadata_advisory | route=advanced_hybrid | reason={$gateReason} | fast_path={$fastPathType}");
+            $this->finalResponse = (string)($gateResult['final_response'] ?? '');
+            foreach ((array)($gateResult['reasoning_steps'] ?? []) as $index => $step) {
+                $this->buildReasoningStepRecorder()->recordFastPathStep(
+                    $index + 1,
+                    (string)($step['sub_query'] ?? ''),
+                    (string)($step['sub_answer'] ?? '')
+                );
+            }
+            $this->completeAdvancedRoute();
+            return true;
+        }
+
+        $result = $resolver->resolveMultiSourceAdvice();
         if ($result === null) {
             return false;
         }

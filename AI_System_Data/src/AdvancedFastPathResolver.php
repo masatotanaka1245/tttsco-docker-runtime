@@ -75,9 +75,9 @@ final class AdvancedFastPathResolver
 
     public function resolveMultiSourceAdvice(): ?array
     {
-        $csvLogMetadataCompare = $this->resolveCsvLogMetadataCompare();
-        if ($csvLogMetadataCompare !== null) {
-            return $csvLogMetadataCompare;
+        $sqlAdmissionGate = $this->resolveSqlAdmissionGate();
+        if ($sqlAdmissionGate !== null) {
+            return $sqlAdmissionGate;
         }
 
         $forcedByRoute = $this->routeDetail === 'advanced_hybrid.multi_source_advice';
@@ -126,6 +126,86 @@ final class AdvancedFastPathResolver
                 ],
                 [
                     'sub_query' => $isSummaryMode ? '資産構成から案件の全体像を整理' : '資産構成と現在地から推奨分析観点を組み立て',
+                    'sub_answer' => $finalResponse,
+                ],
+            ],
+            'guard_route' => null,
+            'guard_context' => null,
+            'force_report_mode_off' => false,
+        ];
+    }
+
+    public function resolveSqlAdmissionGate(): ?array
+    {
+        $csvLogMetadataCompare = $this->resolveCsvLogMetadataCompare();
+        if ($csvLogMetadataCompare !== null) {
+            $csvLogMetadataCompare['fast_path_type'] = 'csv_log_metadata_compare';
+            $csvLogMetadataCompare['sql_admission_gate'] = true;
+            $csvLogMetadataCompare['sql_gate_reason'] = 'fastpath_csv_log_metadata_compare';
+            return $csvLogMetadataCompare;
+        }
+
+        $csvMetadataAdvisory = $this->resolveCsvMetadataAdvisory();
+        if ($csvMetadataAdvisory !== null) {
+            $csvMetadataAdvisory['fast_path_type'] = 'csv_metadata_advisory';
+            $csvMetadataAdvisory['sql_admission_gate'] = true;
+            $csvMetadataAdvisory['sql_gate_reason'] = 'fastpath_csv_metadata_advisory';
+            return $csvMetadataAdvisory;
+        }
+
+        return null;
+    }
+
+    private function resolveCsvMetadataAdvisory(): ?array
+    {
+        if (!$this->shouldResolveCsvMetadataAdvisory()) {
+            return null;
+        }
+
+        $csvFiles = $this->loadProjectCsvFiles();
+        $pdfDocs = $this->loadProjectPdfDocuments();
+        $materialDocs = $this->loadProjectMaterialDocuments();
+        $projectMemoryDocs = ProjectContextMemory::load($this->pdo, $this->projectId);
+        $projectMemorySnapshot = $this->buildProjectMemorySnapshot($projectMemoryDocs);
+        $recentContext = $this->buildRecentAdviceContext($this->loadCurrentThreadHistory(8));
+
+        if (
+            empty($csvFiles)
+            && empty($materialDocs)
+            && empty($pdfDocs)
+            && empty($projectMemorySnapshot['highlights'])
+        ) {
+            return null;
+        }
+
+        $finalResponse = $this->buildDeterministicMultiSourceAdvice(
+            $csvFiles,
+            $pdfDocs,
+            $materialDocs,
+            $projectMemorySnapshot,
+            $recentContext
+        );
+        $summary = "CSV件数=" . count($csvFiles)
+            . " / PDF件数=" . count($pdfDocs)
+            . " / 資料メモ件数=" . count($materialDocs)
+            . " / 運用メモ要点=" . count((array)($projectMemorySnapshot['highlights'] ?? []));
+
+        $this->log(
+            "[ADV-FASTPATH] csv_metadata_advisory matched | csv_files=" . count($csvFiles)
+            . " | material_docs=" . count($materialDocs)
+            . " | pdf_docs=" . count($pdfDocs)
+            . " | memory_highlights=" . count((array)($projectMemorySnapshot['highlights'] ?? []))
+        );
+
+        return [
+            'final_response' => $finalResponse,
+            'reasoning_steps' => [
+                [
+                    'sub_query' => 'CSV・資料メモ・PDF・案件メモの advisory 用メタ情報を収集',
+                    'sub_answer' => $summary,
+                ],
+                [
+                    'sub_query' => 'SQL集計へ進まず、分析観点と次アクションを advisory 形式で整理',
                     'sub_answer' => $finalResponse,
                 ],
             ],
@@ -804,6 +884,23 @@ final class AdvancedFastPathResolver
             && $hasCompareIntent
             && ($hasMultiToolHint || $hasKeyHint)
             && !$hasNumericAggregateIntent;
+    }
+
+    private function shouldResolveCsvMetadataAdvisory(): bool
+    {
+        $message = $this->searchQuery;
+
+        $hasCsvOrDataContext = preg_match('/(CSV|csv|データ|ログCSV|ログデータ|データセット|列|カラム|項目|フィールド)/u', $message) === 1;
+        $hasAdviceIntent = preg_match('/(どう分析|どのように.*分析|分析したら.*よい|分析の進め方|どこから見れば|どこから手を付け|何から見れば|最初に見るべき|優先して見るべき|見る順番|確認する順番|着手順|分析の入口|切り口|観点|方針|おすすめ|オススメ|提案|傾向を教えて|傾向は|傾向を見る|どう進め)/u', $message) === 1;
+        $hasStrongAggregateIntent = preg_match('/(月別|日別|件数|合計|平均|ランキング|グラフ|チャート|推移|割合|月次|日次)/u', $message) === 1;
+        $hasStrongDocIntent = preg_match('/(PDF|pdf|資料|文書).*(要点|要約|抽出|引用|根拠|ページ)|((要点|要約|抽出|引用|根拠|ページ).*(PDF|pdf|資料|文書))/u', $message) === 1;
+        $hasStrongHistoryIntent = preg_match('/(会話履歴|会話の履歴|これまでの会話|チャット履歴|報告書化|構成案|会話を要約)/u', $message) === 1;
+        $hasExplicitCsvAnalysisRequest = preg_match('/(このCSV|このデータ).*(どう分析|どのように.*分析|分析したら.*よい|傾向を教えて|どこから見れば|切り口|観点|方針|おすすめ)/u', $message) === 1;
+
+        return ($hasExplicitCsvAnalysisRequest || ($hasCsvOrDataContext && $hasAdviceIntent))
+            && !$hasStrongAggregateIntent
+            && !$hasStrongDocIntent
+            && !$hasStrongHistoryIntent;
     }
 
     private function extractQuotedTerms(string $text): array
