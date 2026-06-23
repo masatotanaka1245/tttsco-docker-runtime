@@ -74,6 +74,13 @@ class ChatRouteFactorizer
             || $mentionedCsv !== null
             || $explicitColumnReference !== null
             || preg_match('/(表|テーブル|列|カラム)/u', $message) === 1;
+        $hasCsvLogMetadataContext = preg_match('/(ログ|記録|項目|構造|キー|フィールド|ToolSource|Timestamp|UserID|LogID)/u', $message) === 1;
+        $hasCsvLogMetadataIntent = preg_match('/(比較|共通|差異|統合|整理|どのような情報|何が記録|統合できますか|見るべき項目|確認すべき列)/u', $message) === 1;
+        $hasCsvLogMultiToolHint = preg_match('/(Alli|SecureMemo|サテライトAI|各AIツール|各ツール|複数ツール|複数の生成AI)/u', $message) === 1;
+        $hasCsvLogKeyHint = preg_match('/(ToolSource|Timestamp|UserID|LogID)/u', $message) === 1;
+        $hasCsvLogMetadataRouteHint = $hasCsvLogMultiToolHint
+            || $hasCsvLogKeyHint
+            || ($hasCsvContext && preg_match('/ログ/u', $message) === 1);
         $hasStrongCsvAggregateIntent = preg_match('/(集計|件数|月別|日別|カテゴリ別|ランキング|グラフ|合計|平均|何種類)/u', $message) === 1;
         $hasMixedDocumentAndCsvContext = $hasDocReference && $hasCsvContext;
         $memorySuggestsAppVerification = $this->projectMemoryText !== ''
@@ -171,6 +178,36 @@ class ChatRouteFactorizer
             $operation = 'status_alignment';
             $route = 'normal_rag.project_memory_consultation';
             $setRouteMeta('high', ['project_status_question'], ['task_status_keyword']);
+        } elseif (
+            $hasCsvLogMetadataContext
+            && $hasCsvLogMetadataIntent
+            && $hasCsvLogMetadataRouteHint
+            && !$hasStrongCsvAggregateIntent
+            && !$hasDocReference
+            && !$hasHistorySummaryRequest
+            && !$hasHistoryReportRequest
+            && !$hasMaterialWorkflowIntent
+        ) {
+            $intent = 'analyze';
+            $target = 'project_assets';
+            $scope = 'project_wide';
+            $operation = 'csv_log_metadata_compare';
+            $route = 'advanced_hybrid.multi_source_advice';
+            $setRouteMeta(
+                ($hasCsvLogMultiToolHint || $hasCsvLogKeyHint) ? 'high' : 'medium',
+                array_values(array_filter([
+                    'csv_log_metadata_compare_request',
+                    $hasCsvLogMultiToolHint ? 'multi_tool_hint' : null,
+                    $hasCsvLogKeyHint ? 'csv_key_hint' : null,
+                ])),
+                array_values(array_filter([
+                    'log_context_keyword',
+                    'metadata_compare_intent_keyword',
+                    $hasCsvLogMultiToolHint ? 'multi_tool_hint' : null,
+                    $hasCsvLogKeyHint ? 'csv_key_hint' : null,
+                    $hasCsvContext ? 'csv_context_keyword' : null,
+                ]))
+            );
         } elseif (
             $hasRecommendationIntent
             && (
