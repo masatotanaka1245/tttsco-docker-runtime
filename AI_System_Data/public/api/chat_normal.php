@@ -705,7 +705,9 @@ class NormalStreamingRouteProcessor {
             $this->pdo->commit();
             chatLogger("[DEBUG] DBトランザクションコミット成功。通常RAGのデータ整合性を完全保護しました。");
             $fallbackGuardReason = $this->getDownstreamFallbackGuardReason();
-            if ($fallbackGuardReason !== null) {
+            if ($this->shouldSkipProjectMemoryRefresh()) {
+                chatLogger("[PROJECT-MEMORY-AUTO] skipped=route_guard | route_detail=" . (string)$this->routeDetail . " | operation=" . $this->inferPriorityOperation() . " | reason=consultation_read_only");
+            } elseif ($fallbackGuardReason !== null) {
                 chatLogger("[EVAL-FALLBACK-GUARD] blocked=project_memory_refresh | route=normal | reason={$fallbackGuardReason}");
                 chatLogger("[PROJECT-MEMORY-AUTO] skipped=quality_guard | thread_id=" . ($this->threadId === null ? 'NULL' : (string)$this->threadId));
             } elseif (ProjectMemoryAutoUpdater::shouldRefreshFromEvaluation($this->evalResult, $this->fullResponse)) {
@@ -1078,6 +1080,12 @@ class NormalStreamingRouteProcessor {
         }
 
         return '';
+    }
+
+    private function shouldSkipProjectMemoryRefresh(): bool
+    {
+        return $this->isProjectMemoryConsultationRoute()
+            && $this->inferPriorityOperation() === 'status_alignment';
     }
 
     private function detectPrimaryEvidenceType(): string

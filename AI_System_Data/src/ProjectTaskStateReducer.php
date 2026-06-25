@@ -83,8 +83,7 @@ final class ProjectTaskStateReducer
     private static function normalizeTask(string $task): string
     {
         $task = trim((string)(preg_replace('/\s+/u', ' ', $task) ?? $task));
-        $task = trim($task, " \t\n\r\0\x0B。");
-        return $task;
+        return preg_replace('/[。．]+$/u', '', $task) ?? $task;
     }
 
     private static function looksLikeEphemeralTask(string $task): bool

@@ -108,12 +108,14 @@ final class ChatQuestionDecomposer
 
     private function normalizeSubQuery(string $part): string
     {
-        $part = $this->normalizeWhitespace($part);
+        $part = $this->trimTaskText($this->normalizeWhitespace($part));
         if ($part === '') {
             return '';
         }
 
         $replacements = [
+            '/にしてください$/u' => 'にする',
+            '/してください$/u' => 'する',
             '/グラフにして$/u' => 'グラフ化する',
             '/要点も?まとめてください$/u' => '要点をまとめる',
             '/まとめてください$/u' => 'まとめる',
@@ -131,10 +133,23 @@ final class ChatQuestionDecomposer
             }
         }
 
+        $terminalVerbReplacements = [
+            '/決めて$/u' => '決める',
+            '/見て$/u' => '見る',
+            '/開いて$/u' => '開く',
+        ];
+        foreach ($terminalVerbReplacements as $pattern => $replacement) {
+            $updated = preg_replace($pattern, $replacement, $part);
+            if (is_string($updated) && $updated !== $part) {
+                $part = $updated;
+                break;
+            }
+        }
+
         $part = preg_replace('/して$/u', 'する', $part) ?? $part;
         $part = preg_replace('/し$/u', 'する', $part) ?? $part;
 
-        return trim($part, " \t\n\r\0\x0B。");
+        return $this->trimTaskText($part);
     }
 
     private function detectIntent(string $subQuery): string
@@ -209,5 +224,11 @@ final class ChatQuestionDecomposer
     {
         $text = trim((string)$text);
         return preg_replace('/\s+/u', ' ', $text) ?? $text;
+    }
+
+    private function trimTaskText(string $text): string
+    {
+        $text = trim($text);
+        return preg_replace('/[。．]+$/u', '', $text) ?? $text;
     }
 }

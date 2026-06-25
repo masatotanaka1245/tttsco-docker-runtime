@@ -165,7 +165,8 @@ final class AdvancedRouteFinalizer
                     $this->projectId,
                     $this->threadId,
                     $this->userId,
-                    fn(string $message) => $this->log($message)
+                    fn(string $message) => $this->log($message),
+                    ['decomposed_tasks' => $this->loadDecomposedTasksForMemoryRefresh()]
                 );
             } else {
                 $this->log("[PROJECT-MEMORY-AUTO] skipped=quality_guard | thread_id=" . ($this->threadId === null ? 'NULL' : (string)$this->threadId));
@@ -535,5 +536,99 @@ final class AdvancedRouteFinalizer
         }
 
         return false;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function loadDecomposedTasksForMemoryRefresh(): array
+    {
+        $sessionId = trim((string)$this->reasoningId);
+        try {
+            $rows = $sessionId !== '' ? $this->loadPendingDecompositionRowsBySession($sessionId) : [];
+            if ($rows === []) {
+                $fallbackSessionId = $this->findLatestDecompositionSessionIdByOriginalQuestion();
+                if ($fallbackSessionId !== null) {
+                    $rows = $this->loadPendingDecompositionRowsBySession($fallbackSessionId);
+                }
+            }
+            if ($rows === []) {
+                return [];
+            }
+
+            return $this->mapRowsToDecomposedTasks($rows);
+        } catch (Throwable $e) {
+            $this->log('[PROJECT-MEMORY-AUTO] decomposed_tasks_load_failed | reason=' . $e->getMessage());
+            return [];
+        }
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function loadPendingDecompositionRowsBySession(string $sessionId): array
+    {
+        $stmt = $this->pdo->prepare("
+            SELECT step_number, sub_query
+            FROM chat_reasoning_steps
+            WHERE project_id = ?
+              AND session_id = ?
+              AND sub_answer = '[DECOMPOSED-PENDING]'
+            ORDER BY step_number ASC
+            LIMIT 20
+        ");
+        $stmt->execute([$this->projectId, $sessionId]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return is_array($rows) ? $rows : [];
+    }
+
+    private function findLatestDecompositionSessionIdByOriginalQuestion(): ?string
+    {
+        $originalQuestion = trim($this->normalize($this->originalMessage));
+        if ($originalQuestion === '') {
+            return null;
+        }
+
+        $stmt = $this->pdo->prepare("
+            SELECT session_id
+            FROM chat_reasoning_steps
+            WHERE project_id = ?
+              AND original_question = ?
+              AND sub_answer = '[DECOMPOSED-PENDING]'
+            ORDER BY id DESC
+            LIMIT 1
+        ");
+        $stmt->execute([$this->projectId, $originalQuestion]);
+        $sessionId = $stmt->fetchColumn();
+        if (!is_string($sessionId)) {
+            return null;
+        }
+
+        $sessionId = trim($sessionId);
+        return $sessionId !== '' ? $sessionId : null;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<int, array<string, mixed>>
+     */
+    private function mapRowsToDecomposedTasks(array $rows): array
+    {
+        $tasks = [];
+        foreach ($rows as $index => $row) {
+            $subQuery = trim((string)($row['sub_query'] ?? ''));
+            if ($subQuery === '') {
+                continue;
+            }
+
+            $tasks[] = [
+                'step_number' => (int)($row['step_number'] ?? ($index + 1)),
+                'sub_query' => $subQuery,
+                'priority' => $index === 0 ? 'high' : 'medium',
+                'save_worthy' => true,
+            ];
+        }
+
+        return $tasks;
     }
 }
