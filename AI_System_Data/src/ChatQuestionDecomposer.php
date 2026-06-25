@@ -307,15 +307,15 @@ final class ChatQuestionDecomposer
             return 'unknown';
         }
 
-        if (preg_match('/(どのCSV|どの列|どれを見れば|どれを見る|これを(?:まとめる|整理する|要約する)|(?:\d{1,2}|今|先|来)月分)/u', $subQuery) === 1) {
+        if ($this->looksLikeClarificationRequest($subQuery)) {
             return 'clarification';
         }
 
-        if (preg_match('/(現在の進行中タスク|(?:次に)?何をすべき|今のTODO|方針としてはどう思う|どう思いますか|進めて大丈夫|大丈夫ですか)/u', $subQuery) === 1) {
+        if (preg_match('/(現在の進行中タスク|(?:次に)?何をすべき|今のTODO|方針としてはどう思う|どう思いますか|進めて大丈夫|大丈夫ですか|どこから手を付けるべき|どこから着手|何から手を付ける|問題はありますか|問題ないですか|方針に問題|どう分析すれば|どう見れば|分析の進め方|進め方)/u', $subQuery) === 1) {
             return 'consultation';
         }
 
-        if (preg_match('/(前提を確認する|関連資料を探す|回答を整える|根拠を確認する)/u', $subQuery) === 1) {
+        if (preg_match('/(前提を確認する|関連資料を探す|回答を整える|根拠を確認する|一旦内容を整理|一度内容を整理|とりあえず整理)/u', $subQuery) === 1) {
             return 'ephemeral';
         }
 
@@ -328,6 +328,33 @@ final class ChatQuestionDecomposer
         }
 
         return 'unknown';
+    }
+
+    private function looksLikeClarificationRequest(string $subQuery): bool
+    {
+        if (preg_match('/(どのCSV|どの列|どれを見れば|どれを見る|これを(?:まとめる|整理する|要約する)|このデータを見てください)/u', $subQuery) === 1) {
+            return true;
+        }
+
+        if (preg_match('/^(集計する|集計してください)$/u', $subQuery) === 1) {
+            return true;
+        }
+
+        if ($this->hasMonthOnlyReference($subQuery) && !$this->hasExplicitAggregationInstruction($subQuery)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private function hasMonthOnlyReference(string $subQuery): bool
+    {
+        return preg_match('/(?:^|[^0-9])(?:\d{1,2}|今|先|来)月分/u', $subQuery) === 1;
+    }
+
+    private function hasExplicitAggregationInstruction(string $subQuery): bool
+    {
+        return preg_match('/(月別に集計|日別に集計|売上|件数|合計|平均|CSV|列|カラム|一覧表|データ|集計(?:する|して))/u', $subQuery) === 1;
     }
 
     private function detectUpdatePolicy(string $requestMode, string $subQuery): string
