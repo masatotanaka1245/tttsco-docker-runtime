@@ -2,6 +2,8 @@
 
 final class ProjectTaskStateReducer
 {
+    private const ACTIONABLE_SHORT_TASK_PATTERN = '/(要約|集計|整理|更新|作成|確認|分析|抽出|比較|追記|報告書|レポート|グラフ)/u';
+
     /**
      * @param array<int, array<string, mixed>> $decomposedTasks
      * @return array<string, mixed>|null
@@ -87,7 +89,7 @@ final class ProjectTaskStateReducer
 
     private static function looksLikeEphemeralTask(string $task): bool
     {
-        if (mb_strlen($task) < 6) {
+        if (mb_strlen($task) < 6 && preg_match(self::ACTIONABLE_SHORT_TASK_PATTERN, $task) !== 1) {
             return true;
         }
 

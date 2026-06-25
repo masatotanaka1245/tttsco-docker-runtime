@@ -8,6 +8,8 @@ final class ChatQuestionDecomposer
         'まとめ', '更新', '作成', '確認', '分析', '抽出', '比較', '追記',
     ];
 
+    private const SAVE_WORTHY_SHORT_TASK_PATTERN = '/(要約|集計|整理|更新|作成|確認|分析|抽出|比較|追記|報告書|レポート|グラフ)/u';
+
     public function decompose(string $question): array
     {
         $normalizedQuestion = $this->normalizeWhitespace($question);
@@ -188,7 +190,7 @@ final class ChatQuestionDecomposer
 
     private function isSaveWorthy(string $subQuery): bool
     {
-        if (mb_strlen($subQuery) < 6) {
+        if (mb_strlen($subQuery) < 6 && preg_match(self::SAVE_WORTHY_SHORT_TASK_PATTERN, $subQuery) !== 1) {
             return false;
         }
 
