@@ -72,12 +72,14 @@ function appendReportDocumentToPdfList(reportDocument) {
     if (!list || list.querySelector(`[data-doc-card-id="${docId}"]`)) return;
 
     const title = String(reportDocument.title || 'AI報告書.pdf');
+    const publicBase = String(getConfig().publicBase || '');
     const emptyState = document.getElementById('pdf-empty-state');
     if (emptyState) emptyState.remove();
 
     const details = document.createElement('details');
     details.className = 'bg-white border border-amber-200 rounded-2xl shadow-2xs group overflow-hidden transition-all duration-300 ease-in-out hover:shadow-sm';
     details.dataset.docCardId = String(docId);
+    details.open = true;
 
     const summary = document.createElement('summary');
     summary.className = 'p-3.5 px-5 flex justify-between items-center cursor-pointer hover:bg-amber-50/50 transition-colors duration-200 ease-in-out outline-none select-none';
@@ -119,7 +121,7 @@ function appendReportDocumentToPdfList(reportDocument) {
     const preview = document.createElement('div');
     preview.className = 'h-[580px] border-t border-slate-100 bg-slate-50 p-2';
     const iframe = document.createElement('iframe');
-    iframe.src = `viewer.php?id=${docId}&page=1`;
+    iframe.src = `${publicBase}/api/view_pdf.php?id=${docId}&_=${Date.now()}#page=1`;
     iframe.className = 'w-full h-full border-none rounded-xl shadow-inner bg-white';
     iframe.loading = 'lazy';
     preview.appendChild(iframe);
@@ -211,11 +213,11 @@ function appendMaterialDocumentToList(materialDocument, { activate = true } = {}
         }
     });
 
-    let card = list.querySelector(`[data-material-doc-id="${String(documentId)}"]`);
+    let card = list.querySelector(`[data-material-document-id="${String(documentId)}"]`);
     const isNew = !card;
     if (!card) {
         card = document.createElement('a');
-        card.dataset.materialDocId = String(documentId);
+        card.dataset.materialDocumentId = String(documentId);
         list.prepend(card);
     }
 
@@ -233,11 +235,17 @@ function appendMaterialDocumentToList(materialDocument, { activate = true } = {}
 
     if (activate) {
         setSelectedMaterialDocumentId(documentId);
-        list.querySelectorAll('[data-material-doc-id]').forEach((el) => {
+        list.querySelectorAll('[data-material-document-id]').forEach((el) => {
             el.className = el === card
                 ? 'block rounded-xl border px-4 py-3 shadow-2xs transition-all duration-200 ease-in-out border-indigo-300 bg-indigo-50/80'
                 : 'block rounded-xl border px-4 py-3 shadow-2xs transition-all duration-200 ease-in-out border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/70';
         });
+
+        if (typeof window.loadMaterialDocument === 'function') {
+            Promise.resolve(window.loadMaterialDocument(documentId)).catch((error) => {
+                console.warn('material preview reload failed after append:', error);
+            });
+        }
     }
 
     if (isNew) {
