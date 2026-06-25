@@ -490,25 +490,6 @@ try {
         chatLogger("[WARN] 会話履歴コンテキスト取得に失敗: " . $historyEx->getMessage());
     }
 
-    if ($project_id !== null) {
-        try {
-            $projectMemoryDocs = ProjectContextMemory::load($pdo, (int)$project_id);
-            if (ProjectContextMemory::totalChars($projectMemoryDocs) === 0) {
-                $projectMemoryDocs = ProjectMemoryAutoUpdater::refresh(
-                    $pdo,
-                    (int)$project_id,
-                    $thread_id !== null ? (int)$thread_id : null,
-                    (int)$user_id,
-                    'chatLogger'
-                );
-            }
-            chatLogger("[PROJECT-MEMORY] route=factorizer | loaded=" . (empty(ProjectContextMemory::loadedTypes($projectMemoryDocs)) ? 'none' : implode(',', ProjectContextMemory::loadedTypes($projectMemoryDocs))) . " | chars=" . ProjectContextMemory::totalChars($projectMemoryDocs));
-        } catch (Throwable $memoryEx) {
-            chatLogger("[WARN] 案件運用メモの因数分解補助ロードに失敗: " . $memoryEx->getMessage());
-            $projectMemoryDocs = [];
-        }
-    }
-
     $questionDecomposer = new ChatQuestionDecomposer();
     $decompositionPacket = $questionDecomposer->decompose($message);
     $decompositionSteps = (array)($decompositionPacket['sub_questions'] ?? []);
@@ -553,6 +534,26 @@ try {
             chatLogger("[QUESTION-DECOMPOSE-SAVE] project_id={$project_id} | saved_steps={$savedDecompositionSteps}");
         } catch (Throwable $decomposeSaveEx) {
             chatLogger("[QUESTION-DECOMPOSE-SAVE] skipped=error | reason=" . $decomposeSaveEx->getMessage());
+        }
+    }
+
+    if ($project_id !== null) {
+        try {
+            $projectMemoryDocs = ProjectContextMemory::load($pdo, (int)$project_id);
+            if (ProjectContextMemory::totalChars($projectMemoryDocs) === 0) {
+                $projectMemoryDocs = ProjectMemoryAutoUpdater::refresh(
+                    $pdo,
+                    (int)$project_id,
+                    $thread_id !== null ? (int)$thread_id : null,
+                    (int)$user_id,
+                    'chatLogger',
+                    ['decomposed_tasks' => $decompositionSteps]
+                );
+            }
+            chatLogger("[PROJECT-MEMORY] route=factorizer | loaded=" . (empty(ProjectContextMemory::loadedTypes($projectMemoryDocs)) ? 'none' : implode(',', ProjectContextMemory::loadedTypes($projectMemoryDocs))) . " | chars=" . ProjectContextMemory::totalChars($projectMemoryDocs));
+        } catch (Throwable $memoryEx) {
+            chatLogger("[WARN] 案件運用メモの因数分解補助ロードに失敗: " . $memoryEx->getMessage());
+            $projectMemoryDocs = [];
         }
     }
 
