@@ -277,11 +277,13 @@ require_once __DIR__ . '/../../src/PromptManager.php';
 require_once __DIR__ . '/../../src/ChatThreadManager.php';
 require_once __DIR__ . '/../../src/ChatRequestGuard.php';
 require_once __DIR__ . '/../../src/ChatHistoryContextResolver.php';
+require_once __DIR__ . '/../../src/ChatQuestionDecomposer.php';
 require_once __DIR__ . '/../../src/ChatRouteFactorizer.php';
 require_once __DIR__ . '/../../src/ChatRouteSelector.php';
 require_once __DIR__ . '/../../src/ChatRouteDispatcher.php';
 require_once __DIR__ . '/../../src/ModelRoleResolver.php';
 require_once __DIR__ . '/../../src/ChatModelRolePayload.php';
+require_once __DIR__ . '/../../src/AdvancedReasoningStepRecorder.php';
 
 // 認証チェック
 $auth = new Auth($pdo);
@@ -458,6 +460,7 @@ try {
     $recentHistory = [];
     $recentHistoryLimit = 3;
     $projectMemoryDocs = [];
+    $decompositionPacket = ['original_question' => $message, 'sub_questions' => []];
     $csvContextResolver = $project_id !== null ? new ChatHistoryContextResolver($pdo, (int)$project_id) : null;
 
     try {
@@ -503,6 +506,53 @@ try {
         } catch (Throwable $memoryEx) {
             chatLogger("[WARN] 案件運用メモの因数分解補助ロードに失敗: " . $memoryEx->getMessage());
             $projectMemoryDocs = [];
+        }
+    }
+
+    $questionDecomposer = new ChatQuestionDecomposer();
+    $decompositionPacket = $questionDecomposer->decompose($message);
+    $decompositionSteps = (array)($decompositionPacket['sub_questions'] ?? []);
+    $decompositionIntents = array_values(array_unique(array_filter(array_map(
+        static fn(array $step): string => trim((string)($step['intent'] ?? '')),
+        $decompositionSteps
+    ))));
+    chatLogger(
+        "[QUESTION-DECOMPOSE] steps=" . count($decompositionSteps)
+        . " | intents=" . (!empty($decompositionIntents) ? implode(',', array_slice($decompositionIntents, 0, 6)) : 'none')
+        . " | project=" . ($project_id !== null ? 'yes' : 'no')
+    );
+    if ($project_id !== null && !empty($decompositionSteps)) {
+        $decompositionReasoningId = $reasoning_id ?: ('decomp-' . uniqid('', true));
+        $normalizeUtf8 = static function (string $text): string {
+            $text = trim((string)$text);
+            if ($text === '') {
+                return '';
+            }
+
+            if (!mb_check_encoding($text, 'UTF-8')) {
+                $converted = @mb_convert_encoding($text, 'UTF-8', 'UTF-8, SJIS-win, EUC-JP, ISO-2022-JP');
+                if (is_string($converted) && $converted !== '') {
+                    $text = $converted;
+                }
+            }
+
+            $normalized = @iconv('UTF-8', 'UTF-8//IGNORE', $text);
+            return is_string($normalized) && $normalized !== '' ? $normalized : $text;
+        };
+
+        try {
+            $decomposeRecorder = new AdvancedReasoningStepRecorder(
+                $pdo,
+                (int)$project_id,
+                $decompositionReasoningId,
+                $message,
+                $normalizeUtf8,
+                'chatLogger'
+            );
+            $savedDecompositionSteps = $decomposeRecorder->recordDecomposedSteps($decompositionSteps);
+            chatLogger("[QUESTION-DECOMPOSE-SAVE] project_id={$project_id} | saved_steps={$savedDecompositionSteps}");
+        } catch (Throwable $decomposeSaveEx) {
+            chatLogger("[QUESTION-DECOMPOSE-SAVE] skipped=error | reason=" . $decomposeSaveEx->getMessage());
         }
     }
 

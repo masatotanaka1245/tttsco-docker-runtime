@@ -88,6 +88,43 @@ final class AdvancedReasoningStepRecorder
         }
     }
 
+    /**
+     * @param array<int, array{sub_query?: string, step_number?: int}> $steps
+     */
+    public function recordDecomposedSteps(array $steps, string $initialAnswer = '[DECOMPOSED-PENDING]'): int
+    {
+        $savedCount = 0;
+
+        foreach ($steps as $index => $step) {
+            $subQuery = trim((string)($step['sub_query'] ?? ''));
+            if ($subQuery === '') {
+                continue;
+            }
+
+            $stepNumber = (int)($step['step_number'] ?? ($index + 1));
+            try {
+                $stmt = $this->pdo->prepare("
+                    INSERT INTO chat_reasoning_steps
+                        (project_id, session_id, original_question, step_number, sub_query, sub_answer, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, NOW())
+                ");
+                $stmt->execute([
+                    $this->projectId,
+                    $this->reasoningId,
+                    $this->normalize($this->originalMessage),
+                    $stepNumber,
+                    $this->normalize($subQuery),
+                    $this->normalize($initialAnswer),
+                ]);
+                $savedCount++;
+            } catch (Exception $e) {
+                $this->log("[QUESTION-DECOMPOSE-SAVE] reasoning step 保存失敗: " . $e->getMessage());
+            }
+        }
+
+        return $savedCount;
+    }
+
     private function normalize(string $value): string
     {
         return (string)call_user_func($this->normalizeUtf8, $value);
