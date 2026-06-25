@@ -18,6 +18,8 @@ final class ProjectTaskStateReducer
                 self::logDecision($logger, [
                     'save_worthy' => false,
                     'reason' => 'invalid_task_payload',
+                    'request_mode' => '',
+                    'update_policy' => '',
                     'intent' => 'unknown',
                     'text' => '',
                     'normalized' => '',
@@ -34,12 +36,32 @@ final class ProjectTaskStateReducer
             $source = self::resolveTaskSource($task);
             $saveReason = trim((string)($task['save_reason'] ?? ''));
             $skipReason = trim((string)($task['skip_reason'] ?? ''));
+            $requestMode = trim((string)($task['request_mode'] ?? ''));
+            $updatePolicy = trim((string)($task['update_policy'] ?? ''));
             $saveWorthy = (bool)($task['save_worthy'] ?? false);
+
+            if (self::isDeniedUpdatePolicy($updatePolicy)) {
+                self::logDecision($logger, [
+                    'save_worthy' => false,
+                    'reason' => $updatePolicy,
+                    'request_mode' => $requestMode,
+                    'update_policy' => $updatePolicy,
+                    'intent' => $intent !== '' ? $intent : 'general',
+                    'text' => $rawText,
+                    'normalized' => $normalizedTask,
+                    'source' => $source,
+                    'reducer_skip' => true,
+                ]);
+                $skipped++;
+                continue;
+            }
 
             if (!$saveWorthy) {
                 self::logDecision($logger, [
                     'save_worthy' => false,
                     'reason' => $skipReason !== '' ? $skipReason : 'save_worthy_false',
+                    'request_mode' => $requestMode,
+                    'update_policy' => $updatePolicy,
                     'intent' => $intent !== '' ? $intent : 'general',
                     'text' => $rawText,
                     'normalized' => $normalizedTask,
@@ -54,6 +76,8 @@ final class ProjectTaskStateReducer
                 self::logDecision($logger, [
                     'save_worthy' => false,
                     'reason' => 'empty_task',
+                    'request_mode' => $requestMode,
+                    'update_policy' => $updatePolicy,
                     'intent' => $intent !== '' ? $intent : 'general',
                     'text' => $rawText,
                     'normalized' => '',
@@ -69,6 +93,8 @@ final class ProjectTaskStateReducer
                 self::logDecision($logger, [
                     'save_worthy' => false,
                     'reason' => (string)$ephemeralAnalysis['reason'],
+                    'request_mode' => $requestMode,
+                    'update_policy' => $updatePolicy,
                     'intent' => $intent !== '' ? $intent : 'general',
                     'text' => $rawText,
                     'normalized' => $normalizedTask,
@@ -82,6 +108,8 @@ final class ProjectTaskStateReducer
             self::logDecision($logger, [
                 'save_worthy' => true,
                 'reason' => $saveReason !== '' ? $saveReason : 'reducer_accepted',
+                'request_mode' => $requestMode,
+                'update_policy' => $updatePolicy,
                 'intent' => $intent !== '' ? $intent : 'general',
                 'text' => $rawText,
                 'normalized' => $normalizedTask,
@@ -214,7 +242,17 @@ final class ProjectTaskStateReducer
     }
 
     /**
-     * @param array{save_worthy:bool, reason:string, intent:string, text:string, normalized:string, source:string, reducer_skip:bool} $decision
+     * @param array{
+     *   save_worthy:bool,
+     *   reason:string,
+     *   request_mode:string,
+     *   update_policy:string,
+     *   intent:string,
+     *   text:string,
+     *   normalized:string,
+     *   source:string,
+     *   reducer_skip:bool
+     * } $decision
      */
     private static function logDecision(?callable $logger, array $decision): void
     {
@@ -225,12 +263,24 @@ final class ProjectTaskStateReducer
         $logger(
             '[TASK-REDUCER] save_worthy=' . ($decision['save_worthy'] ? 'true' : 'false')
             . ' | reason=' . ($decision['reason'] !== '' ? $decision['reason'] : 'none')
+            . ' | request_mode=' . ($decision['request_mode'] !== '' ? $decision['request_mode'] : 'none')
+            . ' | update_policy=' . ($decision['update_policy'] !== '' ? $decision['update_policy'] : 'none')
             . ' | intent=' . ($decision['intent'] !== '' ? $decision['intent'] : 'general')
             . ' | text=' . self::compactForLog($decision['text'], 80)
             . ' | normalized=' . self::compactForLog($decision['normalized'], 80)
             . ' | source=' . ($decision['source'] !== '' ? $decision['source'] : 'decomposition')
             . ' | reducer_skip=' . ($decision['reducer_skip'] ? 'true' : 'false')
         );
+    }
+
+    private static function isDeniedUpdatePolicy(string $updatePolicy): bool
+    {
+        return in_array($updatePolicy, [
+            'read_only',
+            'clarification_required',
+            'ephemeral_only',
+            'todo_candidate_denied',
+        ], true);
     }
 
     private static function compactForLog(string $text, int $limit): string

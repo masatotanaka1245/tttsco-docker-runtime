@@ -41,6 +41,8 @@ final class ChatQuestionDecomposer
                 'save_reason' => $saveAnalysis['save_reason'],
                 'skip_reason' => $saveAnalysis['skip_reason'],
                 'task_text_normalized' => $saveAnalysis['task_text_normalized'],
+                'request_mode' => $saveAnalysis['request_mode'],
+                'update_policy' => $saveAnalysis['update_policy'],
             ];
         }
 
@@ -57,6 +59,8 @@ final class ChatQuestionDecomposer
                 'save_reason' => $saveAnalysis['save_reason'],
                 'skip_reason' => $saveAnalysis['skip_reason'],
                 'task_text_normalized' => $saveAnalysis['task_text_normalized'],
+                'request_mode' => $saveAnalysis['request_mode'],
+                'update_policy' => $saveAnalysis['update_policy'],
             ];
         }
 
@@ -218,17 +222,39 @@ final class ChatQuestionDecomposer
     }
 
     /**
-     * @return array{save_worthy:bool, save_reason:?string, skip_reason:?string, task_text_normalized:string}
+     * @return array{
+     *   save_worthy:bool,
+     *   save_reason:?string,
+     *   skip_reason:?string,
+     *   task_text_normalized:string,
+     *   request_mode:string,
+     *   update_policy:string
+     * }
      */
     private function analyzeSaveWorthiness(string $subQuery): array
     {
         $normalized = $this->trimTaskText($this->normalizeWhitespace($subQuery));
+        $requestMode = $this->detectRequestMode($normalized);
+        $updatePolicy = $this->detectUpdatePolicy($requestMode, $normalized);
         if ($normalized === '') {
             return [
                 'save_worthy' => false,
                 'save_reason' => null,
                 'skip_reason' => 'empty_task',
                 'task_text_normalized' => '',
+                'request_mode' => 'unknown',
+                'update_policy' => 'todo_candidate_denied',
+            ];
+        }
+
+        if ($updatePolicy !== 'todo_candidate_allowed') {
+            return [
+                'save_worthy' => false,
+                'save_reason' => null,
+                'skip_reason' => $updatePolicy,
+                'task_text_normalized' => $normalized,
+                'request_mode' => $requestMode,
+                'update_policy' => $updatePolicy,
             ];
         }
 
@@ -238,6 +264,8 @@ final class ChatQuestionDecomposer
                 'save_reason' => null,
                 'skip_reason' => 'too_short',
                 'task_text_normalized' => $normalized,
+                'request_mode' => $requestMode,
+                'update_policy' => $updatePolicy,
             ];
         }
 
@@ -247,6 +275,8 @@ final class ChatQuestionDecomposer
                 'save_reason' => null,
                 'skip_reason' => 'question_like',
                 'task_text_normalized' => $normalized,
+                'request_mode' => $requestMode,
+                'update_policy' => $updatePolicy,
             ];
         }
 
@@ -256,6 +286,8 @@ final class ChatQuestionDecomposer
                 'save_reason' => null,
                 'skip_reason' => 'clarification_request',
                 'task_text_normalized' => $normalized,
+                'request_mode' => $requestMode,
+                'update_policy' => $updatePolicy,
             ];
         }
 
@@ -264,7 +296,63 @@ final class ChatQuestionDecomposer
             'save_reason' => $this->resolveSaveReason($normalized),
             'skip_reason' => null,
             'task_text_normalized' => $normalized,
+            'request_mode' => $requestMode,
+            'update_policy' => $updatePolicy,
         ];
+    }
+
+    private function detectRequestMode(string $subQuery): string
+    {
+        if ($subQuery === '') {
+            return 'unknown';
+        }
+
+        if (preg_match('/(どのCSV|どの列|どれを見れば|どれを見る|これを(?:まとめる|整理する|要約する)|(?:\d{1,2}|今|先|来)月分)/u', $subQuery) === 1) {
+            return 'clarification';
+        }
+
+        if (preg_match('/(現在の進行中タスク|(?:次に)?何をすべき|今のTODO|方針としてはどう思う|どう思いますか|進めて大丈夫|大丈夫ですか)/u', $subQuery) === 1) {
+            return 'consultation';
+        }
+
+        if (preg_match('/(前提を確認する|関連資料を探す|回答を整える|根拠を確認する)/u', $subQuery) === 1) {
+            return 'ephemeral';
+        }
+
+        if (preg_match('/(報告書|レポート|PDF|Markdown|markdown|CSVに出力|CSV出力|出力する)/u', $subQuery) === 1) {
+            return 'artifact';
+        }
+
+        if (preg_match('/(要約|集計|整理|更新|作成|確認|分析|抽出|比較|追記|まとめる|出す|確認する)/u', $subQuery) === 1) {
+            return 'command';
+        }
+
+        return 'unknown';
+    }
+
+    private function detectUpdatePolicy(string $requestMode, string $subQuery): string
+    {
+        if ($requestMode === 'consultation') {
+            return 'read_only';
+        }
+
+        if ($requestMode === 'clarification') {
+            return 'clarification_required';
+        }
+
+        if ($requestMode === 'ephemeral') {
+            return 'ephemeral_only';
+        }
+
+        if ($requestMode === 'command' || $requestMode === 'artifact') {
+            return 'todo_candidate_allowed';
+        }
+
+        if ($subQuery === '') {
+            return 'todo_candidate_denied';
+        }
+
+        return 'todo_candidate_allowed';
     }
 
     private function resolveSaveReason(string $subQuery): string
