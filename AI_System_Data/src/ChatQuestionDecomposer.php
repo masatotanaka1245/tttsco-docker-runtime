@@ -28,6 +28,8 @@ final class ChatQuestionDecomposer
                 continue;
             }
 
+            $saveAnalysis = $this->analyzeSaveWorthiness($subQuery);
+
             $subQuestions[] = [
                 'step_number' => count($subQuestions) + 1,
                 'sub_query' => $subQuery,
@@ -35,11 +37,15 @@ final class ChatQuestionDecomposer
                 'target_hint' => $this->detectTargetHint($subQuery),
                 'route_hint' => $this->detectRouteHint($subQuery),
                 'priority' => $index === 0 ? 'high' : 'medium',
-                'save_worthy' => $this->isSaveWorthy($subQuery),
+                'save_worthy' => (bool)$saveAnalysis['save_worthy'],
+                'save_reason' => $saveAnalysis['save_reason'],
+                'skip_reason' => $saveAnalysis['skip_reason'],
+                'task_text_normalized' => $saveAnalysis['task_text_normalized'],
             ];
         }
 
         if ($subQuestions === []) {
+            $saveAnalysis = $this->analyzeSaveWorthiness($normalizedQuestion);
             $subQuestions[] = [
                 'step_number' => 1,
                 'sub_query' => $normalizedQuestion,
@@ -47,7 +53,10 @@ final class ChatQuestionDecomposer
                 'target_hint' => $this->detectTargetHint($normalizedQuestion),
                 'route_hint' => $this->detectRouteHint($normalizedQuestion),
                 'priority' => 'high',
-                'save_worthy' => $this->isSaveWorthy($normalizedQuestion),
+                'save_worthy' => (bool)$saveAnalysis['save_worthy'],
+                'save_reason' => $saveAnalysis['save_reason'],
+                'skip_reason' => $saveAnalysis['skip_reason'],
+                'task_text_normalized' => $saveAnalysis['task_text_normalized'],
             ];
         }
 
@@ -205,19 +214,70 @@ final class ChatQuestionDecomposer
 
     private function isSaveWorthy(string $subQuery): bool
     {
-        if (mb_strlen($subQuery) < 6 && preg_match(self::SAVE_WORTHY_SHORT_TASK_PATTERN, $subQuery) !== 1) {
-            return false;
+        return (bool)$this->analyzeSaveWorthiness($subQuery)['save_worthy'];
+    }
+
+    /**
+     * @return array{save_worthy:bool, save_reason:?string, skip_reason:?string, task_text_normalized:string}
+     */
+    private function analyzeSaveWorthiness(string $subQuery): array
+    {
+        $normalized = $this->trimTaskText($this->normalizeWhitespace($subQuery));
+        if ($normalized === '') {
+            return [
+                'save_worthy' => false,
+                'save_reason' => null,
+                'skip_reason' => 'empty_task',
+                'task_text_normalized' => '',
+            ];
         }
 
-        if (preg_match('/\?|？$/u', $subQuery)) {
-            return false;
+        if (mb_strlen($normalized) < 6 && preg_match(self::SAVE_WORTHY_SHORT_TASK_PATTERN, $normalized) !== 1) {
+            return [
+                'save_worthy' => false,
+                'save_reason' => null,
+                'skip_reason' => 'too_short',
+                'task_text_normalized' => $normalized,
+            ];
         }
 
-        if (preg_match('/どのCSV|どの列|追加情報|対象列|対象CSV/u', $subQuery)) {
-            return false;
+        if (preg_match('/\?|？$/u', $normalized)) {
+            return [
+                'save_worthy' => false,
+                'save_reason' => null,
+                'skip_reason' => 'question_like',
+                'task_text_normalized' => $normalized,
+            ];
         }
 
-        return true;
+        if (preg_match('/どのCSV|どの列|追加情報|対象列|対象CSV/u', $normalized)) {
+            return [
+                'save_worthy' => false,
+                'save_reason' => null,
+                'skip_reason' => 'clarification_request',
+                'task_text_normalized' => $normalized,
+            ];
+        }
+
+        return [
+            'save_worthy' => true,
+            'save_reason' => $this->resolveSaveReason($normalized),
+            'skip_reason' => null,
+            'task_text_normalized' => $normalized,
+        ];
+    }
+
+    private function resolveSaveReason(string $subQuery): string
+    {
+        if (preg_match('/報告書|レポート|PDF|作成|グラフ|グラフ化/u', $subQuery)) {
+            return 'artifact_request';
+        }
+
+        if (preg_match('/分析|集計|比較|抽出/u', $subQuery)) {
+            return 'analysis_task';
+        }
+
+        return 'decomposition_save_worthy';
     }
 
     private function normalizeWhitespace(string $text): string

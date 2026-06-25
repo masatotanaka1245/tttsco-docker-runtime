@@ -755,7 +755,7 @@ final class ProjectMemoryAutoUpdater
     private static function resolveTodoState(array $snapshot, array $decomposedTasks, ?callable $logger = null): array
     {
         if ($decomposedTasks !== []) {
-            $reducedState = ProjectTaskStateReducer::reduce($decomposedTasks);
+            $reducedState = ProjectTaskStateReducer::reduce($decomposedTasks, $logger);
             if ($reducedState !== null) {
                 if ($logger !== null) {
                     $logger(
@@ -770,6 +770,13 @@ final class ProjectMemoryAutoUpdater
 
             if ($logger !== null) {
                 $logger('[PROJECT-TASK-REDUCER] source=decomposition | current=0 | pending=0 | skipped=' . count($decomposedTasks));
+                $logger(
+                    '[PROJECT-MEMORY-AUTO] skipped=task_guard'
+                    . ' | reason=no_save_worthy_tasks'
+                    . ' | source=decomposition'
+                    . ' | fallback=history_snapshot'
+                    . ' | task_count=' . count($decomposedTasks)
+                );
             }
         }
 

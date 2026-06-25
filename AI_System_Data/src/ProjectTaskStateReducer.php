@@ -8,31 +8,90 @@ final class ProjectTaskStateReducer
      * @param array<int, array<string, mixed>> $decomposedTasks
      * @return array<string, mixed>|null
      */
-    public static function reduce(array $decomposedTasks): ?array
+    public static function reduce(array $decomposedTasks, ?callable $logger = null): ?array
     {
         $usable = [];
         $skipped = 0;
 
         foreach ($decomposedTasks as $index => $task) {
             if (!is_array($task)) {
+                self::logDecision($logger, [
+                    'save_worthy' => false,
+                    'reason' => 'invalid_task_payload',
+                    'intent' => 'unknown',
+                    'text' => '',
+                    'normalized' => '',
+                    'source' => 'decomposition',
+                    'reducer_skip' => true,
+                ]);
                 $skipped++;
                 continue;
             }
 
-            if (!(bool)($task['save_worthy'] ?? false)) {
+            $rawText = (string)($task['sub_query'] ?? '');
+            $normalizedTask = self::normalizeTask((string)($task['task_text_normalized'] ?? $rawText));
+            $intent = trim((string)($task['intent'] ?? 'general'));
+            $source = self::resolveTaskSource($task);
+            $saveReason = trim((string)($task['save_reason'] ?? ''));
+            $skipReason = trim((string)($task['skip_reason'] ?? ''));
+            $saveWorthy = (bool)($task['save_worthy'] ?? false);
+
+            if (!$saveWorthy) {
+                self::logDecision($logger, [
+                    'save_worthy' => false,
+                    'reason' => $skipReason !== '' ? $skipReason : 'save_worthy_false',
+                    'intent' => $intent !== '' ? $intent : 'general',
+                    'text' => $rawText,
+                    'normalized' => $normalizedTask,
+                    'source' => $source,
+                    'reducer_skip' => false,
+                ]);
                 $skipped++;
                 continue;
             }
 
-            $subQuery = self::normalizeTask((string)($task['sub_query'] ?? ''));
-            if ($subQuery === '' || self::looksLikeEphemeralTask($subQuery)) {
+            if ($normalizedTask === '') {
+                self::logDecision($logger, [
+                    'save_worthy' => false,
+                    'reason' => 'empty_task',
+                    'intent' => $intent !== '' ? $intent : 'general',
+                    'text' => $rawText,
+                    'normalized' => '',
+                    'source' => $source,
+                    'reducer_skip' => true,
+                ]);
                 $skipped++;
                 continue;
             }
+
+            $ephemeralAnalysis = self::analyzeEphemeralTask($normalizedTask);
+            if ($ephemeralAnalysis['skip']) {
+                self::logDecision($logger, [
+                    'save_worthy' => false,
+                    'reason' => (string)$ephemeralAnalysis['reason'],
+                    'intent' => $intent !== '' ? $intent : 'general',
+                    'text' => $rawText,
+                    'normalized' => $normalizedTask,
+                    'source' => $source,
+                    'reducer_skip' => true,
+                ]);
+                $skipped++;
+                continue;
+            }
+
+            self::logDecision($logger, [
+                'save_worthy' => true,
+                'reason' => $saveReason !== '' ? $saveReason : 'reducer_accepted',
+                'intent' => $intent !== '' ? $intent : 'general',
+                'text' => $rawText,
+                'normalized' => $normalizedTask,
+                'source' => $source,
+                'reducer_skip' => false,
+            ]);
 
             $usable[] = [
                 'step_number' => (int)($task['step_number'] ?? ($index + 1)),
-                'task' => $subQuery,
+                'task' => $normalizedTask,
                 'priority' => self::normalizePriority((string)($task['priority'] ?? 'medium')),
             ];
         }
@@ -86,20 +145,27 @@ final class ProjectTaskStateReducer
         return preg_replace('/[。．]+$/u', '', $task) ?? $task;
     }
 
-    private static function looksLikeEphemeralTask(string $task): bool
+    /**
+     * @return array{skip:bool, reason:string}
+     */
+    private static function analyzeEphemeralTask(string $task): array
     {
         if (mb_strlen($task) < 6 && preg_match(self::ACTIONABLE_SHORT_TASK_PATTERN, $task) !== 1) {
-            return true;
+            return ['skip' => true, 'reason' => 'too_short'];
         }
 
         if (preg_match('/\?|？$/u', $task)) {
-            return true;
+            return ['skip' => true, 'reason' => 'question_like'];
         }
 
-        return preg_match(
+        if (preg_match(
             '/(どのCSV|どの列|対象列|対象CSV|追加情報|指定してください|教えてください|確認させてください|補足してください|もう少し詳しく)/u',
             $task
-        ) === 1;
+        ) === 1) {
+            return ['skip' => true, 'reason' => 'clarification_request'];
+        }
+
+        return ['skip' => false, 'reason' => 'accepted'];
     }
 
     /**
@@ -127,5 +193,57 @@ final class ProjectTaskStateReducer
         }
 
         return array_keys($unique);
+    }
+
+    /**
+     * @param array<string, mixed> $task
+     */
+    private static function resolveTaskSource(array $task): string
+    {
+        $routeHint = trim((string)($task['route_hint'] ?? ''));
+        if ($routeHint !== '') {
+            return $routeHint;
+        }
+
+        $targetHint = trim((string)($task['target_hint'] ?? ''));
+        if ($targetHint !== '') {
+            return 'target:' . $targetHint;
+        }
+
+        return 'decomposition';
+    }
+
+    /**
+     * @param array{save_worthy:bool, reason:string, intent:string, text:string, normalized:string, source:string, reducer_skip:bool} $decision
+     */
+    private static function logDecision(?callable $logger, array $decision): void
+    {
+        if ($logger === null) {
+            return;
+        }
+
+        $logger(
+            '[TASK-REDUCER] save_worthy=' . ($decision['save_worthy'] ? 'true' : 'false')
+            . ' | reason=' . ($decision['reason'] !== '' ? $decision['reason'] : 'none')
+            . ' | intent=' . ($decision['intent'] !== '' ? $decision['intent'] : 'general')
+            . ' | text=' . self::compactForLog($decision['text'], 80)
+            . ' | normalized=' . self::compactForLog($decision['normalized'], 80)
+            . ' | source=' . ($decision['source'] !== '' ? $decision['source'] : 'decomposition')
+            . ' | reducer_skip=' . ($decision['reducer_skip'] ? 'true' : 'false')
+        );
+    }
+
+    private static function compactForLog(string $text, int $limit): string
+    {
+        $text = trim((string)(preg_replace('/\s+/u', ' ', $text) ?? $text));
+        if ($text === '') {
+            return '(empty)';
+        }
+
+        if (mb_strlen($text) <= $limit) {
+            return $text;
+        }
+
+        return mb_substr($text, 0, $limit - 1) . '…';
     }
 }
