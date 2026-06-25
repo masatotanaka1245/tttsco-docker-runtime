@@ -22,6 +22,7 @@ class CsvAggregationPlanner
     {
         $hasDateIntent = $this->hasDateIntent($question);
         $hasTimeBandIntent = $this->hasTimeBandIntent($question);
+        $dateFilterMeta = $this->detectDateFilterMeta($question);
         $hasAggregateIntent = preg_match('/(集計|件数|合計|平均|表に|一覧|推移|時系列|別に|グループ|何種類|ユニーク|distinct|重複なし|分布|分類|カテゴリ|抽出して件数|抽出して、件数|若い順|古い順|昇順|降順|グラフ|グラフ化|チャート|ピーク時間|多い時間帯|ランキング|多い順|少ない順|上位|TOP|トップ|全件|すべて表示|続きを表示)/iu', $question) === 1;
         $hasExplainIntent = preg_match('/(どういう|どのような|説明|意味|何を表|どんなイベント|イベント.*説明|イベント.*意味|それぞれ.*説明)/u', $question) === 1;
         $hasColumnExistsIntent = preg_match('/(ありますよね|ありますか|存在しますか|入っていますか|含まれていますか|ありますよね。?)/u', $question) === 1;
@@ -62,6 +63,14 @@ class CsvAggregationPlanner
         }
 
         if (($hasDateIntent || $hasTimeBandIntent) && $hasAggregateIntent && $recentContext !== null) {
+            return true;
+        }
+
+        if (
+            $dateFilterMeta['mode'] === 'explicit_year_month'
+            && $hasAggregateIntent
+            && $this->findSingleDateLikeColumnTarget() !== null
+        ) {
             return true;
         }
 

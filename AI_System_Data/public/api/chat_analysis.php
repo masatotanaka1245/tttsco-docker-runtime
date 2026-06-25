@@ -1476,7 +1476,7 @@ class AdvancedReasoningRouteProcessor {
         $this->logPromptBudget('decompose_question', [
             'system' => $decompSystemPrompt,
             'schema' => $this->schemaInfo,
-            'question' => $this->searchQuery,
+            'question' => $this->originalMessage,
             'projectMemory' => $this->projectOperatingMemoryPrompt,
             'databaseMemory' => $this->databaseMemoryPrompt,
         ], $decomposeNumCtx);
@@ -1967,9 +1967,9 @@ class AdvancedReasoningRouteProcessor {
         if (empty($this->subQueries) || !isset($this->subQueries[0]['query'])) {
             chatLogger("実行計画のJSONパースに失敗。インテリジェント・フォールバック計画を適用します。");
             
-            if (preg_match('/(集計|件数|平均|合計|割合)/u', $this->searchQuery)) {
+            if (preg_match('/(集計|件数|平均|合計|割合)/u', $this->originalMessage)) {
                 $fallbackTable = 'project_csv_rows';
-            } elseif (preg_match('/(会話|履歴|チャット|これまでの|まとめ)/u', $this->searchQuery)) {
+            } elseif (preg_match('/(会話|履歴|チャット|これまでの|まとめ)/u', $this->originalMessage)) {
                 $fallbackTable = 'chat_history';
             } else {
                 $fallbackTable = 'doc_chunks';
