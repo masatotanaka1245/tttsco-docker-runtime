@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/ProjectContextMemory.php';
+require_once __DIR__ . '/ProjectTaskStateReducer.php';
 
 final class ProjectMemoryAutoUpdater
 {
@@ -32,7 +33,7 @@ final class ProjectMemoryAutoUpdater
         return true;
     }
 
-    public static function refresh(PDO $pdo, int $projectId, ?int $threadId, int $userId, ?callable $logger = null): array
+    public static function refresh(PDO $pdo, int $projectId, ?int $threadId, int $userId, ?callable $logger = null, array $context = []): array
     {
         if ($projectId <= 0) {
             return ProjectContextMemory::load($pdo, $projectId);
@@ -40,10 +41,11 @@ final class ProjectMemoryAutoUpdater
 
         $beforeDocs = ProjectContextMemory::load($pdo, $projectId);
         $snapshot = self::collectSnapshot($pdo, $projectId, $threadId, $userId);
+        $todoState = self::resolveTodoState($snapshot, (array)($context['decomposed_tasks'] ?? []), $logger);
         $autoDocs = [
-            'agents' => self::buildAgentsDoc($snapshot),
+            'agents' => self::buildAgentsDoc($snapshot, $todoState),
             'readme' => self::buildReadmeDoc($snapshot),
-            'todo' => self::buildTodoDoc($snapshot),
+            'todo' => self::buildTodoDoc($snapshot, $todoState),
         ];
 
         ProjectContextMemory::saveAuto($pdo, $projectId, $autoDocs);
@@ -56,6 +58,7 @@ final class ProjectMemoryAutoUpdater
                 . (empty($loaded) ? 'none' : implode(',', $loaded))
                 . ' | chars=' . ProjectContextMemory::totalChars($loadedDocs)
                 . ' | thread_id=' . ($threadId === null ? 'NULL' : (string)$threadId)
+                . ' | todo_source=' . (($todoState['meta']['source'] ?? 'history_snapshot'))
             );
             $logger('[PROJECT-MEMORY-AUTO] diff | ' . self::buildAutoRefreshDiffSummary($beforeDocs, $loadedDocs));
         }
@@ -549,11 +552,11 @@ final class ProjectMemoryAutoUpdater
         ];
     }
 
-    private static function buildAgentsDoc(array $snapshot): string
+    private static function buildAgentsDoc(array $snapshot, ?array $todoStateOverride = null): string
     {
         $topics = self::detectTopics($snapshot['history']);
         $latestRequests = self::extractLatestUserMessages($snapshot['history'], 3);
-        $todoState = self::buildTodoState($snapshot);
+        $todoState = $todoStateOverride ?? self::buildTodoState($snapshot);
         $activeArtifact = self::resolveActiveArtifactLane($snapshot, $latestRequests);
         $lines = [];
         $lines[] = '# AGENTS';
@@ -678,9 +681,9 @@ final class ProjectMemoryAutoUpdater
         return implode("\n", $lines);
     }
 
-    private static function buildTodoDoc(array $snapshot): string
+    private static function buildTodoDoc(array $snapshot, ?array $todoStateOverride = null): string
     {
-        $todoState = self::buildTodoState($snapshot);
+        $todoState = $todoStateOverride ?? self::buildTodoState($snapshot);
         $latestRequests = self::extractLatestUserMessages($snapshot['history'], 4);
         $activeArtifact = self::resolveActiveArtifactLane($snapshot, $latestRequests);
         $artifactFocus = self::describeArtifactFocus($snapshot, $activeArtifact);
@@ -744,6 +747,35 @@ final class ProjectMemoryAutoUpdater
         $lines[] = '- このTODOは自動生成のため、次回の会話保存時に更新される';
 
         return implode("\n", $lines);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $decomposedTasks
+     */
+    private static function resolveTodoState(array $snapshot, array $decomposedTasks, ?callable $logger = null): array
+    {
+        if ($decomposedTasks !== []) {
+            $reducedState = ProjectTaskStateReducer::reduce($decomposedTasks);
+            if ($reducedState !== null) {
+                if ($logger !== null) {
+                    $logger(
+                        '[PROJECT-TASK-REDUCER] source=decomposition'
+                        . ' | current=' . count((array)($reducedState['current'] ?? []))
+                        . ' | pending=' . count((array)($reducedState['pending'] ?? []))
+                        . ' | skipped=' . (int)($reducedState['meta']['skipped_count'] ?? 0)
+                    );
+                }
+                return $reducedState;
+            }
+
+            if ($logger !== null) {
+                $logger('[PROJECT-TASK-REDUCER] source=decomposition | current=0 | pending=0 | skipped=' . count($decomposedTasks));
+            }
+        }
+
+        $fallbackState = self::buildTodoState($snapshot);
+        $fallbackState['meta'] = ['source' => 'history_snapshot'];
+        return $fallbackState;
     }
 
     private static function detectTopics(array $history): array
