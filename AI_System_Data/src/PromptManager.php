@@ -361,6 +361,98 @@ class PromptManager {
         return self::clipText($compacted, $maxTotalChars);
     }
 
+    /**
+     * @param array<int, array{role?: string, message?: string}> $historyRows
+     * @return array{summary: string, raw_turns: int, retained_turns: int, raw_chars: int, compact_chars: int, retained_roles: array<string,int>}
+     */
+    public static function compactHistoryRows(
+        array $historyRows,
+        int $maxSourceTurns = 8,
+        int $maxRetainedTurns = 5,
+        int $maxUserTurns = 3,
+        int $maxAssistantTurns = 2,
+        int $userLineChars = 180,
+        int $assistantLineChars = 110,
+        int $maxTotalChars = 900
+    ): array {
+        $rows = array_slice($historyRows, -1 * max(1, $maxSourceTurns));
+        $normalizedRows = [];
+        foreach ($rows as $row) {
+            $role = ($row['role'] ?? '') === 'assistant' ? 'assistant' : 'user';
+            $message = trim((string)($row['message'] ?? ''));
+            if ($message === '') {
+                continue;
+            }
+            $message = preg_replace('/\s+/u', ' ', $message) ?? $message;
+            $normalizedRows[] = [
+                'role' => $role,
+                'message' => $message,
+            ];
+        }
+
+        if ($normalizedRows === []) {
+            return [
+                'summary' => '',
+                'raw_turns' => 0,
+                'retained_turns' => 0,
+                'raw_chars' => 0,
+                'compact_chars' => 0,
+                'retained_roles' => ['user' => 0, 'assistant' => 0],
+            ];
+        }
+
+        $rawLines = [];
+        foreach ($normalizedRows as $row) {
+            $roleLabel = $row['role'] === 'assistant' ? 'AI' : 'ユーザー';
+            $rawLines[] = $roleLabel . ': ' . $row['message'];
+        }
+        $rawText = implode("\n", $rawLines);
+
+        $selected = [];
+        $userCount = 0;
+        $assistantCount = 0;
+        foreach (array_reverse($normalizedRows) as $row) {
+            $role = $row['role'];
+            if ($role === 'assistant') {
+                if ($assistantCount >= $maxAssistantTurns) {
+                    continue;
+                }
+                $assistantCount++;
+            } else {
+                if ($userCount >= $maxUserTurns) {
+                    continue;
+                }
+                $userCount++;
+            }
+            $selected[] = $row;
+            if (count($selected) >= $maxRetainedTurns) {
+                break;
+            }
+        }
+
+        $selected = array_reverse($selected);
+        $retainedRoles = ['user' => 0, 'assistant' => 0];
+        $summaryLines = [];
+        foreach ($selected as $row) {
+            $role = $row['role'];
+            $retainedRoles[$role]++;
+            $lineLimit = $role === 'assistant' ? $assistantLineChars : $userLineChars;
+            $roleLabel = $role === 'assistant' ? 'AI' : 'ユーザー';
+            $summaryLines[] = $roleLabel . ': ' . self::clipText($row['message'], $lineLimit);
+        }
+
+        $summary = self::clipText(implode("\n", $summaryLines), $maxTotalChars);
+
+        return [
+            'summary' => $summary,
+            'raw_turns' => count($normalizedRows),
+            'retained_turns' => count($selected),
+            'raw_chars' => mb_strlen($rawText),
+            'compact_chars' => mb_strlen($summary),
+            'retained_roles' => $retainedRoles,
+        ];
+    }
+
     private static function clipText(string $text, int $maxChars): string
     {
         $text = trim((string)$text);

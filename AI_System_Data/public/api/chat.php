@@ -459,30 +459,39 @@ try {
     $history_summary_text = "";
     $recentHistory = [];
     $recentHistoryLimit = 3;
+    $historySummaryFetchLimit = 8;
     $projectMemoryDocs = [];
     $decompositionPacket = ['original_question' => $message, 'sub_questions' => []];
     $csvContextResolver = $project_id !== null ? new ChatHistoryContextResolver($pdo, (int)$project_id) : null;
 
     try {
         $historySql = $project_id === null
-            ? "SELECT role, message FROM chat_history WHERE project_id IS NULL AND user_id = ? ORDER BY created_at DESC LIMIT {$recentHistoryLimit}"
-            : "SELECT role, message FROM chat_history WHERE project_id = ? AND thread_id = ? AND user_id = ? ORDER BY created_at DESC LIMIT {$recentHistoryLimit}";
+            ? "SELECT role, message FROM chat_history WHERE project_id IS NULL AND user_id = ? ORDER BY created_at DESC LIMIT {$historySummaryFetchLimit}"
+            : "SELECT role, message FROM chat_history WHERE project_id = ? AND thread_id = ? AND user_id = ? ORDER BY created_at DESC LIMIT {$historySummaryFetchLimit}";
         $stmtHistory = $pdo->prepare($historySql);
         $stmtHistory->execute($project_id === null ? [$user_id] : [$project_id, $thread_id, $user_id]);
-        $recentHistory = array_reverse($stmtHistory->fetchAll(PDO::FETCH_ASSOC));
-        if ($recentHistory) {
-            $historyLines = [];
-            foreach ($recentHistory as $h) {
-                $roleLabel = $h['role'] === 'assistant' ? 'AI' : 'ユーザー';
-                $historyLines[] = $roleLabel . ': ' . mb_substr(preg_replace('/\s+/u', ' ', (string)$h['message']), 0, 500);
-            }
-            $rawHistorySummaryText = implode("\n", $historyLines);
-            $history_summary_text = PromptManager::compactHistorySummaryText($rawHistorySummaryText, 3, 180, 700);
-            if ($history_summary_text !== $rawHistorySummaryText) {
+        $historyRows = array_reverse($stmtHistory->fetchAll(PDO::FETCH_ASSOC));
+        $recentHistory = array_slice($historyRows, -1 * $recentHistoryLimit);
+        if ($historyRows) {
+            $historyPacket = PromptManager::compactHistoryRows(
+                $historyRows,
+                $historySummaryFetchLimit,
+                5,
+                3,
+                2,
+                180,
+                110,
+                900
+            );
+            $history_summary_text = (string)($historyPacket['summary'] ?? '');
+            if ($history_summary_text !== '') {
                 chatLogger(
-                    "[PROMPT-HISTORY] recent history packet を圧縮しました。rawChars="
-                    . mb_strlen($rawHistorySummaryText)
-                    . " | compactChars=" . mb_strlen($history_summary_text)
+                    "[PROMPT-HISTORY] rawTurns=" . (int)($historyPacket['raw_turns'] ?? 0)
+                    . " | compactTurns=" . (int)($historyPacket['retained_turns'] ?? 0)
+                    . " | rawChars=" . (int)($historyPacket['raw_chars'] ?? 0)
+                    . " | compactChars=" . (int)($historyPacket['compact_chars'] ?? 0)
+                    . " | retained=user:" . (int)(($historyPacket['retained_roles']['user'] ?? 0))
+                    . ",assistant:" . (int)(($historyPacket['retained_roles']['assistant'] ?? 0))
                 );
             }
         }
@@ -551,6 +560,7 @@ try {
                 );
             }
             chatLogger("[PROJECT-MEMORY] route=factorizer | loaded=" . (empty(ProjectContextMemory::loadedTypes($projectMemoryDocs)) ? 'none' : implode(',', ProjectContextMemory::loadedTypes($projectMemoryDocs))) . " | chars=" . ProjectContextMemory::totalChars($projectMemoryDocs));
+            chatLogger("[PROMPT-CONTEXT] history_layer=thread_summary | project_memory_chars=" . ProjectContextMemory::totalChars($projectMemoryDocs));
         } catch (Throwable $memoryEx) {
             chatLogger("[WARN] 案件運用メモの因数分解補助ロードに失敗: " . $memoryEx->getMessage());
             $projectMemoryDocs = [];
