@@ -44,6 +44,7 @@ require_once __DIR__ . '/../../src/OllamaChatHelper.php';
 require_once __DIR__ . '/../../src/ProjectContextMemory.php';
 require_once __DIR__ . '/../../src/ProjectMemoryAutoUpdater.php';
 require_once __DIR__ . '/../../src/UserSettingsSessionSynchronizer.php';
+require_once __DIR__ . '/../../src/ConversationIntentInterpreter.php';
 
 // =========================================================================
 // 1. 共通ヘルパー関数・出力制御 の 定義
@@ -545,6 +546,28 @@ try {
             chatLogger("[QUESTION-DECOMPOSE-SAVE] skipped=error | reason=" . $decomposeSaveEx->getMessage());
         }
     }
+
+    $conversationIntentInterpreter = new ConversationIntentInterpreter();
+    $conversationIntentProfile = $conversationIntentInterpreter->interpret(
+        $message,
+        $recentHistory,
+        $decompositionSteps,
+        $project_id !== null ? (int)$project_id : null,
+        $thread_id !== null ? (int)$thread_id : null
+    );
+    chatLogger(
+        "[CONVERSATION-INTENT] relation=" . (string)($conversationIntentProfile['conversation_relation'] ?? 'unknown')
+        . " | request_type=" . (string)($conversationIntentProfile['request_type'] ?? 'unknown')
+        . " | intent=" . (string)($conversationIntentProfile['user_intent'] ?? 'unknown')
+        . " | expected_response=" . (string)($conversationIntentProfile['expected_response'] ?? 'unknown')
+        . " | context_dependency=" . (string)($conversationIntentProfile['context_dependency'] ?? 'low')
+        . " | needs_action=" . ((bool)($conversationIntentProfile['needs_action'] ?? false) ? '1' : '0')
+        . " | needs_todo=" . ((bool)($conversationIntentProfile['needs_todo'] ?? false) ? '1' : '0')
+        . " | needs_clarification=" . ((bool)($conversationIntentProfile['needs_clarification'] ?? false) ? '1' : '0')
+        . " | todo_policy_hint=" . (string)($conversationIntentProfile['todo_policy_hint'] ?? 'unknown')
+        . " | topic_shift=" . ((bool)($conversationIntentProfile['topic_shift'] ?? false) ? '1' : '0')
+        . " | answer_strategy=" . (string)($conversationIntentProfile['answer_strategy'] ?? 'respond_normally')
+    );
 
     if ($project_id !== null) {
         try {
