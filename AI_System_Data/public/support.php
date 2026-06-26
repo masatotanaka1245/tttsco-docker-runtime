@@ -664,16 +664,30 @@ if (!function_exists('renderPdfDocumentItems')) {
         foreach ($documents as $doc) {
             $docId = (int)($doc['id'] ?? 0);
             $docTitle = (string)($doc['title'] ?? '');
+            $docFilePath = (string)($doc['file_path'] ?? '');
             $previewMeta = supportBuildPdfPreviewMeta($doc);
+            $isGeneratedReport = str_starts_with($docTitle, 'AI報告書_')
+                || str_contains($docFilePath, '/report_')
+                || (str_starts_with($docFilePath, '01_RAG_Documents/') && str_contains($docFilePath, 'report_'));
+            $stateLabel = 'PDF';
+            $stateClasses = 'text-slate-400 bg-slate-100 border-slate-200';
+            if ($previewMeta['mode'] === 'html') {
+                $stateLabel = 'HTML代替';
+                $stateClasses = 'text-amber-700 bg-amber-50 border-amber-200';
+            } elseif ($previewMeta['mode'] === 'missing') {
+                $stateLabel = $isGeneratedReport ? '再生成推奨' : '欠落';
+                $stateClasses = 'text-rose-700 bg-rose-50 border-rose-200';
+            }
             ?>
-            <details class="bg-white border border-slate-200 rounded-2xl shadow-2xs group overflow-hidden transition-all duration-300 ease-in-out hover:shadow-sm">
+            <details class="bg-white border border-slate-200 rounded-2xl shadow-2xs group overflow-hidden transition-all duration-300 ease-in-out hover:shadow-sm"<?= $previewMeta['mode'] === 'missing' ? ' open' : '' ?>>
                 <summary class="p-3.5 px-5 flex items-center gap-2.5 overflow-hidden pr-2 cursor-pointer hover:bg-slate-50/50 transition-colors duration-200 ease-in-out outline-none select-none">
                     <span class="group-open:rotate-90 transition-transform duration-200 ease-in-out text-slate-400 text-[10px] w-4 text-center">▶</span>
                     <span class="text-xs font-bold text-slate-700 group-hover:text-[#4F5D95] transition-colors duration-200 truncate">📄 <?= h($docTitle) ?></span>
+                    <span class="ml-auto text-[9px] px-2 py-0.5 rounded-full border font-black whitespace-nowrap <?= h($stateClasses) ?>"><?= h($stateLabel) ?></span>
                 </summary>
                 <div class="px-5 pb-3 flex justify-end items-center gap-2 flex-wrap bg-white">
                     <button type="button" onclick="if(typeof window.openPdfTab === 'function') { window.openPdfTab(<?= $docId ?>, '<?= h(str_replace("'", "\\'", $docTitle)) ?>', 1); }" class="text-[9px] text-[#4F5D95] hover:bg-indigo-50 border border-slate-200 px-2.5 py-1 rounded-lg font-bold transition-all duration-200 ease-in-out shadow-2xs transform active:scale-95">↗ 別タブで開く</button>
-                    <span class="text-[9px] bg-slate-100 border border-slate-200 px-2 py-0.5 rounded font-mono text-slate-400 font-bold">PDF</span>
+                    <span class="text-[9px] px-2 py-0.5 rounded font-mono font-bold border <?= h($stateClasses) ?>"><?= h($stateLabel) ?></span>
                     <button type="button" data-doc-id="<?= $docId ?>" class="btn-delete-pdf text-slate-440 hover:text-red-500 hover:bg-red-50 w-7 h-7 rounded-lg flex items-center justify-center transition-all duration-200 ease-in-out transform active:scale-90" title="この資料を完全に削除">🗑️</button>
                 </div>
                 <?php if ($previewMeta['mode'] === 'pdf' || $previewMeta['mode'] === 'html'): ?>
@@ -688,7 +702,12 @@ if (!function_exists('renderPdfDocumentItems')) {
                         <div class="rounded-2xl border border-amber-200 bg-white px-4 py-4 text-left shadow-2xs">
                             <div class="text-[11px] font-black text-amber-700 tracking-wider">プレビューを表示できません</div>
                             <p class="mt-2 text-xs leading-6 text-slate-600"><?= h((string)$previewMeta['message']) ?></p>
-                            <p class="mt-2 text-[10px] font-mono text-slate-400 break-all">documents.id=<?= $docId ?> / <?= h((string)($doc['file_path'] ?? '')) ?></p>
+                            <?php if ($isGeneratedReport): ?>
+                                <div class="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-3 text-[11px] leading-6 text-rose-700">
+                                    このレコードは AI 報告書の生成結果です。<strong>削除より先に再生成</strong>を優先してください。削除すると documents レコードと関連する検索チャンクも同時に失われます。
+                                </div>
+                            <?php endif; ?>
+                            <p class="mt-2 text-[10px] font-mono text-slate-400 break-all">documents.id=<?= $docId ?> / <?= h($docFilePath) ?></p>
                         </div>
                     </div>
                 <?php endif; ?>
