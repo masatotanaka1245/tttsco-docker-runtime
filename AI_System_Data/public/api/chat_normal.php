@@ -1215,6 +1215,15 @@ class NormalStreamingRouteProcessor {
             return '';
         }
 
+        if ($this->shouldSkipDocumentRagForCodeImprovement()) {
+            $filteredHistory = $this->filterHistorySummaryTextForCodeImprovement();
+            if ($filteredHistory === '') {
+                return '';
+            }
+
+            return "【これまでの会話の文脈】\n{$filteredHistory}\n\n";
+        }
+
         if ($this->isStructuredAggregationLikeQuestion()) {
             $structuredHistory = $this->extractConsultationHistoryContext();
             if ($structuredHistory === '') {
@@ -1261,6 +1270,61 @@ class NormalStreamingRouteProcessor {
 
         $userLines = array_slice($userLines, -2);
         return implode("\n", $userLines);
+    }
+
+    private function filterHistorySummaryTextForCodeImprovement(): string
+    {
+        $text = trim($this->historySummaryText);
+        if ($text === '') {
+            return '';
+        }
+
+        $lines = preg_split('/\R/u', $text) ?: [];
+        $keptLines = [];
+        $removedLines = 0;
+
+        foreach ($lines as $line) {
+            $trimmed = trim((string)$line);
+            if ($trimmed === '') {
+                continue;
+            }
+
+            $isAssistantLine = mb_strpos($trimmed, 'AI:') === 0;
+            if ($isAssistantLine && $this->looksLikeDocumentExtractionHistoryLine($trimmed)) {
+                $removedLines++;
+                continue;
+            }
+
+            $keptLines[] = $trimmed;
+        }
+
+        if (empty($keptLines)) {
+            $fallbackUserOnly = $this->extractConsultationHistoryContext();
+            $keptLineCount = $fallbackUserOnly === '' ? 0 : count(preg_split('/\R/u', $fallbackUserOnly) ?: []);
+            chatLogger(
+                "[HISTORY-CONTEXT-POLICY] policy=filter_doc_extract_assistant_history"
+                . " | reason=code_improvement_implementation_plan"
+                . " | removed_lines={$removedLines}"
+                . " | kept_lines={$keptLineCount}"
+                . " | fallback=user_only"
+            );
+            return $fallbackUserOnly;
+        }
+
+        chatLogger(
+            "[HISTORY-CONTEXT-POLICY] policy=filter_doc_extract_assistant_history"
+            . " | reason=code_improvement_implementation_plan"
+            . " | removed_lines={$removedLines}"
+            . " | kept_lines=" . count($keptLines)
+            . " | fallback=none"
+        );
+
+        return implode("\n", $keptLines);
+    }
+
+    private function looksLikeDocumentExtractionHistoryLine(string $line): bool
+    {
+        return preg_match('/(PDF図面|\.pdf|資料PDF|PDFから確認|根拠ページ|\/P\.|doc_extract|留意点)/u', $line) === 1;
     }
 
     private function buildConsultationFastPathResponse(): string
