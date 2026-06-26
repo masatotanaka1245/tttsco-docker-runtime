@@ -660,7 +660,7 @@ if (!function_exists('renderPdfAnalysisModeOptions')) {
 }
 
 if (!function_exists('renderPdfDocumentItems')) {
-    function renderPdfDocumentItems(array $documents): void {
+    function renderPdfDocumentItems(array $documents, bool $canShowRegenDiagnostics = false): void {
         foreach ($documents as $doc) {
             $docId = (int)($doc['id'] ?? 0);
             $docTitle = (string)($doc['title'] ?? '');
@@ -706,6 +706,19 @@ if (!function_exists('renderPdfDocumentItems')) {
                                 <div class="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-3 text-[11px] leading-6 text-rose-700">
                                     このレコードは AI 報告書の生成結果です。<strong>削除より先に再生成</strong>を優先してください。削除すると documents レコードと関連する検索チャンクも同時に失われます。
                                 </div>
+                                <?php if ($canShowRegenDiagnostics): ?>
+                                    <div class="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3" data-report-regeneration-panel data-document-id="<?= $docId ?>">
+                                        <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                            <div>
+                                                <div class="text-[11px] font-black text-slate-700">再生成候補の読み取り確認</div>
+                                                <div class="mt-1 text-[10px] leading-5 text-slate-500">original HTML が欠落しているため、<strong>exact replay ではなく near-rebuild 候補</strong>だけを判定します。既存の documents / doc_chunks は変更しません。</div>
+                                            </div>
+                                            <button type="button" class="report-regeneration-refresh self-start rounded-xl border border-slate-300 bg-white px-3 py-2 text-[10px] font-bold text-slate-700 shadow-2xs transition-all duration-200 ease-in-out hover:bg-slate-100 active:scale-95">候補を確認</button>
+                                        </div>
+                                        <div class="mt-2 text-[10px] font-medium text-slate-500" data-report-regeneration-status>未確認</div>
+                                        <div class="mt-3 hidden" data-report-regeneration-result></div>
+                                    </div>
+                                <?php endif; ?>
                             <?php endif; ?>
                             <p class="mt-2 text-[10px] font-mono text-slate-400 break-all">documents.id=<?= $docId ?> / <?= h($docFilePath) ?></p>
                         </div>
@@ -1285,7 +1298,8 @@ $projectCenterTabs = [
      data-can-manage-material="<?= $can_manage_material_documents ? '1' : '0' ?>"
      data-can-manage-memory="<?= $can_manage_project_memory ? '1' : '0' ?>"
      data-can-debug-log="<?= $role === 'admin' ? '1' : '0' ?>"
-     data-can-document-integrity-check="<?= $role === 'admin' ? '1' : '0' ?>"></div>
+     data-can-document-integrity-check="<?= $role === 'admin' ? '1' : '0' ?>"
+     data-can-report-regeneration-check="<?= $role === 'admin' ? '1' : '0' ?>"></div>
 
 <main class="flex-1 flex overflow-hidden h-[calc(100vh-72px)] gap-px bg-slate-200/50 w-full" role="region" aria-label="Support System Console">
     
@@ -1550,7 +1564,7 @@ $projectCenterTabs = [
                     </div>
 
                     <div id="pdf-document-list" class="space-y-2.5" role="list">
-                        <?php renderPdfDocumentItems($documents); ?>
+                        <?php renderPdfDocumentItems($documents, $role === 'admin'); ?>
                         <?php if (empty($documents)): ?>
                             <?php renderPdfEmptyState(); ?>
                         <?php endif; ?>
@@ -1869,7 +1883,7 @@ $projectCenterTabs = [
 <script type="module">
     // ★ 究極の安全設計: import * as 構文を使用し、1096エラー(SyntaxError)を原理的に100%防止
     // 中央タブの現行挙動を確実に反映するため、support.js 側の cache busting を更新
-    import * as Support from './assets/js/support.js?v=42';
+    import * as Support from './assets/js/support.js?v=43';
 
     // ★要件4: 隔離コンテナ内のJSONデータを仲介して安全にマウント・パースするイベントハンドラの実装
     window.openProjectEditModal = (lat, lng) => {
@@ -1900,6 +1914,7 @@ $projectCenterTabs = [
         safeSupportInit('initChatInput', Support.initChatInput);
         safeSupportInit('initDebugLogViewer', Support.initDebugLogViewer);
         safeSupportInit('initDocumentIntegrityPanel', Support.initDocumentIntegrityPanel);
+        safeSupportInit('initReportRegenerationPanels', Support.initReportRegenerationPanels);
         safeSupportInit('checkUploadOnLoad', Support.checkUploadOnLoad);
         safeSupportInit('scrollToBottom', Support.scrollToBottom);
 

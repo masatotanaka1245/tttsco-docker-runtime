@@ -1018,6 +1018,85 @@ function renderDocumentIntegrityRows(records = []) {
     }).join('');
 }
 
+function renderReportRegenerationCandidate(candidate = {}) {
+    const confidence = String(candidate?.confidence || 'none');
+    const confidenceMap = {
+        high: { label: 'high', className: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
+        medium: { label: 'medium', className: 'text-amber-700 bg-amber-50 border-amber-200' },
+        low: { label: 'low', className: 'text-slate-700 bg-slate-100 border-slate-200' },
+        none: { label: 'none', className: 'text-slate-500 bg-slate-100 border-slate-200' },
+    };
+    const confidenceUi = confidenceMap[confidence] || confidenceMap.none;
+    const matchedSignals = Array.isArray(candidate?.matched_signals) ? candidate.matched_signals : [];
+    const note = String(candidate?.note || '原本HTMLは失われている前提のため、再生成する場合も新しい documents レコードとして扱います。');
+    const userId = Number(candidate?.user_chat_history_id || 0);
+    const assistantId = Number(candidate?.assistant_chat_history_id || 0);
+    const threadId = Number(candidate?.thread_id || 0);
+    const stepsCount = Number(candidate?.reasoning_steps_count || 0);
+    const hasDraft = candidate?.has_report_draft_step ? 'あり' : 'なし';
+    const exactReplay = candidate?.exact_replay ? '可能' : '不可';
+    const mode = String(candidate?.mode || 'none');
+    const distance = Number(candidate?.time_distance_seconds || 0);
+
+    const rows = [
+        ['mode', mode],
+        ['exact replay', exactReplay],
+        ['user chat_history', userId > 0 ? userId : '-'],
+        ['assistant chat_history', assistantId > 0 ? assistantId : '-'],
+        ['thread', threadId > 0 ? threadId : '-'],
+        ['reasoning session', candidate?.reasoning_session_id ? escapeIntegrityHtml(candidate.reasoning_session_id) : '-'],
+        ['reasoning steps', stepsCount > 0 ? stepsCount : '-'],
+        ['report draft step', hasDraft],
+        ['time distance', distance > 0 ? `${distance}s` : '-'],
+    ];
+
+    const signalHtml = matchedSignals.length > 0
+        ? matchedSignals.map((signal) => `<span class="rounded-full border border-slate-200 bg-white px-2 py-0.5">${escapeIntegrityHtml(signal)}</span>`).join('')
+        : '<span class="text-slate-400">一致シグナルなし</span>';
+
+    const excerpts = [];
+    if (candidate?.user_message_excerpt) {
+        excerpts.push(`
+            <div class="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                <div class="text-[10px] font-black text-slate-400 uppercase tracking-wider">user excerpt</div>
+                <div class="mt-1 text-[11px] leading-5 text-slate-600">${escapeIntegrityHtml(candidate.user_message_excerpt)}</div>
+            </div>
+        `);
+    }
+    if (candidate?.assistant_message_excerpt) {
+        excerpts.push(`
+            <div class="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                <div class="text-[10px] font-black text-slate-400 uppercase tracking-wider">assistant excerpt</div>
+                <div class="mt-1 text-[11px] leading-5 text-slate-600">${escapeIntegrityHtml(candidate.assistant_message_excerpt)}</div>
+            </div>
+        `);
+    }
+
+    return `
+        <div class="rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-2xs space-y-3">
+            <div class="flex flex-wrap items-center gap-2">
+                <span class="rounded-full border px-2.5 py-1 text-[10px] font-black ${confidenceUi.className}">再生成候補 ${confidenceUi.label}</span>
+                <span class="rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[10px] font-black text-indigo-700">near-rebuild可能</span>
+                <span class="rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-[10px] font-black text-rose-700">exact replay不可</span>
+            </div>
+            <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                ${rows.map(([label, value]) => `
+                    <div class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                        <div class="text-[10px] font-black uppercase tracking-wider text-slate-400">${escapeIntegrityHtml(label)}</div>
+                        <div class="mt-1 break-all font-mono text-[11px] text-slate-700">${String(value)}</div>
+                    </div>
+                `).join('')}
+            </div>
+            <div>
+                <div class="text-[10px] font-black uppercase tracking-wider text-slate-400">matched signals</div>
+                <div class="mt-2 flex flex-wrap gap-1.5 text-[10px] font-bold text-slate-600">${signalHtml}</div>
+            </div>
+            ${excerpts.join('')}
+            <div class="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-[11px] leading-6 text-amber-700">${escapeIntegrityHtml(note)}</div>
+        </div>
+    `;
+}
+
 function initDocumentIntegrityPanel() {
     const configEl = document.querySelector('#support-config');
     if (!configEl || configEl.dataset.canDocumentIntegrityCheck !== '1') return;
@@ -1082,6 +1161,58 @@ function initDocumentIntegrityPanel() {
         if (panel.open && !loaded) {
             load();
         }
+    });
+}
+
+function initReportRegenerationPanels() {
+    const configEl = document.querySelector('#support-config');
+    if (!configEl || configEl.dataset.canReportRegenerationCheck !== '1') return;
+
+    document.querySelectorAll('[data-report-regeneration-panel]').forEach((panel) => {
+        if (!(panel instanceof HTMLElement) || panel.dataset.bound === 'true') return;
+
+        const documentId = Number(panel.dataset.documentId || 0);
+        const button = panel.querySelector('.report-regeneration-refresh');
+        const status = panel.querySelector('[data-report-regeneration-status]');
+        const result = panel.querySelector('[data-report-regeneration-result]');
+        if (!(button instanceof HTMLButtonElement) || !(status instanceof HTMLElement) || !(result instanceof HTMLElement) || documentId <= 0) {
+            return;
+        }
+
+        panel.dataset.bound = 'true';
+
+        const setStatus = (text, className = 'mt-2 text-[10px] font-medium text-slate-500') => {
+            status.textContent = text;
+            status.className = className;
+        };
+
+        const load = async () => {
+            button.disabled = true;
+            setStatus('確認中', 'mt-2 text-[10px] font-black text-indigo-600');
+
+            try {
+                const res = await secureFetch(`api/report_regeneration_candidates.php?document_id=${documentId}`, { method: 'GET' });
+                if (!res?.success) {
+                    throw new Error(res?.error || '再生成候補の取得に失敗しました。');
+                }
+
+                result.innerHTML = renderReportRegenerationCandidate(res.candidate || {});
+                result.classList.remove('hidden');
+                setStatus('取得済み', 'mt-2 text-[10px] font-black text-emerald-600');
+            } catch (error) {
+                result.innerHTML = `
+                    <div class="rounded-xl border border-red-200 bg-red-50 px-3 py-3 text-[11px] text-red-700">
+                        再生成候補の取得に失敗しました: ${escapeIntegrityHtml(error?.message || '不明なエラー')}
+                    </div>
+                `;
+                result.classList.remove('hidden');
+                setStatus('取得エラー', 'mt-2 text-[10px] font-black text-red-600');
+            } finally {
+                button.disabled = false;
+            }
+        };
+
+        button.addEventListener('click', load);
     });
 }
 
@@ -1243,6 +1374,7 @@ runSupportInitializer('initSupportSidebarToggle', initSupportSidebarToggle);
 runSupportInitializer('initThreadTabsUi', initThreadTabsUi);
 runSupportInitializer('initFaqAccordion', initFaqAccordion);
 runSupportInitializer('initDocumentIntegrityPanel', initDocumentIntegrityPanel);
+runSupportInitializer('initReportRegenerationPanels', initReportRegenerationPanels);
 runSupportInitializer('bindMaterialDocumentListNavigation', bindMaterialDocumentListNavigation);
 runSupportInitializer('bindMaterialDeleteForm', bindMaterialDeleteForm);
 runSupportInitializer('consumeMaterialFlashAsToast', consumeMaterialFlashAsToast);
@@ -1263,6 +1395,7 @@ export {
     initSupportSidebarToggle,
     initThreadTabsUi,
     initDocumentIntegrityPanel,
+    initReportRegenerationPanels,
     handleCreateProject,
     handleUpdateProject,
     deleteProject,
