@@ -83,5 +83,23 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  e2e:
+    image: mcr.microsoft.com/playwright:v1.55.0-jammy
+    working_dir: /work
+    volumes:
+      - ./:/work
+    environment:
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+      SUPPORT_E2E_BASE_URL: http://app
+      SUPPORT_E2E_PROJECT_ID: "4"
+      SUPPORT_E2E_USERNAME: ${SUPPORT_E2E_USERNAME:-admin}
+      SUPPORT_E2E_PASSWORD: ${SUPPORT_E2E_PASSWORD:-admin123}
+      CI: "1"
+    depends_on:
+      db:
+        condition: service_healthy
+      app:
+        condition: service_started
+
 volumes:
   mysql_data:
