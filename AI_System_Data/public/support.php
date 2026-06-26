@@ -24,6 +24,75 @@ if (!function_exists('supportPublicBasePath')) {
     }
 }
 
+if (!function_exists('supportBuildPublicFileUrl')) {
+    function supportBuildPublicFileUrl(string $relativePath): string {
+        $basePath = supportPublicBasePath();
+        $segments = array_map('rawurlencode', array_filter(explode('/', ltrim(str_replace('\\', '/', $relativePath), '/')), static fn($segment) => $segment !== ''));
+        $encodedPath = implode('/', $segments);
+        if ($encodedPath === '') {
+            return $basePath !== '' ? $basePath . '/' : '/';
+        }
+        return ($basePath !== '' ? $basePath : '') . '/' . $encodedPath;
+    }
+}
+
+if (!function_exists('supportResolvePublicAbsolutePath')) {
+    function supportResolvePublicAbsolutePath(string $relativePath): ?string {
+        $normalized = ltrim(str_replace('\\', '/', trim($relativePath)), '/');
+        if ($normalized === '') {
+            return null;
+        }
+
+        $candidate = realpath(__DIR__ . DIRECTORY_SEPARATOR . $normalized);
+        if ($candidate === false || !is_file($candidate)) {
+            return null;
+        }
+
+        return $candidate;
+    }
+}
+
+if (!function_exists('supportBuildPdfPreviewMeta')) {
+    function supportBuildPdfPreviewMeta(array $document): array {
+        $docId = (int)($document['id'] ?? 0);
+        $filePath = (string)($document['file_path'] ?? '');
+        $publicBasePath = supportPublicBasePath();
+        $pdfUrl = $docId > 0
+            ? $publicBasePath . '/api/view_pdf.php?id=' . rawurlencode((string)$docId) . '&_=' . rawurlencode((string)strtotime((string)($document['created_at'] ?? 'now'))) . '#page=1'
+            : '';
+
+        $resolvedPdfPath = supportResolvePublicAbsolutePath($filePath);
+        if ($resolvedPdfPath !== null) {
+            return [
+                'mode' => 'pdf',
+                'url' => $pdfUrl,
+                'message' => '',
+            ];
+        }
+
+        $normalized = ltrim(str_replace('\\', '/', trim($filePath)), '/');
+        if ($normalized !== '' && str_ends_with(strtolower($normalized), '.pdf')) {
+            $htmlFallbackPath = preg_replace('/\.pdf$/i', '.html', $normalized);
+            if (is_string($htmlFallbackPath) && $htmlFallbackPath !== '') {
+                $resolvedHtmlPath = supportResolvePublicAbsolutePath($htmlFallbackPath);
+                if ($resolvedHtmlPath !== null) {
+                    return [
+                        'mode' => 'html',
+                        'url' => supportBuildPublicFileUrl($htmlFallbackPath),
+                        'message' => '元のPDFが見つからないため、関連するHTMLプレビューを表示しています。',
+                    ];
+                }
+            }
+        }
+
+        return [
+            'mode' => 'missing',
+            'url' => '',
+            'message' => '元のPDFファイルが見つからないため、プレビューを表示できません。再生成または再アップロードを行ってください。',
+        ];
+    }
+}
+
 if (!function_exists('formatChatThreadMeta')) {
     function formatChatThreadMeta($threadMetaAt, $messageCount) {
         $timestamp = trim((string)$threadMetaAt);
@@ -282,6 +351,17 @@ if (!function_exists('renderProjectMemoryEditors')) {
                         <?php endif; ?>
                     </div>
                 <?php endif; ?>
+                <div class="border border-slate-200 rounded-xl overflow-hidden bg-white/80">
+                    <div class="px-3 py-2 bg-slate-50 text-[10px] font-black text-slate-400 tracking-wider">現在の手動メモ（更新対象）</div>
+                    <div class="px-3 py-2.5 text-[11px] leading-5 text-slate-600 whitespace-pre-wrap min-h-[3.5rem]">
+                        <?php if (trim($content) !== ''): ?>
+                            <?= h($content) ?>
+                        <?php else: ?>
+                            <span class="text-slate-400 italic">まだ手動メモはありません。下の入力欄から追加または更新できます。</span>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                <label for="<?= h($field['id']) ?>" class="block text-[10px] font-black text-slate-400 tracking-wider">編集・更新フォーム</label>
                 <textarea id="<?= h($field['id']) ?>" name="<?= h($field['name']) ?>" rows="8" class="w-full min-h-[11rem] border border-slate-200 rounded-xl p-3 text-xs leading-5 bg-slate-50/50 focus:bg-white focus:border-indigo-400/80 transition-all duration-200 resize-y font-mono text-slate-700 outline-none" placeholder="<?= h($field['placeholder']) ?>"><?= h($content) ?></textarea>
                 <p class="text-[10px] text-slate-400 leading-relaxed">手動メモは補助・補正用です。必要な修正や補足があればここで上書きできます。</p>
             </div>
@@ -530,23 +610,22 @@ if (!function_exists('renderFaqCards')) {
             $answerPreview = faqPreviewText($answer, 260);
             $answerExpandable = faqNeedsExpand($answer, 260);
             ?>
-            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs relative group hover:shadow-sm transition-shadow duration-200">
+            <details class="faq-card bg-white rounded-2xl border border-slate-200 shadow-2xs relative group overflow-hidden hover:shadow-sm transition-shadow duration-200" data-faq-card data-faq-id="<?= (int)$faq['id'] ?>">
                 <?php if ((int)$faq['created_by'] === $userId || $role === 'admin'): ?>
                     <button type="button" onclick="if(typeof window.handleDeleteFaq === 'function') window.handleDeleteFaq(<?= (int)$faq['id'] ?>)" class="absolute top-3 right-3 text-slate-300 hover:text-red-500 hover:bg-red-50 w-7 h-7 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 ease-in-out transform active:scale-90" title="ナレッジを削除">🗑️</button>
                 <?php endif; ?>
-                <div class="font-extrabold text-slate-800 text-xs mb-3 pb-2 border-b border-slate-100 pr-8 leading-relaxed" title="<?= h($question) ?>">Q. <?= h($questionPreview) ?></div>
-                <?php if ($answerExpandable): ?>
-                    <details class="group/details">
-                        <summary class="list-none cursor-pointer">
+                <summary class="list-none cursor-pointer p-5 pr-10 select-none" data-faq-card-summary>
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="min-w-0 flex-1">
+                            <div class="font-extrabold text-slate-800 text-xs mb-3 pb-2 border-b border-slate-100 leading-relaxed" title="<?= h($question) ?>">Q. <?= h($questionPreview) ?></div>
                             <div class="text-xs text-slate-600 font-medium leading-loose whitespace-pre-wrap"><?= h($answerPreview) ?></div>
-                            <div class="mt-2 text-[11px] font-bold text-[#4F5D95] group-open/details:hidden">続きを読む</div>
-                        </summary>
-                        <div class="mt-3 pt-3 border-t border-slate-100 text-xs text-slate-600 font-medium leading-loose whitespace-pre-wrap"><?= h($answer) ?></div>
-                    </details>
-                <?php else: ?>
-                    <div class="text-xs text-slate-600 font-medium leading-loose whitespace-pre-wrap"><?= h($answer) ?></div>
-                <?php endif; ?>
-            </div>
+                            <div class="mt-2 text-[11px] font-bold text-[#4F5D95]"><?= $answerExpandable ? 'クリックして全文を表示' : 'クリックして詳細を表示' ?></div>
+                        </div>
+                        <span class="mt-0.5 text-slate-400 text-[10px] font-bold transition-transform duration-200 ease-in-out group-open:rotate-90">▶</span>
+                    </div>
+                </summary>
+                <div class="px-5 pb-5 pt-1 border-t border-slate-100 text-xs text-slate-600 font-medium leading-loose whitespace-pre-wrap bg-slate-50/35"><?= h($answer) ?></div>
+            </details>
             <?php
         }
     }
@@ -583,11 +662,10 @@ if (!function_exists('renderPdfAnalysisModeOptions')) {
 
 if (!function_exists('renderPdfDocumentItems')) {
     function renderPdfDocumentItems(array $documents): void {
-        $publicBasePath = supportPublicBasePath();
         foreach ($documents as $doc) {
             $docId = (int)($doc['id'] ?? 0);
             $docTitle = (string)($doc['title'] ?? '');
-            $viewerCacheKey = urlencode((string)strtotime((string)($doc['created_at'] ?? 'now')));
+            $previewMeta = supportBuildPdfPreviewMeta($doc);
             ?>
             <details class="bg-white border border-slate-200 rounded-2xl shadow-2xs group overflow-hidden transition-all duration-300 ease-in-out hover:shadow-sm">
                 <summary class="p-3.5 px-5 flex items-center gap-2.5 overflow-hidden pr-2 cursor-pointer hover:bg-slate-50/50 transition-colors duration-200 ease-in-out outline-none select-none">
@@ -599,9 +677,22 @@ if (!function_exists('renderPdfDocumentItems')) {
                     <span class="text-[9px] bg-slate-100 border border-slate-200 px-2 py-0.5 rounded font-mono text-slate-400 font-bold">PDF</span>
                     <button type="button" data-doc-id="<?= $docId ?>" class="btn-delete-pdf text-slate-440 hover:text-red-500 hover:bg-red-50 w-7 h-7 rounded-lg flex items-center justify-center transition-all duration-200 ease-in-out transform active:scale-90" title="この資料を完全に削除">🗑️</button>
                 </div>
-                <div class="h-[580px] border-t border-slate-100 bg-slate-50 p-2">
-                    <iframe src="<?= h($publicBasePath) ?>/api/view_pdf.php?id=<?= h((string)$docId) ?>&_=<?= h($viewerCacheKey) ?>#page=1" class="w-full h-full border-none rounded-xl shadow-inner bg-white" loading="lazy"></iframe>
-                </div>
+                <?php if ($previewMeta['mode'] === 'pdf' || $previewMeta['mode'] === 'html'): ?>
+                    <div class="h-[580px] border-t border-slate-100 bg-slate-50 p-2">
+                        <?php if ($previewMeta['mode'] === 'html' && $previewMeta['message'] !== ''): ?>
+                            <div class="mb-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] font-bold text-amber-700"><?= h((string)$previewMeta['message']) ?></div>
+                        <?php endif; ?>
+                        <iframe src="<?= h((string)$previewMeta['url']) ?>" class="w-full h-full border-none rounded-xl shadow-inner bg-white" loading="lazy"></iframe>
+                    </div>
+                <?php else: ?>
+                    <div class="border-t border-slate-100 bg-amber-50/60 px-5 py-6">
+                        <div class="rounded-2xl border border-amber-200 bg-white px-4 py-4 text-left shadow-2xs">
+                            <div class="text-[11px] font-black text-amber-700 tracking-wider">プレビューを表示できません</div>
+                            <p class="mt-2 text-xs leading-6 text-slate-600"><?= h((string)$previewMeta['message']) ?></p>
+                            <p class="mt-2 text-[10px] font-mono text-slate-400 break-all">documents.id=<?= $docId ?> / <?= h((string)($doc['file_path'] ?? '')) ?></p>
+                        </div>
+                    </div>
+                <?php endif; ?>
             </details>
             <?php
         }

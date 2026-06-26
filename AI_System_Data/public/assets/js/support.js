@@ -946,6 +946,25 @@ function initThreadTabsUi() {
     });
 }
 
+function initFaqAccordion() {
+    const faqList = document.getElementById('faq-list-container');
+    if (!faqList || faqList.dataset.accordionBound === 'true') return;
+
+    faqList.addEventListener('toggle', (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLDetailsElement)) return;
+        if (!target.matches('[data-faq-card]') || !target.open) return;
+
+        faqList.querySelectorAll('details[data-faq-card][open]').forEach((detailsEl) => {
+            if (detailsEl !== target) {
+                detailsEl.open = false;
+            }
+        });
+    });
+
+    faqList.dataset.accordionBound = 'true';
+}
+
 async function handleSaveFaq(e) {
     e.preventDefault();
     const { projectId } = getConfig();
@@ -1102,6 +1121,7 @@ runSupportInitializer('bindGlobalFunctions', bindGlobalFunctions);
 runSupportInitializer('initSupportPanelPreferencePersistence', initSupportPanelPreferencePersistence);
 runSupportInitializer('initSupportSidebarToggle', initSupportSidebarToggle);
 runSupportInitializer('initThreadTabsUi', initThreadTabsUi);
+runSupportInitializer('initFaqAccordion', initFaqAccordion);
 runSupportInitializer('bindMaterialDocumentListNavigation', bindMaterialDocumentListNavigation);
 runSupportInitializer('bindMaterialDeleteForm', bindMaterialDeleteForm);
 runSupportInitializer('consumeMaterialFlashAsToast', consumeMaterialFlashAsToast);
