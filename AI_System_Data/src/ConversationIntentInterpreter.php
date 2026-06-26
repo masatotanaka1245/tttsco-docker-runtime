@@ -92,7 +92,7 @@ final class ConversationIntentInterpreter
         }
 
         if ($this->matchesAny($message, [
-            '/(やっぱり前の話に戻りたい|前の話に戻りたい|一旦そこは置いて|そこは置いて|元の話に戻りたい)/u',
+            '/(やっぱり前の話に戻りたい|前の話に戻りたい|一旦そこは置いて|そこは置いて|元の話に戻りたい|戻っても良いでしょうか|戻ってもよいでしょうか)/u',
         ])) {
             return 'rollback';
         }

@@ -10,8 +10,8 @@ require_once __DIR__ . '/../../src/ChatModelRolePayload.php';
 require_once __DIR__ . '/../../src/ChatThreadManager.php';
 require_once __DIR__ . '/../../src/ProjectMemoryAutoUpdater.php';
 
-function runHistorySummaryRoute($pdo, $ollamaHost, $projectId, $originalMessage, $model, $subModel, $embeddingModel, $promptKey, $user_id, $role, $threadId = null): void {
-    $processor = new HistorySummaryRouteProcessor($pdo, $ollamaHost, $projectId, $originalMessage, $model, $subModel, $embeddingModel, $promptKey, $user_id, $role, $threadId);
+function runHistorySummaryRoute($pdo, $ollamaHost, $projectId, $originalMessage, $model, $subModel, $embeddingModel, $promptKey, $user_id, $role, $threadId = null, array $conversationIntentProfile = []): void {
+    $processor = new HistorySummaryRouteProcessor($pdo, $ollamaHost, $projectId, $originalMessage, $model, $subModel, $embeddingModel, $promptKey, $user_id, $role, $threadId, $conversationIntentProfile);
     $processor->execute();
 }
 
@@ -32,8 +32,9 @@ class HistorySummaryRouteProcessor {
     private ?array $evalResult = null;
     private string $guardContext = '';
     private array $reasoningSteps = [];
+    private array $conversationIntentProfile = [];
 
-    public function __construct(PDO $pdo, string $ollamaHost, ?int $projectId, string $originalMessage, string $model, string $subModel, string $embeddingModel, string $promptKey, int $user_id, string $role, ?int $threadId = null) {
+    public function __construct(PDO $pdo, string $ollamaHost, ?int $projectId, string $originalMessage, string $model, string $subModel, string $embeddingModel, string $promptKey, int $user_id, string $role, ?int $threadId = null, array $conversationIntentProfile = []) {
         $this->pdo = $pdo;
         $this->ollamaHost = rtrim($ollamaHost, '/');
         $this->projectId = $projectId;
@@ -45,6 +46,7 @@ class HistorySummaryRouteProcessor {
         $this->user_id = $user_id;
         $this->role = $role;
         $this->threadId = $threadId;
+        $this->conversationIntentProfile = $conversationIntentProfile;
         $this->sessionId = 'history-summary_' . uniqid('', true) . '-' . mt_rand(1000, 9999);
     }
 
@@ -273,7 +275,11 @@ class HistorySummaryRouteProcessor {
                         (int)$this->projectId,
                         $this->threadId,
                         $this->user_id,
-                        fn(string $message) => chatLogger($message)
+                        fn(string $message) => chatLogger($message),
+                        [
+                            'conversation_intent_profile' => $this->conversationIntentProfile,
+                            'route_detail' => 'history_summary',
+                        ]
                     );
                 } else {
                     chatLogger(

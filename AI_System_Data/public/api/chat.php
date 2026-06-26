@@ -579,7 +579,11 @@ try {
                     $thread_id !== null ? (int)$thread_id : null,
                     (int)$user_id,
                     'chatLogger',
-                    ['decomposed_tasks' => $decompositionSteps]
+                    [
+                        'decomposed_tasks' => $decompositionSteps,
+                        'conversation_intent_profile' => $conversationIntentProfile,
+                        'route_detail' => 'factorizer_bootstrap',
+                    ]
                 );
             }
             chatLogger("[PROJECT-MEMORY] route=factorizer | loaded=" . (empty(ProjectContextMemory::loadedTypes($projectMemoryDocs)) ? 'none' : implode(',', ProjectContextMemory::loadedTypes($projectMemoryDocs))) . " | chars=" . ProjectContextMemory::totalChars($projectMemoryDocs));
@@ -677,6 +681,7 @@ try {
         'user_id' => $user_id,
         'role' => $role,
         'thread_id' => $thread_id,
+        'conversation_intent_profile' => $conversationIntentProfile,
         'report_mode' => $report_mode,
         'diagram_mode' => $diagram_mode,
         'csv_mode' => $csv_mode,

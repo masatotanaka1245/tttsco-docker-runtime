@@ -40,6 +40,12 @@ final class ProjectMemoryAutoUpdater
         }
 
         $beforeDocs = ProjectContextMemory::load($pdo, $projectId);
+        $intentSkipMeta = self::resolveConversationIntentSkipMeta((array)($context['conversation_intent_profile'] ?? []));
+        if ($intentSkipMeta !== null) {
+            self::logConversationIntentSkip($logger, $intentSkipMeta, $threadId, (string)($context['route_detail'] ?? ''));
+            return $beforeDocs;
+        }
+
         $snapshot = self::collectSnapshot($pdo, $projectId, $threadId, $userId);
         $todoState = self::resolveTodoState($snapshot, (array)($context['decomposed_tasks'] ?? []), $logger);
         $autoDocs = [
@@ -312,6 +318,86 @@ final class ProjectMemoryAutoUpdater
             'chars_before=' . self::countDocChars($beforeAutoDocs),
             'chars_after=' . self::countDocChars($afterAutoDocs),
         ]);
+    }
+
+    /**
+     * @param array<string, mixed> $profile
+     * @return array<string, mixed>|null
+     */
+    private static function resolveConversationIntentSkipMeta(array $profile): ?array
+    {
+        if ($profile === []) {
+            return null;
+        }
+
+        $conversationRelation = trim((string)($profile['conversation_relation'] ?? 'unknown'));
+        $requestType = trim((string)($profile['request_type'] ?? 'unknown'));
+        $todoPolicyHint = trim((string)($profile['todo_policy_hint'] ?? 'unknown'));
+        $needsTodo = (bool)($profile['needs_todo'] ?? false);
+
+        if (in_array($conversationRelation, ['status_check', 'rollback', 'correction'], true)) {
+            return [
+                'reason' => 'conversation_intent_' . $conversationRelation,
+                'relation' => $conversationRelation,
+                'request_type' => $requestType,
+                'todo_policy_hint' => $todoPolicyHint,
+                'needs_todo' => $needsTodo,
+            ];
+        }
+
+        if ($requestType === 'consultation') {
+            return [
+                'reason' => 'conversation_intent_consultation',
+                'relation' => $conversationRelation,
+                'request_type' => $requestType,
+                'todo_policy_hint' => $todoPolicyHint,
+                'needs_todo' => $needsTodo,
+            ];
+        }
+
+        if ($conversationRelation === 'follow_up' && $todoPolicyHint === 'read_only') {
+            return [
+                'reason' => 'conversation_intent_follow_up_read_only',
+                'relation' => $conversationRelation,
+                'request_type' => $requestType,
+                'todo_policy_hint' => $todoPolicyHint,
+                'needs_todo' => $needsTodo,
+            ];
+        }
+
+        if ($todoPolicyHint === 'read_only') {
+            return [
+                'reason' => 'conversation_intent_read_only',
+                'relation' => $conversationRelation,
+                'request_type' => $requestType,
+                'todo_policy_hint' => $todoPolicyHint,
+                'needs_todo' => $needsTodo,
+            ];
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed> $skipMeta
+     */
+    private static function logConversationIntentSkip(?callable $logger, array $skipMeta, ?int $threadId, string $routeDetail): void
+    {
+        $message =
+            '[PROJECT-MEMORY-AUTO-SKIP] reason=' . (string)($skipMeta['reason'] ?? 'conversation_intent_skip')
+            . ' | relation=' . (string)($skipMeta['relation'] ?? 'unknown')
+            . ' | request_type=' . (string)($skipMeta['request_type'] ?? 'unknown')
+            . ' | todo_policy_hint=' . (string)($skipMeta['todo_policy_hint'] ?? 'unknown')
+            . ' | needs_todo=' . ((bool)($skipMeta['needs_todo'] ?? false) ? '1' : '0')
+            . ' | thread_id=' . ($threadId === null ? 'NULL' : (string)$threadId)
+            . ' | route_detail=' . ($routeDetail !== '' ? $routeDetail : 'unknown');
+
+        if ($logger !== null) {
+            $logger($message);
+            return;
+        }
+
+        error_log($message);
     }
 
     private static function extractAutoDocContents(array $docs): array

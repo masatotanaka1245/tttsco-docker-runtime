@@ -57,9 +57,9 @@ if (!function_exists('chatLogger')) {
  * 外部からのエントリーポイント（インターフェース引数100%完全同期維持版・Freeze Protocol）
  * ✨【関数名シンクロ統合】：名前を chat.php 側の呼び出し名 「runAdvancedReasoningRoute」 へ完全同期！
  */
-function runAdvancedReasoningRoute($pdo, $ollama_host, $projectId, $originalMessage, $mainModel, $subModel, $sqlModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false, bool $csvMode = false, string $routeDetail = '') {
+function runAdvancedReasoningRoute($pdo, $ollama_host, $projectId, $originalMessage, $mainModel, $subModel, $sqlModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false, bool $csvMode = false, string $routeDetail = '', array $conversationIntentProfile = []) {
     $processor = new AdvancedReasoningRouteProcessor(
-        $pdo, $ollama_host, $projectId, $originalMessage, $mainModel, $subModel, $sqlModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, $threadId, $reportMode, $diagramMode, $csvMode, $routeDetail
+        $pdo, $ollama_host, $projectId, $originalMessage, $mainModel, $subModel, $sqlModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, $threadId, $reportMode, $diagramMode, $csvMode, $routeDetail, $conversationIntentProfile
     );
     $processor->execute();
 }
@@ -108,6 +108,7 @@ class AdvancedReasoningRouteProcessor {
     private $csvAggregationTargetResolver = null;
     private $lightweightFinalAnswerGuard = null;
     private $schemaScopeHelper = null;
+    private $conversationIntentProfile = [];
 
     // 内部ステート管理
     private $reasoningId;
@@ -135,7 +136,7 @@ class AdvancedReasoningRouteProcessor {
     /**
      * コンストラクタ (完全DI化)
      */
-    public function __construct($pdo, $ollama_host, $projectId, $originalMessage, $mainModel, $subModel, $sqlModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false, bool $csvMode = false, string $routeDetail = '') {
+    public function __construct($pdo, $ollama_host, $projectId, $originalMessage, $mainModel, $subModel, $sqlModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false, bool $csvMode = false, string $routeDetail = '', array $conversationIntentProfile = []) {
         $this->pdo                = $pdo;
         $this->ollama_host        = $ollama_host;
         $this->projectId          = $projectId;
@@ -154,6 +155,7 @@ class AdvancedReasoningRouteProcessor {
         $this->diagramMode        = $diagramMode;
         $this->csvMode            = $csvMode;
         $this->routeDetail        = $routeDetail;
+        $this->conversationIntentProfile = $conversationIntentProfile;
         $this->reasoningId        = 'sql-' . uniqid('reason_') . '-' . mt_rand(1000, 9999);
     }
 
@@ -2278,7 +2280,11 @@ class AdvancedReasoningRouteProcessor {
                     (int)$this->projectId,
                     $this->threadId !== null ? (int)$this->threadId : null,
                     (int)$this->user_id,
-                    fn(string $message) => chatLogger($message)
+                    fn(string $message) => chatLogger($message),
+                    [
+                        'conversation_intent_profile' => $this->conversationIntentProfile,
+                        'route_detail' => (string)$this->routeDetail,
+                    ]
                 );
             } else {
                 chatLogger("[PROJECT-MEMORY-AUTO] skipped=quality_guard | thread_id=" . ($this->threadId === null ? 'NULL' : (string)$this->threadId));

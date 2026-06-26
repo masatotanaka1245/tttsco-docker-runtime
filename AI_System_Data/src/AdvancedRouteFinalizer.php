@@ -27,6 +27,7 @@ final class AdvancedRouteFinalizer
     private $embeddingModel;
     private $synthesisModel;
     private $uniqueSources;
+    private $conversationIntentProfile;
     private $normalizeUtf8;
     private $logger;
 
@@ -49,6 +50,7 @@ final class AdvancedRouteFinalizer
         string $embeddingModel,
         string $synthesisModel,
         array $uniqueSources,
+        array $conversationIntentProfile,
         callable $normalizeUtf8,
         ?callable $logger = null
     ) {
@@ -70,6 +72,7 @@ final class AdvancedRouteFinalizer
         $this->embeddingModel = $embeddingModel;
         $this->synthesisModel = $synthesisModel;
         $this->uniqueSources = $uniqueSources;
+        $this->conversationIntentProfile = $conversationIntentProfile;
         $this->normalizeUtf8 = $normalizeUtf8;
         $this->logger = $logger;
     }
@@ -167,7 +170,11 @@ final class AdvancedRouteFinalizer
                     $this->threadId,
                     $this->userId,
                     fn(string $message) => $this->log($message),
-                    ['decomposed_tasks' => $this->loadDecomposedTasksForMemoryRefresh()]
+                    [
+                        'decomposed_tasks' => $this->loadDecomposedTasksForMemoryRefresh(),
+                        'conversation_intent_profile' => $this->conversationIntentProfile,
+                        'route_detail' => 'advanced_hybrid',
+                    ]
                 );
             } else {
                 $this->log("[PROJECT-MEMORY-AUTO] skipped=quality_guard | thread_id=" . ($this->threadId === null ? 'NULL' : (string)$this->threadId));

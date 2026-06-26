@@ -57,11 +57,11 @@ if (!function_exists('chatLogger')) {
 /**
  * 外部からのエントリーポイント（他ファイルと一元規格統一のため、最後尾に $role を追記した13引数拡張版・Freeze Protocol）
  */
-function runAdvancedReasoningRoute($pdo, $ollama_host, $projectId, $originalMessage, $searchQuery, $reasoningId, $mainModel, $subModel, $sqlModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false, bool $csvMode = false, string $routeDetail = '') {
+function runAdvancedReasoningRoute($pdo, $ollama_host, $projectId, $originalMessage, $searchQuery, $reasoningId, $mainModel, $subModel, $sqlModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false, bool $csvMode = false, string $routeDetail = '', array $conversationIntentProfile = []) {
     $processor = new AdvancedReasoningRouteProcessor(
         $pdo, $ollama_host, $projectId, $originalMessage, $searchQuery,
         $reasoningId, $mainModel, $subModel, $sqlModel, $embeddingModel, $promptKey,
-        $projectContext, $historySummaryText, $user_id, $role, $threadId, $reportMode, $diagramMode, $csvMode, $routeDetail
+        $projectContext, $historySummaryText, $user_id, $role, $threadId, $reportMode, $diagramMode, $csvMode, $routeDetail, $conversationIntentProfile
     );
     $processor->execute();
 }
@@ -99,6 +99,7 @@ class AdvancedReasoningRouteProcessor {
     private $csvExport = null;
     private $databaseMemoryPrompt = ""; // フェーズ3：DB事前記憶プロンプト保持用
     private $projectOperatingMemoryPrompt = "";
+    private $conversationIntentProfile = [];
 
     // 内部ステート管理（CSV集計用・資料RAG用すべてのステートを統合）
     private $schemaInfo = "";
@@ -113,7 +114,7 @@ class AdvancedReasoningRouteProcessor {
     private $evalResult = null;
     private $retryCount = 0;
 
-    public function __construct($pdo, $ollama_host, $projectId, $originalMessage, $searchQuery, $reasoningId, $mainModel, $subModel, $sqlModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false, bool $csvMode = false, string $routeDetail = '') {
+    public function __construct($pdo, $ollama_host, $projectId, $originalMessage, $searchQuery, $reasoningId, $mainModel, $subModel, $sqlModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false, bool $csvMode = false, string $routeDetail = '', array $conversationIntentProfile = []) {
         $this->pdo = $pdo;
         $this->ollama_host = $ollama_host;
         $this->projectId = (int)$projectId;
@@ -137,6 +138,7 @@ class AdvancedReasoningRouteProcessor {
         $this->reportMode = $reportMode;
         $this->diagramMode = $diagramMode;
         $this->csvMode = $csvMode;
+        $this->conversationIntentProfile = $conversationIntentProfile;
     }
 
     private function getOutputModeInstructions(): string {
@@ -453,6 +455,7 @@ class AdvancedReasoningRouteProcessor {
             $this->embeddingModel,
             $this->synthesisModel,
             $this->uniqueSources,
+            $this->conversationIntentProfile,
             fn(string $text): string => $this->normalizeUtf8($text),
             fn(string $message) => chatLogger($message)
         );

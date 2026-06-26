@@ -14,11 +14,11 @@ require_once __DIR__ . '/../../src/ReportAnswerPolisher.php';
 require_once __DIR__ . '/../../src/CsvExportGenerator.php';
 require_once __DIR__ . '/../../src/LightweightFinalAnswerGuard.php';
 
-function runNormalStreamingRoute($pdo, $ollama_host, $projectId, $originalMessage, $routeDetail, $searchQuery, $model, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $vectorSearch, $engine, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false, bool $csvMode = false) {
+function runNormalStreamingRoute($pdo, $ollama_host, $projectId, $originalMessage, $routeDetail, $searchQuery, $model, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $vectorSearch, $engine, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false, bool $csvMode = false, array $conversationIntentProfile = []) {
     $processor = new NormalStreamingRouteProcessor(
         $pdo, $ollama_host, $projectId, $originalMessage, $routeDetail, $searchQuery,
         $model, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText,
-        $vectorSearch, $engine, $user_id, $role, $threadId, $reportMode, $diagramMode, $csvMode
+        $vectorSearch, $engine, $user_id, $role, $threadId, $reportMode, $diagramMode, $csvMode, $conversationIntentProfile
     );
     $processor->execute();
 }
@@ -46,6 +46,7 @@ class NormalStreamingRouteProcessor {
     private $reportDocument = null;
     private $csvMode = false;
     private $csvExport = null;
+    private $conversationIntentProfile = [];
 
     private $targetPage = null;
     private $referAllMode = false;
@@ -61,7 +62,7 @@ class NormalStreamingRouteProcessor {
     private $buffer = "";
     private $ollamaErrorMsg = "";
 
-    public function __construct($pdo, $ollama_host, $projectId, $originalMessage, $routeDetail, $searchQuery, $model, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $vectorSearch, $engine, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false, bool $csvMode = false) {
+    public function __construct($pdo, $ollama_host, $projectId, $originalMessage, $routeDetail, $searchQuery, $model, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $vectorSearch, $engine, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false, bool $csvMode = false, array $conversationIntentProfile = []) {
         $this->pdo                = $pdo;
         $this->ollama_host        = $ollama_host;
         $this->projectId          = $projectId;
@@ -82,6 +83,7 @@ class NormalStreamingRouteProcessor {
         $this->reportMode         = $reportMode;
         $this->diagramMode        = $diagramMode;
         $this->csvMode            = $csvMode;
+        $this->conversationIntentProfile = $conversationIntentProfile;
     }
 
     private function normalizeUtf8(string $text): string {
@@ -727,7 +729,11 @@ class NormalStreamingRouteProcessor {
                     (int)$this->projectId,
                     $this->threadId !== null ? (int)$this->threadId : null,
                     (int)$this->user_id,
-                    fn(string $message) => chatLogger($message)
+                    fn(string $message) => chatLogger($message),
+                    [
+                        'conversation_intent_profile' => $this->conversationIntentProfile,
+                        'route_detail' => (string)$this->routeDetail,
+                    ]
                 );
             } else {
                 chatLogger("[PROJECT-MEMORY-AUTO] skipped=quality_guard | thread_id=" . ($this->threadId === null ? 'NULL' : (string)$this->threadId));

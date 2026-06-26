@@ -49,7 +49,8 @@ class ChatRouteDispatcher
                 $context['prompt_key'],
                 $context['user_id'],
                 $context['role'],
-                $threadId
+                $threadId,
+                (array)($context['conversation_intent_profile'] ?? [])
             );
             return $routeName;
         }
@@ -120,7 +121,8 @@ class ChatRouteDispatcher
                 (bool)$context['report_mode'],
                 (bool)$context['diagram_mode'],
                 (bool)$context['csv_mode'],
-                $routeDetail
+                $routeDetail,
+                (array)($context['conversation_intent_profile'] ?? [])
             );
             return $routeName;
         }
@@ -150,7 +152,8 @@ class ChatRouteDispatcher
                 (bool)$context['report_mode'],
                 (bool)$context['diagram_mode'],
                 (bool)$context['csv_mode'],
-                $routeDetail
+                $routeDetail,
+                (array)($context['conversation_intent_profile'] ?? [])
             );
             return $routeName;
         }
@@ -183,7 +186,8 @@ class ChatRouteDispatcher
             $threadId,
             (bool)$context['report_mode'],
             (bool)$context['diagram_mode'],
-            (bool)$context['csv_mode']
+            (bool)$context['csv_mode'],
+            (array)($context['conversation_intent_profile'] ?? [])
         );
 
         return $routeName;
