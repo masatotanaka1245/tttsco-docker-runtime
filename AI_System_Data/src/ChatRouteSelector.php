@@ -19,6 +19,7 @@ class ChatRouteSelector
         $projectId = $context['project_id'] ?? null;
         $recentHistory = (array)($context['recent_history'] ?? []);
         $factorizedQuery = (array)($context['factorized_query'] ?? []);
+        $conversationIntentProfile = (array)($context['conversation_intent_profile'] ?? []);
         $factorizedRoute = (string)($factorizedQuery['route'] ?? '');
         $factorizedOperation = (string)($factorizedQuery['operation'] ?? '');
         $factorizedConfidence = (string)($factorizedQuery['route_confidence'] ?? 'low');
@@ -57,6 +58,17 @@ class ChatRouteSelector
         $csvOperationPattern = '/((転記|統合|結合|マージ|取り込|追加|反映|上書き).*(できますか|可能|したい|方法|手順|どうやって|どうすれば))|((できますか|可能|したい|方法|手順|どうやって|どうすれば).*(転記|統合|結合|マージ|取り込|追加|反映|上書き))/u';
         $hasHistorySummaryRequest = preg_match($historySummaryPattern, $message) === 1;
         $hasHistoryReportRequest = preg_match($historyReportPattern, $message) === 1;
+        $intentRelation = trim((string)($conversationIntentProfile['conversation_relation'] ?? ''));
+        $intentRequestType = trim((string)($conversationIntentProfile['request_type'] ?? ''));
+        $intentTodoPolicyHint = trim((string)($conversationIntentProfile['todo_policy_hint'] ?? ''));
+        $hasReadOnlyIntentOverride = $this->shouldUseReadOnlyIntentConsultationRoute(
+            $conversationIntentProfile,
+            $factorizedRoute,
+            $factorizedOperation,
+            $message,
+            $reportMode,
+            $explicitAdvanced
+        );
 
         if (($hasHistoryReportRequest || ($hasHistorySummaryRequest && $reportMode)) && $projectId !== null) {
             $explicitAdvanced = true;
@@ -129,6 +141,31 @@ class ChatRouteSelector
         if (!$isHistorySummaryMode) {
             if ($projectId === null && $explicitAdvanced) {
                 $this->log("[SMART-ROUTER] 案件未選択のため、フル思考指定よりも汎用・全社横断ルートを優先します。");
+
+            } elseif ($projectId !== null && $hasReadOnlyIntentOverride) {
+                $preferNormalRag = true;
+                $advancedReasoning = false;
+                $isAnalysisMode = false;
+                $routeDetailOverride = 'normal_rag.project_memory_consultation';
+                $appendUnique($selectorReasonCodes, 'selector_intent_read_only_consultation');
+                $appendUnique($selectorEvidence, 'intent_profile_read_only');
+                if ($intentRelation !== '') {
+                    $appendUnique($selectorEvidence, 'intent_relation_' . $intentRelation);
+                }
+                if ($intentRequestType !== '') {
+                    $appendUnique($selectorEvidence, 'intent_request_type_' . $intentRequestType);
+                }
+                if ($intentTodoPolicyHint !== '') {
+                    $appendUnique($selectorEvidence, 'intent_todo_policy_' . $intentTodoPolicyHint);
+                }
+                $selectedRouteConfidence = $factorizedConfidence !== 'low' ? $factorizedConfidence : 'medium';
+                $this->log(
+                    "[SMART-ROUTER] conversation_intent_profile により read-only 相談ルートを優先します。"
+                    . " route=normal_rag.project_memory_consultation"
+                    . " | relation=" . ($intentRelation !== '' ? $intentRelation : 'unknown')
+                    . " | request_type=" . ($intentRequestType !== '' ? $intentRequestType : 'unknown')
+                    . " | todo_policy_hint=" . ($intentTodoPolicyHint !== '' ? $intentTodoPolicyHint : 'unknown')
+                );
 
             } elseif ($projectId === null && (
                 preg_match($complexPattern, $message) ||
@@ -401,6 +438,49 @@ class ChatRouteSelector
         }
 
         return in_array($factorizedOperation, ['material_workflow', 'status_alignment'], true);
+    }
+
+    private function shouldUseReadOnlyIntentConsultationRoute(
+        array $conversationIntentProfile,
+        string $factorizedRoute,
+        string $factorizedOperation,
+        string $message,
+        bool $reportMode,
+        bool $explicitAdvanced
+    ): bool {
+        $requestType = trim((string)($conversationIntentProfile['request_type'] ?? ''));
+        $relation = trim((string)($conversationIntentProfile['conversation_relation'] ?? ''));
+        $todoPolicyHint = trim((string)($conversationIntentProfile['todo_policy_hint'] ?? ''));
+
+        if ($requestType !== 'consultation' || $todoPolicyHint !== 'read_only') {
+            return false;
+        }
+
+        if (!in_array($relation, ['new_request', 'status_check', 'rollback', 'correction'], true) && $relation !== '') {
+            return false;
+        }
+
+        if ($reportMode || $explicitAdvanced) {
+            return false;
+        }
+
+        if ($this->hasStrongCsvAggregationIntent($message) || $this->hasStrongHistoryReportIntent($message) || $this->hasStrongDocExtractIntent($message)) {
+            return false;
+        }
+
+        if (in_array($factorizedRoute, ['data_analysis.csv_agg', 'data_analysis.csv_summary', 'data_analysis.csv_export_request', 'advanced_hybrid.history_report', 'advanced_hybrid.doc_extract'], true)) {
+            return false;
+        }
+
+        if (str_starts_with($factorizedRoute, 'advanced_hybrid.')) {
+            return false;
+        }
+
+        if ($factorizedOperation === 'export_csv' || $factorizedOperation === 'report') {
+            return false;
+        }
+
+        return true;
     }
 
     private function hasStrongCsvAggregationIntent(string $message): bool

@@ -610,6 +610,7 @@ try {
         'project_id' => $project_id,
         'recent_history' => $recentHistory,
         'factorized_query' => $factorizedQuery,
+        'conversation_intent_profile' => $conversationIntentProfile,
         'explicit_advanced' => $explicit_advanced,
         'report_mode' => $report_mode,
     ]);
@@ -648,6 +649,14 @@ try {
         . " | factor_reasons=" . ($factorReasonLog !== '' ? $factorReasonLog : 'none')
         . " | selector_reasons=" . ($selectorReasonLog !== '' ? $selectorReasonLog : 'none')
         . " | evidence=" . ($evidenceLog !== '' ? $evidenceLog : 'none')
+    );
+    chatLogger(
+        "[ROUTE-SELECTED] route=" . $selectedRouteForLog
+        . " | route_detail=" . ($routeDetail !== '' ? $routeDetail : 'none')
+        . " | request_type=" . (($conversationIntentProfile['request_type'] ?? '') ?: 'unknown')
+        . " | relation=" . (($conversationIntentProfile['conversation_relation'] ?? '') ?: 'unknown')
+        . " | todo_policy_hint=" . (($conversationIntentProfile['todo_policy_hint'] ?? '') ?: 'unknown')
+        . " | selector_reasons=" . ($selectorReasonLog !== '' ? $selectorReasonLog : 'none')
     );
 
     if ($advanced_reasoning && empty($reasoning_id)) {
