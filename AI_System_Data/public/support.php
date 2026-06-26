@@ -1,7 +1,6 @@
 <?php
 
 require_once __DIR__ . '/../src/SupportController.php';
-
 // ★要件1: エスケープ関数 h() の完全二重定義防止ガードの最上部インジェクト
 if (!function_exists('h')) {
     function h($str) {
@@ -1266,7 +1265,8 @@ $projectCenterTabs = [
      data-thread-id="<?= h((string)$selected_thread_id) ?>"
      data-can-manage-material="<?= $can_manage_material_documents ? '1' : '0' ?>"
      data-can-manage-memory="<?= $can_manage_project_memory ? '1' : '0' ?>"
-     data-can-debug-log="<?= $role === 'admin' ? '1' : '0' ?>"></div>
+     data-can-debug-log="<?= $role === 'admin' ? '1' : '0' ?>"
+     data-can-document-integrity-check="<?= $role === 'admin' ? '1' : '0' ?>"></div>
 
 <main class="flex-1 flex overflow-hidden h-[calc(100vh-72px)] gap-px bg-slate-200/50 w-full" role="region" aria-label="Support System Console">
     
@@ -1468,6 +1468,60 @@ $projectCenterTabs = [
                     </div>
                     <input type="file" id="file-upload" class="hidden" accept=".pdf">
                 </div>
+
+                <?php if ($role === 'admin'): ?>
+                <details id="document-integrity-panel" class="border border-slate-200 rounded-2xl bg-slate-50/80 overflow-hidden">
+                    <summary class="px-5 py-4 cursor-pointer flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 select-none">
+                        <div>
+                            <span class="block text-[11px] font-black text-slate-600 uppercase tracking-wide">PDFファイル整合性チェック</span>
+                            <span class="block text-[10px] text-slate-400 font-medium mt-1">読み取り専用です。missing の確認のみ行い、削除・修復は行いません。</span>
+                        </div>
+                        <span id="document-integrity-status" class="text-[10px] text-slate-400 font-bold">未実行</span>
+                    </summary>
+                    <div class="border-t border-slate-200 bg-white p-5 space-y-4">
+                        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                            <p class="text-[11px] text-slate-500 font-medium">`documents.file_path` と実PDF/同名HTML fallback の存在を確認します。</p>
+                            <button type="button" id="document-integrity-refresh" class="self-start sm:self-auto bg-slate-900 text-white px-4 py-2 rounded-xl text-[11px] font-bold shadow-sm hover:bg-slate-700 transition-all duration-200 ease-in-out transform active:scale-95">チェックを実行</button>
+                        </div>
+                        <div id="document-integrity-summary" class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                            <div class="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                                <div class="text-[10px] font-black text-slate-400 uppercase tracking-wider">Total</div>
+                                <div class="mt-1 text-lg font-black text-slate-700">-</div>
+                            </div>
+                            <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+                                <div class="text-[10px] font-black text-emerald-600 uppercase tracking-wider">OK</div>
+                                <div class="mt-1 text-lg font-black text-emerald-700">-</div>
+                            </div>
+                            <div class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3">
+                                <div class="text-[10px] font-black text-rose-600 uppercase tracking-wider">Missing</div>
+                                <div class="mt-1 text-lg font-black text-rose-700">-</div>
+                            </div>
+                            <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+                                <div class="text-[10px] font-black text-amber-600 uppercase tracking-wider">HTML fallback</div>
+                                <div class="mt-1 text-lg font-black text-amber-700">-</div>
+                            </div>
+                        </div>
+                        <div id="document-integrity-empty" class="text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3">
+                            ボタンを押すと現在の documents PDF 整合性を確認します。
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full text-left text-[11px] border border-slate-200 rounded-xl overflow-hidden hidden" id="document-integrity-table">
+                                <thead class="bg-slate-50 text-slate-500 uppercase tracking-wider">
+                                    <tr>
+                                        <th class="px-3 py-2 font-black">document_id</th>
+                                        <th class="px-3 py-2 font-black">project_id</th>
+                                        <th class="px-3 py-2 font-black">title</th>
+                                        <th class="px-3 py-2 font-black">file_path</th>
+                                        <th class="px-3 py-2 font-black">HTML fallback</th>
+                                        <th class="px-3 py-2 font-black">created_at</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="document-integrity-list" class="divide-y divide-slate-200 bg-white"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </details>
+                <?php endif; ?>
 
                 <div class="space-y-3">
                     <div class="flex items-center justify-between border-b border-slate-200/60 pb-2">
@@ -1796,7 +1850,7 @@ $projectCenterTabs = [
 <script type="module">
     // ★ 究極の安全設計: import * as 構文を使用し、1096エラー(SyntaxError)を原理的に100%防止
     // 中央タブの現行挙動を確実に反映するため、support.js 側の cache busting を更新
-    import * as Support from './assets/js/support.js?v=41';
+    import * as Support from './assets/js/support.js?v=42';
 
     // ★要件4: 隔離コンテナ内のJSONデータを仲介して安全にマウント・パースするイベントハンドラの実装
     window.openProjectEditModal = (lat, lng) => {
@@ -1826,6 +1880,7 @@ $projectCenterTabs = [
         safeSupportInit('initResizer', Support.initResizer);
         safeSupportInit('initChatInput', Support.initChatInput);
         safeSupportInit('initDebugLogViewer', Support.initDebugLogViewer);
+        safeSupportInit('initDocumentIntegrityPanel', Support.initDocumentIntegrityPanel);
         safeSupportInit('checkUploadOnLoad', Support.checkUploadOnLoad);
         safeSupportInit('scrollToBottom', Support.scrollToBottom);
 

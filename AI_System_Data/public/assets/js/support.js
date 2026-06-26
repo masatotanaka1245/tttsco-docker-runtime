@@ -965,6 +965,126 @@ function initFaqAccordion() {
     faqList.dataset.accordionBound = 'true';
 }
 
+function escapeIntegrityHtml(value = '') {
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+function renderDocumentIntegritySummary(summary = {}) {
+    const values = [
+        Number(summary?.total || 0),
+        Number(summary?.ok || 0),
+        Number(summary?.missing || 0),
+        Number(summary?.html_fallback || 0),
+    ];
+
+    return `
+        <div class="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+            <div class="text-[10px] font-black text-slate-400 uppercase tracking-wider">Total</div>
+            <div class="mt-1 text-lg font-black text-slate-700">${values[0]}</div>
+        </div>
+        <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+            <div class="text-[10px] font-black text-emerald-600 uppercase tracking-wider">OK</div>
+            <div class="mt-1 text-lg font-black text-emerald-700">${values[1]}</div>
+        </div>
+        <div class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3">
+            <div class="text-[10px] font-black text-rose-600 uppercase tracking-wider">Missing</div>
+            <div class="mt-1 text-lg font-black text-rose-700">${values[2]}</div>
+        </div>
+        <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+            <div class="text-[10px] font-black text-amber-600 uppercase tracking-wider">HTML fallback</div>
+            <div class="mt-1 text-lg font-black text-amber-700">${values[3]}</div>
+        </div>
+    `;
+}
+
+function renderDocumentIntegrityRows(records = []) {
+    return records.map((record) => {
+        const htmlFallbackLabel = record?.html_fallback ? 'あり' : 'なし';
+        return `
+            <tr>
+                <td class="px-3 py-2 font-mono text-slate-600">${Number(record?.document_id || 0)}</td>
+                <td class="px-3 py-2 font-mono text-slate-600">${Number(record?.project_id || 0)}</td>
+                <td class="px-3 py-2 text-slate-700">${escapeIntegrityHtml(record?.title || '')}</td>
+                <td class="px-3 py-2 font-mono text-slate-500 break-all">${escapeIntegrityHtml(record?.file_path || '')}</td>
+                <td class="px-3 py-2 text-slate-600">${htmlFallbackLabel}</td>
+                <td class="px-3 py-2 font-mono text-slate-500">${escapeIntegrityHtml(record?.created_at || '')}</td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function initDocumentIntegrityPanel() {
+    const configEl = document.querySelector('#support-config');
+    if (!configEl || configEl.dataset.canDocumentIntegrityCheck !== '1') return;
+
+    const panel = document.getElementById('document-integrity-panel');
+    const button = document.getElementById('document-integrity-refresh');
+    const status = document.getElementById('document-integrity-status');
+    const summary = document.getElementById('document-integrity-summary');
+    const empty = document.getElementById('document-integrity-empty');
+    const table = document.getElementById('document-integrity-table');
+    const list = document.getElementById('document-integrity-list');
+    if (!panel || !button || !status || !summary || !empty || !table || !list || panel.dataset.bound === 'true') return;
+
+    panel.dataset.bound = 'true';
+    let loaded = false;
+
+    const setStatus = (text, className = 'text-[10px] text-slate-400 font-bold') => {
+        status.textContent = text;
+        status.className = className;
+    };
+
+    const load = async () => {
+        button.disabled = true;
+        setStatus('確認中', 'text-[10px] text-indigo-600 font-black');
+        empty.className = 'text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3';
+        empty.textContent = 'documents と実ファイルを確認しています...';
+
+        try {
+            const res = await secureFetch('api/document_integrity_check.php', { method: 'GET' });
+            if (!res?.success) {
+                throw new Error(res?.error || '整合チェックの取得に失敗しました。');
+            }
+
+            summary.innerHTML = renderDocumentIntegritySummary(res.summary || {});
+            const missing = Array.isArray(res.missing) ? res.missing : [];
+            list.innerHTML = renderDocumentIntegrityRows(missing);
+            table.classList.toggle('hidden', missing.length === 0);
+
+            if (missing.length === 0) {
+                empty.className = 'text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3';
+                empty.textContent = 'missing PDF はありません。読み取り専用チェックのみ実行しました。';
+            } else {
+                empty.className = 'text-[11px] text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-4 py-3';
+                empty.textContent = `missing PDF を ${missing.length} 件検出しました。削除・修復は行っていません。`;
+            }
+
+            loaded = true;
+            setStatus('取得済み', 'text-[10px] text-emerald-600 font-black');
+        } catch (error) {
+            table.classList.add('hidden');
+            list.innerHTML = '';
+            empty.className = 'text-[11px] text-red-700 bg-red-50 border border-red-200 rounded-xl px-4 py-3';
+            empty.textContent = `整合チェックの取得に失敗しました: ${error?.message || '不明なエラー'}`;
+            setStatus('取得エラー', 'text-[10px] text-red-600 font-black');
+        } finally {
+            button.disabled = false;
+        }
+    };
+
+    button.addEventListener('click', load);
+    panel.addEventListener('toggle', () => {
+        if (panel.open && !loaded) {
+            load();
+        }
+    });
+}
+
 async function handleSaveFaq(e) {
     e.preventDefault();
     const { projectId } = getConfig();
@@ -1122,6 +1242,7 @@ runSupportInitializer('initSupportPanelPreferencePersistence', initSupportPanelP
 runSupportInitializer('initSupportSidebarToggle', initSupportSidebarToggle);
 runSupportInitializer('initThreadTabsUi', initThreadTabsUi);
 runSupportInitializer('initFaqAccordion', initFaqAccordion);
+runSupportInitializer('initDocumentIntegrityPanel', initDocumentIntegrityPanel);
 runSupportInitializer('bindMaterialDocumentListNavigation', bindMaterialDocumentListNavigation);
 runSupportInitializer('bindMaterialDeleteForm', bindMaterialDeleteForm);
 runSupportInitializer('consumeMaterialFlashAsToast', consumeMaterialFlashAsToast);
@@ -1141,6 +1262,7 @@ export {
     initModalMap,
     initSupportSidebarToggle,
     initThreadTabsUi,
+    initDocumentIntegrityPanel,
     handleCreateProject,
     handleUpdateProject,
     deleteProject,
