@@ -61,6 +61,7 @@ class NormalStreamingRouteProcessor {
     private $lastLoggedLength = 0;
     private $buffer = "";
     private $ollamaErrorMsg = "";
+    private $routeStartedAt = 0.0;
 
     public function __construct($pdo, $ollama_host, $projectId, $originalMessage, $routeDetail, $searchQuery, $model, $subModel, $embeddingModel, $promptKey, $projectContext, $historySummaryText, $vectorSearch, $engine, $user_id, $role, $threadId = null, bool $reportMode = false, bool $diagramMode = false, bool $csvMode = false, array $conversationIntentProfile = []) {
         $this->pdo                = $pdo;
@@ -84,6 +85,7 @@ class NormalStreamingRouteProcessor {
         $this->diagramMode        = $diagramMode;
         $this->csvMode            = $csvMode;
         $this->conversationIntentProfile = $conversationIntentProfile;
+        $this->routeStartedAt     = microtime(true);
     }
 
     private function normalizeUtf8(string $text): string {
@@ -117,8 +119,41 @@ class NormalStreamingRouteProcessor {
         chatLogger("[PROMPT-BUDGET] route=normal | phase={$phase} | num_ctx={$numCtx} | totalChars={$totalChars} | " . implode(' | ', $segments));
     }
 
+    private function logPhaseTiming(string $phase, array $fields = []): void
+    {
+        $elapsedMs = (int)round((microtime(true) - $this->routeStartedAt) * 1000);
+        $parts = [
+            '[NORMAL-PHASE-TIMING]',
+            "phase={$phase}",
+            'project_id=' . (($this->projectId === null || (int)$this->projectId <= 0) ? 'NULL' : (string)(int)$this->projectId),
+            'thread_id=' . ($this->threadId === null ? 'NULL' : (string)$this->threadId),
+            'route_detail=' . ($this->routeDetail !== '' ? $this->routeDetail : 'none'),
+        ];
+
+        $requestType = trim((string)($this->conversationIntentProfile['request_type'] ?? ''));
+        if ($requestType !== '') {
+            $parts[] = "request_type={$requestType}";
+        }
+
+        $userIntent = trim((string)($this->conversationIntentProfile['user_intent'] ?? ''));
+        if ($userIntent !== '') {
+            $parts[] = "intent={$userIntent}";
+        }
+
+        foreach ($fields as $key => $value) {
+            if ($value === null || $value === '') {
+                continue;
+            }
+            $parts[] = "{$key}={$value}";
+        }
+
+        $parts[] = "elapsed_ms={$elapsedMs}";
+        chatLogger(implode(' | ', $parts));
+    }
+
     public function execute(): void {
         chatLogger(">>> [通常ルート] 通常ストリーミングルートを起動します");
+        $this->logPhaseTiming('normal_start');
         sendSSE('status', ['message' => '🔍 関連ドキュメントのベクトル類似度検索を実行しています...']);
         $this->parseQuery();
         $this->buildRagContext();
@@ -170,6 +205,12 @@ class NormalStreamingRouteProcessor {
                 . " | contextChars=" . mb_strlen($guardContext)
                 . " | sources=" . count($this->sourceDocs)
             );
+            $this->logPhaseTiming('judge_skipped', [
+                'reason' => 'project_memory_consultation',
+                'response_chars' => mb_strlen($this->fullResponse),
+                'context_chars' => mb_strlen($guardContext),
+                'sources' => count($this->sourceDocs),
+            ]);
             return;
         }
 
@@ -185,6 +226,12 @@ class NormalStreamingRouteProcessor {
 
         if (($policy['evaluate'] ?? false) !== true) {
             chatLogger("[JUDGE-NORMAL-SKIP] 通常RAG品質評価をスキップしました。reason={$policy['reason']} | responseChars=" . mb_strlen($this->fullResponse) . " | contextChars=" . mb_strlen($this->contextText) . " | sources=" . count($this->sourceDocs));
+            $this->logPhaseTiming('judge_skipped', [
+                'reason' => (string)($policy['reason'] ?? 'unknown'),
+                'response_chars' => mb_strlen($this->fullResponse),
+                'context_chars' => mb_strlen($this->contextText),
+                'sources' => count($this->sourceDocs),
+            ]);
             return;
         }
 
@@ -200,6 +247,13 @@ class NormalStreamingRouteProcessor {
                 $contextForEval = "通常RAG検索（中間ステップなし）";
             }
             chatLogger("[JUDGE-NORMAL-START] 通常RAG品質評価を開始します。reason={$policy['reason']} | responseChars=" . mb_strlen($this->fullResponse) . " | contextChars=" . mb_strlen($contextForEval) . " | sources=" . count($this->sourceDocs));
+            $this->logPhaseTiming('judge_start', [
+                'reason' => (string)($policy['reason'] ?? 'unknown'),
+                'response_chars' => mb_strlen($this->fullResponse),
+                'context_chars' => mb_strlen($contextForEval),
+                'sources' => count($this->sourceDocs),
+                'timeout' => 90,
+            ]);
             $this->evalResult = $evaluator->evaluateDraft($this->originalMessage, $contextForEval, $this->fullResponse, $this->model);
             $evaluationMode = (string)($this->evalResult['evaluation_mode'] ?? 'unknown');
             $evaluationSource = (string)($this->evalResult['evaluation_source'] ?? 'unknown');
@@ -208,6 +262,12 @@ class NormalStreamingRouteProcessor {
             $relevance = (int)($this->evalResult['scores']['answer_relevance'] ?? 0);
             $faithfulness = (int)($this->evalResult['scores']['faithfulness'] ?? 0);
             chatLogger("[EVAL-" . strtoupper($evaluationMode) . "] source={$evaluationSource} | verdict={$verdict} | score={$score} | relevance={$relevance} | faithfulness={$faithfulness}");
+            $this->logPhaseTiming('judge_end', [
+                'result' => $verdict,
+                'evaluation_mode' => $evaluationMode,
+                'evaluation_source' => $evaluationSource,
+                'score' => $score,
+            ]);
 
             if (($this->evalResult['needs_revision'] ?? false) === true) {
                 $verdict = $this->evalResult['verdict'] ?? 'revise_text_only';
@@ -243,6 +303,10 @@ class NormalStreamingRouteProcessor {
             chatLogger("[JUDGE-NORMAL-EVAL] 通常RAG回答品質管理審査結果マトリクス:\n" . print_r($this->evalResult, true));
             chatLogger("[DEBUG] ChatEvaluator による通常RAG最終回答品質審査が正常開通しました。");
         } catch (Exception $evalEx) {
+            $this->logPhaseTiming('judge_exception', [
+                'error_type' => get_class($evalEx),
+                'message' => mb_substr($evalEx->getMessage(), 0, 160),
+            ]);
             chatLogger("品質評価エージェントキック中に例外検出(スキップ保護): " . $evalEx->getMessage());
         }
     }
@@ -549,10 +613,14 @@ class NormalStreamingRouteProcessor {
             if ($fastPathResponse !== '') {
                 $this->fullResponse = $fastPathResponse;
                 chatLogger("[PROJECT-MEMORY] consultation fast path を適用しました。responseChars=" . mb_strlen($this->fullResponse));
+                $this->logPhaseTiming('generation_fast_path', [
+                    'response_chars' => mb_strlen($this->fullResponse),
+                ]);
                 return true;
             }
         }
 
+        $this->logPhaseTiming('prompt_build_start');
         $system_prompt = $this->buildSystemPrompt();
         $dialogue_context_prompt = $this->buildDialogueContextPrompt();
         $project_context_prompt = $this->buildProjectContextPrompt();
@@ -577,8 +645,21 @@ class NormalStreamingRouteProcessor {
             'question' => $question_prompt,
             'projectMemory' => $this->projectOperatingMemoryPrompt,
         ], 8192);
+        $this->logPhaseTiming('prompt_built', [
+            'total_chars' => mb_strlen($prompt_user),
+            'system_chars' => mb_strlen($system_prompt),
+            'project_memory_chars' => mb_strlen($this->projectOperatingMemoryPrompt),
+            'history_chars' => mb_strlen($dialogue_context_prompt),
+            'context_chars' => mb_strlen($reference_context_prompt),
+            'source_docs' => count($this->sourceDocs),
+        ]);
 
         chatLogger("Ollama接続開始。モデル: {$this->model} | プロンプト総文字数: " . mb_strlen($prompt_user) . "文字");
+        $this->logPhaseTiming('generation_start', [
+            'model' => $this->model,
+            'timeout' => 300,
+            'prompt_chars' => mb_strlen($prompt_user),
+        ]);
 
         // 📢 【推論プロンプト送信フェーズ】合体プロンプトの完全ダンプ
         chatLogger("[OLLAMA-RAW-PROMPT] Ollamaへ最終投入される生の合体ユーザープロンプト:\n" . $prompt_user);
@@ -641,16 +722,29 @@ class NormalStreamingRouteProcessor {
         curl_close($ch);
 
         if (!empty($this->ollamaErrorMsg)) {
+            $this->logPhaseTiming('generation_error', [
+                'error_type' => 'ollama_internal_error',
+                'message' => mb_substr($this->ollamaErrorMsg, 0, 160),
+            ]);
             chatLogger("CRITICAL: Ollama内部システムエラーを検知しました: {$this->ollamaErrorMsg}");
             sendSSE('error', ['status' => 'error', 'error' => "⚠️ Ollama AIサーバーエラー: {$this->ollamaErrorMsg}"]);
             return false;
         }
         if (!$success) {
+            $this->logPhaseTiming('generation_error', [
+                'error_type' => 'curl_exec_failed',
+                'message' => mb_substr($curl_error, 0, 160),
+                'http_code' => $http_code,
+            ]);
             chatLogger("CRITICAL: Ollama推論ストリーム通信失敗 (cURL Error: {$curl_error})");
             sendSSE('error', ['status' => 'error', 'error' => 'AIサーバーとのストリーミング通信に失敗しました: ' . $curl_error]);
             return false;
         }
         if ($http_code !== 200) {
+            $this->logPhaseTiming('generation_error', [
+                'error_type' => 'http_status',
+                'http_code' => $http_code,
+            ]);
             chatLogger("CRITICAL: AIサーバーがエラーコード {$http_code} を返しました。");
             sendSSE('error', ['status' => 'error', 'error' => "⚠️ AIサーバー通信エラー (HTTPステータス: {$http_code})"]);
             return false;
@@ -659,6 +753,11 @@ class NormalStreamingRouteProcessor {
         if (empty($this->fullResponse)) {
             $this->fullResponse = "⚠️ **[システム安全ガードレールによる技術案内]**\n\n大変申し訳ありません。検索に合致したデータ量が多すぎるか、AIサーバーが一時的に極めて高負荷なため、処理能力限界（Token Limit）を超過し回答を構成できませんでした。";
         }
+        $this->logPhaseTiming('generation_end', [
+            'response_chars' => mb_strlen($this->fullResponse),
+            'token_chunks' => $this->tokenCount,
+            'http_code' => $http_code,
+        ]);
         return true;
     }
 
@@ -669,6 +768,7 @@ class NormalStreamingRouteProcessor {
         if ($this->projectId === null) {
             return;
         }
+        $this->logPhaseTiming('save_start');
         sendSSE('status', ['message' => '💾 回答生成が完了しました。会話履歴と評価結果を保存しています...']);
         chatLogger("[DEBUG] DBトランザクションを開始し、対話ログ・評価スコアを一元コミットします...");
         try {
@@ -785,12 +885,20 @@ class NormalStreamingRouteProcessor {
             }
             $this->createReportDocumentIfRequested((int)$historyId);
             $this->createCsvExportIfRequested((int)$historyId);
+            $this->logPhaseTiming('save_end', [
+                'history_id' => $historyId,
+                'has_eval' => is_array($this->evalResult) ? 'yes' : 'no',
+            ]);
         } catch (Exception $e) {
             // 障害発生時は一斉ロールバックを執行
             if ($this->pdo->inTransaction()) {
                 $this->pdo->rollBack();
                 chatLogger("[WARN] DBトランザクション内で例外エラーを検知したため、一斉ロールバックを執行しました。");
             }
+            $this->logPhaseTiming('save_exception', [
+                'error_type' => get_class($e),
+                'message' => mb_substr($e->getMessage(), 0, 160),
+            ]);
             chatLogger("DB履歴・評価保存例外: " . $e->getMessage());
         }
     }
@@ -896,6 +1004,10 @@ class NormalStreamingRouteProcessor {
 
     private function sendFinalResult(): void {
         $this->logFinalResponseSnapshot('normal_rag', $this->fullResponse);
+        $this->logPhaseTiming('send_final', [
+            'response_chars' => mb_strlen($this->fullResponse),
+            'source_docs' => count($this->sourceDocs),
+        ]);
         sendSSE('result', [
             'status'          => 'success',
             'response'        => $this->fullResponse,
@@ -911,6 +1023,7 @@ class NormalStreamingRouteProcessor {
             'report_document' => $this->reportDocument,
             'csv_export'      => $this->csvExport
         ]);
+        $this->logPhaseTiming('stream_close');
         chatLogger("=== 通常RAGストリーミングパイプライン完了 ===");
     }
 

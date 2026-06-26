@@ -13,7 +13,24 @@ require_once __DIR__ . '/ClarificationQuestionBuilder.php';
  */
 class ChatEvaluator {
     private $ollama_host;
-    
+
+    private function logPhaseTiming(string $phase, array $fields = []): void
+    {
+        if (!function_exists('chatLogger')) {
+            return;
+        }
+
+        $parts = ['[EVAL-PHASE-TIMING]', "phase={$phase}"];
+        foreach ($fields as $key => $value) {
+            if ($value === null || $value === '') {
+                continue;
+            }
+            $parts[] = "{$key}={$value}";
+        }
+
+        chatLogger(implode(' | ', $parts));
+    }
+
     public function __construct($host) {
         $this->ollama_host = rtrim($host, '/');
     }
@@ -28,6 +45,7 @@ class ChatEvaluator {
      * @return array 評価結果の連想配列
      */
     public function evaluateDraft($question, $context, $draft_answer, $model = 'gemma4:e4b') {
+        $startedAt = microtime(true);
         $questionType = QuestionTypeClassifier::classify((string)$question);
         $questionPolicy = QuestionTypeClassifier::buildPolicy($questionType);
 
@@ -129,12 +147,27 @@ EOT;
         curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
         curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
         curl_setopt($ch, CURLOPT_TIMEOUT, 90); // スパルタ記述を考慮しタイムアウトを90秒に緩和拡張
+        $this->logPhaseTiming('evaluate_start', [
+            'timeout' => 90,
+            'model' => (string)$model,
+            'question_type' => $questionType,
+            'response_chars' => mb_strlen((string)$draft_answer),
+            'context_chars' => mb_strlen((string)$context),
+            'elapsed_ms' => (int)round((microtime(true) - $startedAt) * 1000),
+        ]);
 
         $response = curl_exec($ch);
         $error = curl_error($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
 
         if ($error || !$response) {
+            $this->logPhaseTiming('evaluate_error', [
+                'timeout' => 90,
+                'http_code' => $httpCode,
+                'error' => mb_substr((string)$error, 0, 160),
+                'elapsed_ms' => (int)round((microtime(true) - $startedAt) * 1000),
+            ]);
             return $this->getDefaultFallback();
         }
 
@@ -144,13 +177,30 @@ EOT;
         $evalResult = json_decode($replyContent, true);
 
         if (!$evalResult || !is_array($evalResult)) {
+            $this->logPhaseTiming('evaluate_error', [
+                'timeout' => 90,
+                'http_code' => $httpCode,
+                'error' => 'invalid_or_empty_json',
+                'elapsed_ms' => (int)round((microtime(true) - $startedAt) * 1000),
+            ]);
             return $this->getDefaultFallback($questionType);
         }
 
-        return $this->normalizeEvaluationResult($evalResult, $questionType, (string)$question, (string)$draft_answer);
+        $normalized = $this->normalizeEvaluationResult($evalResult, $questionType, (string)$question, (string)$draft_answer);
+        $this->logPhaseTiming('evaluate_end', [
+            'timeout' => 90,
+            'http_code' => $httpCode,
+            'result' => (string)($normalized['verdict'] ?? 'unknown'),
+            'evaluation_mode' => (string)($normalized['evaluation_mode'] ?? 'unknown'),
+            'total_score' => (int)($normalized['total_score'] ?? 0),
+            'elapsed_ms' => (int)round((microtime(true) - $startedAt) * 1000),
+        ]);
+
+        return $normalized;
     }
 
     public function reviseDraftTextOnly($question, $context, $draft_answer, $feedback, $model = 'gemma4:e4b', array $forbiddenActions = []) {
+        $startedAt = microtime(true);
         $questionType = QuestionTypeClassifier::classify((string)$question);
         $forbiddenText = empty($forbiddenActions) ? '追加SQL、追加検索、未要求の図表、根拠のない新情報' : implode('、', $forbiddenActions);
 
@@ -206,22 +256,46 @@ EOT;
         curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
         curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
         curl_setopt($ch, CURLOPT_TIMEOUT, 90);
+        $this->logPhaseTiming('rewrite_start', [
+            'timeout' => 90,
+            'model' => (string)$model,
+            'question_type' => $questionType,
+            'draft_chars' => mb_strlen((string)$draft_answer),
+            'context_chars' => mb_strlen((string)$context),
+            'elapsed_ms' => (int)round((microtime(true) - $startedAt) * 1000),
+        ]);
 
         $response = curl_exec($ch);
         $error = curl_error($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
 
         if ($error || !$response) {
             if (function_exists('chatLogger')) {
                 chatLogger("[TEXT-ONLY-REWRITE-FAILED] cURLエラーまたは空レスポンス: {$error}");
             }
+            $this->logPhaseTiming('rewrite_error', [
+                'timeout' => 90,
+                'http_code' => $httpCode,
+                'error' => mb_substr((string)$error, 0, 160),
+                'elapsed_ms' => (int)round((microtime(true) - $startedAt) * 1000),
+            ]);
             return trim((string)$draft_answer);
         }
 
         $responseData = json_decode($response, true);
         $replyContent = OllamaChatHelper::extractVisibleContent((string)($responseData['message']['content'] ?? ''));
 
-        return $replyContent !== '' ? $replyContent : trim((string)$draft_answer);
+        $finalText = $replyContent !== '' ? $replyContent : trim((string)$draft_answer);
+        $this->logPhaseTiming('rewrite_end', [
+            'timeout' => 90,
+            'http_code' => $httpCode,
+            'result_chars' => mb_strlen($finalText),
+            'used_fallback' => ($replyContent === '' ? 'yes' : 'no'),
+            'elapsed_ms' => (int)round((microtime(true) - $startedAt) * 1000),
+        ]);
+
+        return $finalText;
     }
 
     public function shouldAskUserClarification(array $evalResult, string $question = ''): bool {
