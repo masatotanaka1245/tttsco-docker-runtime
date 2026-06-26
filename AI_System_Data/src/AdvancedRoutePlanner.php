@@ -2,6 +2,11 @@
 
 final class AdvancedRoutePlanner
 {
+    private const DOC_EXTRACT_SUBTYPE_CAUTIONS = 'cautions';
+    private const DOC_EXTRACT_SUBTYPE_SUMMARY = 'summary';
+    private const DOC_EXTRACT_SUBTYPE_EXPLANATION = 'explanation';
+    private const DOC_EXTRACT_SUBTYPE_REPORT_MATERIALS = 'report_materials';
+
     private $ollamaHost;
     private $reasoningModel;
     private $projectId;
@@ -50,10 +55,14 @@ final class AdvancedRoutePlanner
 
     public function buildPresetDocPlan(): array
     {
+        $subtypeSpec = $this->detectDocExtractSubtype();
+        $purpose = $this->buildPresetDocPlanPurpose($subtypeSpec['type']);
+        $this->log("[DOC-EXTRACT-TYPE] type={$subtypeSpec['type']} | reason={$subtypeSpec['reason']} | route_detail=doc_extract | source=planner");
+
         return [[
             'step' => 1,
             'table' => 'doc_chunks',
-            'purpose' => 'アップロードされた資料PDFから、案件に関する主要な留意点や重要な情報を抽出する。',
+            'purpose' => $purpose,
             'operation_type' => 'semantic_extract',
         ]];
     }
@@ -183,5 +192,38 @@ final class AdvancedRoutePlanner
             && !$hasStrongAggregateIntent
             && !$hasStrongHistoryIntent
             && !$hasStrongDocIntent;
+    }
+
+    private function detectDocExtractSubtype(): array
+    {
+        $message = trim($this->searchQuery !== '' ? $this->searchQuery : $this->originalMessage);
+
+        if (preg_match('/(留意点|注意点|注意|リスク|確認事項|見落とし|不明点|確認すべき)/u', $message) === 1) {
+            return ['type' => self::DOC_EXTRACT_SUBTYPE_CAUTIONS, 'reason' => 'keyword_cautions'];
+        }
+
+        if (preg_match('/(報告書|レポート|材料|根拠候補|使える情報|使える材料|出典候補)/u', $message) === 1) {
+            return ['type' => self::DOC_EXTRACT_SUBTYPE_REPORT_MATERIALS, 'reason' => 'keyword_report_materials'];
+        }
+
+        if (preg_match('/(要点|要約|まとめ|概要|ポイント)/u', $message) === 1) {
+            return ['type' => self::DOC_EXTRACT_SUBTYPE_SUMMARY, 'reason' => 'keyword_summary'];
+        }
+
+        if (preg_match('/(図面内容|内容|説明|何が書いてある|どんな内容|どういう内容)/u', $message) === 1) {
+            return ['type' => self::DOC_EXTRACT_SUBTYPE_EXPLANATION, 'reason' => 'keyword_explanation'];
+        }
+
+        return ['type' => self::DOC_EXTRACT_SUBTYPE_SUMMARY, 'reason' => 'default_summary'];
+    }
+
+    private function buildPresetDocPlanPurpose(string $subtype): string
+    {
+        return match ($subtype) {
+            self::DOC_EXTRACT_SUBTYPE_EXPLANATION => 'アップロードされた資料PDFから、図面や本文の内容を説明できる主要記述を抽出する。',
+            self::DOC_EXTRACT_SUBTYPE_REPORT_MATERIALS => 'アップロードされた資料PDFから、報告書に使える根拠・材料候補を抽出する。',
+            self::DOC_EXTRACT_SUBTYPE_CAUTIONS => 'アップロードされた資料PDFから、案件に関する主要な留意点や重要な情報を抽出する。',
+            default => 'アップロードされた資料PDFから、要点や主要な内容を抽出する。',
+        };
     }
 }

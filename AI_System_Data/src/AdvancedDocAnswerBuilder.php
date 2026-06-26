@@ -2,6 +2,11 @@
 
 final class AdvancedDocAnswerBuilder
 {
+    private const DOC_EXTRACT_SUBTYPE_CAUTIONS = 'cautions';
+    private const DOC_EXTRACT_SUBTYPE_SUMMARY = 'summary';
+    private const DOC_EXTRACT_SUBTYPE_EXPLANATION = 'explanation';
+    private const DOC_EXTRACT_SUBTYPE_REPORT_MATERIALS = 'report_materials';
+
     private $originalMessage;
     private $subAnswers;
     private $ollamaHost;
@@ -30,6 +35,11 @@ final class AdvancedDocAnswerBuilder
 
     public function buildLightweightDocFinalAnswer(string $currentDraft, array $stepResults = []): string
     {
+        $subtypeSpec = $this->detectDocExtractSubtype();
+        $subtype = $subtypeSpec['type'];
+        $subtypeConfig = $this->getDocExtractSubtypeConfig($subtype);
+        $this->logDocExtractSubtype($subtype, (string)$subtypeSpec['reason'], 'builder');
+
         $deterministicAnswer = $this->buildDeterministicDocLightweightAnswer();
         if ($deterministicAnswer !== '') {
             return $deterministicAnswer;
@@ -49,14 +59,14 @@ final class AdvancedDocAnswerBuilder
             . "ユーザーは案件に関連する資料PDFについて次の質問への回答を求めています: 「{$this->originalMessage}」。"
             . "与えられた根拠だけを使い、過不足なく短く日本語Markdownで答えてください。"
             . "見出しと箇条書きを使ってよいですが、冗長な前置きや架空の補足は禁止です。"
-            . "資料全体の一般説明よりも、質問で求められた確認事項・留意点・注意点・根拠を優先してください。"
+            . $subtypeConfig['system_focus']
             . "質問の依頼形式（箇条書き、件数指定、観点指定）がある場合は必ず従ってください。"
             . "「概要」「主な構成要素」といった資料紹介中心の答え方は避け、質問に対する直接の答えから始めてください。"
-            . "留意点は3〜5個までに絞り、各項目は必ず `- [資料名 / P.xx]` または `- [資料名]` で始めてください。"
+            . $subtypeConfig['structure_guidance']
             . "根拠に書かれていない資料名・建物名・用途・結論を推測で補わないでください。"
             . "根拠断片に含まれない法規名、設備名、構造種別、一般論を追加してはいけません。"
-            . "各留意点は、根拠断片に含まれる表現に寄せて1〜2文で書いてください。"
-            . "明示的な留意点が見つからない場合は、その旨を短く明示し、代わりに確認が必要な記述断片を挙げてください。";
+            . $subtypeConfig['item_guidance']
+            . $subtypeConfig['missing_guidance'];
 
         $userPrompt = "【ユーザーの質問】\n{$this->originalMessage}\n\n"
             . "【最優先で使う根拠断片】\n{$groundingPacket}\n\n"
@@ -64,8 +74,8 @@ final class AdvancedDocAnswerBuilder
             . "【内部ドラフト】\n{$currentDraft}\n\n"
             . "【出力ルール】\n"
             . "1. 冒頭1〜2文で結論を書く。\n"
-            . "2. その後に `## 留意点` を置き、留意点を箇条書きで3〜5件示す。\n"
-            . "3. 各箇条書きは必ず資料名とページ番号を含める。\n"
+            . "2. その後に `{$subtypeConfig['section_heading']}` を置き、{$subtypeConfig['section_instruction']}。\n"
+            . "3. 各項目は必ず資料名とページ番号を含める。\n"
             . "4. 最後に `## 根拠` を置き、使った根拠断片を短く列挙する。\n"
             . "5. 根拠断片にない内容は書かない。\n\n"
             . "上記だけを根拠に、ユーザーへ提示する最終回答のみを日本語Markdownで出力してください。";
@@ -131,6 +141,9 @@ final class AdvancedDocAnswerBuilder
             return '';
         }
 
+        $subtypeSpec = $this->detectDocExtractSubtype();
+        $subtype = $subtypeSpec['type'];
+        $subtypeConfig = $this->getDocExtractSubtypeConfig($subtype);
         $strictEvidenceOnly = preg_match('/(根拠だけ|推測は入れない|推測しない|資料にあることだけ|根拠のみ)/u', $this->originalMessage) === 1;
         $requestedLimit = $this->extractRequestedDocItemLimit();
         $limit = $requestedLimit ?? 3;
@@ -138,11 +151,9 @@ final class AdvancedDocAnswerBuilder
         $selectedBlocks = $this->selectDocEvidenceBlocks($blocks, $limit);
 
         $lines = [];
-        $lines[] = $strictEvidenceOnly
-            ? '資料PDFから確認できた記述だけを抜き出します。'
-            : '資料PDFから確認できた主要な留意点を整理します。';
+        $lines[] = $this->buildDeterministicIntro($subtype, $strictEvidenceOnly);
         $lines[] = '';
-        $lines[] = '## 留意点';
+        $lines[] = $subtypeConfig['section_heading'];
         foreach ($selectedBlocks as $block) {
             $lines[] = $this->formatDocEvidenceBullet($block, $strictEvidenceOnly);
         }
@@ -406,6 +417,101 @@ final class AdvancedDocAnswerBuilder
         $title = trim((string)($block['title'] ?? '資料名不明'));
         $page = (int)($block['page'] ?? 0);
         return $page > 0 ? "[{$title} / P.{$page}]" : "[{$title}]";
+    }
+
+    private function detectDocExtractSubtype(): array
+    {
+        $message = trim((string)$this->originalMessage);
+
+        if (preg_match('/(留意点|注意点|注意|リスク|確認事項|見落とし|不明点|確認すべき)/u', $message) === 1) {
+            return ['type' => self::DOC_EXTRACT_SUBTYPE_CAUTIONS, 'reason' => 'keyword_cautions'];
+        }
+
+        if (preg_match('/(報告書|レポート|材料|根拠候補|使える情報|使える材料|出典候補)/u', $message) === 1) {
+            return ['type' => self::DOC_EXTRACT_SUBTYPE_REPORT_MATERIALS, 'reason' => 'keyword_report_materials'];
+        }
+
+        if (preg_match('/(要点|要約|まとめ|概要|ポイント)/u', $message) === 1) {
+            return ['type' => self::DOC_EXTRACT_SUBTYPE_SUMMARY, 'reason' => 'keyword_summary'];
+        }
+
+        if (preg_match('/(図面内容|内容|説明|何が書いてある|どんな内容|どういう内容)/u', $message) === 1) {
+            return ['type' => self::DOC_EXTRACT_SUBTYPE_EXPLANATION, 'reason' => 'keyword_explanation'];
+        }
+
+        return ['type' => self::DOC_EXTRACT_SUBTYPE_SUMMARY, 'reason' => 'default_summary'];
+    }
+
+    /**
+     * @return array{section_heading:string,section_instruction:string,system_focus:string,structure_guidance:string,item_guidance:string,missing_guidance:string}
+     */
+    private function getDocExtractSubtypeConfig(string $subtype): array
+    {
+        return match ($subtype) {
+            self::DOC_EXTRACT_SUBTYPE_EXPLANATION => [
+                'section_heading' => '## 内容説明',
+                'section_instruction' => '内容説明を箇条書きで3〜5件示す',
+                'system_focus' => '資料全体の一般論ではなく、質問で求められた内容説明や図面内容の説明を優先してください。',
+                'structure_guidance' => '各説明項目は3〜5件までに絞り、各項目は必ず `- [資料名 / P.xx]` または `- [資料名]` で始めてください。',
+                'item_guidance' => '各説明項目は、根拠断片に含まれる表現に寄せて1〜2文で書いてください。',
+                'missing_guidance' => '明示的な説明材料が少ない場合は、その旨を短く明示し、代わりに読み取れる主要記述を挙げてください。',
+            ],
+            self::DOC_EXTRACT_SUBTYPE_REPORT_MATERIALS => [
+                'section_heading' => '## 報告書材料',
+                'section_instruction' => '報告書に転用しやすい根拠・材料候補を箇条書きで3〜5件示す',
+                'system_focus' => '質問で求められた報告書材料、根拠候補、使える情報を優先してください。留意点だけに寄せず、報告書本文に転用しやすい事実や記述を整理してください。',
+                'structure_guidance' => '各材料候補は3〜5件までに絞り、各項目は必ず `- [資料名 / P.xx]` または `- [資料名]` で始めてください。',
+                'item_guidance' => '各材料候補は、根拠断片に含まれる事実・数値・記述を優先し、報告書で何に使えるかが分かるよう1〜2文で書いてください。',
+                'missing_guidance' => '報告書材料として使える記述が少ない場合は、その旨を短く明示し、代わりに転用候補となる断片を挙げてください。',
+            ],
+            self::DOC_EXTRACT_SUBTYPE_CAUTIONS => [
+                'section_heading' => '## 留意点',
+                'section_instruction' => '留意点を箇条書きで3〜5件示す',
+                'system_focus' => '資料全体の一般説明よりも、質問で求められた確認事項・留意点・注意点・根拠を優先してください。',
+                'structure_guidance' => '留意点は3〜5個までに絞り、各項目は必ず `- [資料名 / P.xx]` または `- [資料名]` で始めてください。',
+                'item_guidance' => '各留意点は、根拠断片に含まれる表現に寄せて1〜2文で書いてください。',
+                'missing_guidance' => '明示的な留意点が見つからない場合は、その旨を短く明示し、代わりに確認が必要な記述断片を挙げてください。',
+            ],
+            self::DOC_EXTRACT_SUBTYPE_SUMMARY => [
+                'section_heading' => '## 要点',
+                'section_instruction' => '要点を箇条書きで3〜5件示す',
+                'system_focus' => '資料全体の一般論ではなく、質問で求められた要点・概要・主要事項を優先してください。留意点だけに寄せず、資料の要旨が伝わるように整理してください。',
+                'structure_guidance' => '要点は3〜5個までに絞り、各項目は必ず `- [資料名 / P.xx]` または `- [資料名]` で始めてください。',
+                'item_guidance' => '各要点は、根拠断片に含まれる主要な記述を1〜2文で簡潔に整理してください。',
+                'missing_guidance' => '明示的な要点が取りにくい場合は、その旨を短く明示し、代わりに主要な記述断片を挙げてください。',
+            ],
+        };
+    }
+
+    private function buildDeterministicIntro(string $subtype, bool $strictEvidenceOnly): string
+    {
+        if ($strictEvidenceOnly) {
+            return match ($subtype) {
+                self::DOC_EXTRACT_SUBTYPE_EXPLANATION => '資料PDFに書かれている内容だけを、主要な記載事項ごとに説明します。',
+                self::DOC_EXTRACT_SUBTYPE_REPORT_MATERIALS => '資料PDFにある記述だけを基に、報告書に使える材料候補を整理します。',
+                self::DOC_EXTRACT_SUBTYPE_CAUTIONS => '資料PDFから確認できた記述だけを抜き出し、留意点として整理します。',
+                default => '資料PDFから確認できた記述だけを抜き出し、要点として整理します。',
+            };
+        }
+
+        return match ($subtype) {
+            self::DOC_EXTRACT_SUBTYPE_EXPLANATION => '資料PDFに書かれている内容を、主要な記載事項ごとに説明します。',
+            self::DOC_EXTRACT_SUBTYPE_REPORT_MATERIALS => '資料PDFから、報告書に転用しやすい根拠・材料候補を整理します。',
+            self::DOC_EXTRACT_SUBTYPE_CAUTIONS => '資料PDFから確認できた主要な留意点を整理します。',
+            default => '資料PDFから確認できた要点を整理します。',
+        };
+    }
+
+    private function logDocExtractSubtype(string $type, string $reason, string $source): void
+    {
+        if ($this->logger === null) {
+            return;
+        }
+
+        call_user_func(
+            $this->logger,
+            "[DOC-EXTRACT-TYPE] type={$type} | reason={$reason} | route_detail=doc_extract | source={$source}"
+        );
     }
 
     private function selectDiversifiedDocChunkRows(array $rows, int $limit): array
