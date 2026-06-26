@@ -720,10 +720,44 @@ class NormalStreamingRouteProcessor {
             $fallbackGuardReason = $this->getDownstreamFallbackGuardReason();
             if ($this->shouldSkipProjectMemoryRefresh()) {
                 chatLogger("[PROJECT-MEMORY-AUTO] skipped=route_guard | route_detail=" . (string)$this->routeDetail . " | operation=" . $this->inferPriorityOperation() . " | reason=consultation_read_only");
+                ProjectMemoryAutoUpdater::logAutoMemoryDecision(
+                    fn(string $message) => chatLogger($message),
+                    [
+                        'project_id' => $this->projectId,
+                        'thread_id' => $this->threadId,
+                        'route_detail' => (string)$this->routeDetail,
+                        'conversation_intent_profile' => $this->conversationIntentProfile,
+                    ],
+                    [
+                        'action' => 'skip',
+                        'guard' => 'route_guard',
+                        'reason' => 'consultation_read_only',
+                    ]
+                );
             } elseif ($fallbackGuardReason !== null) {
                 chatLogger("[EVAL-FALLBACK-GUARD] blocked=project_memory_refresh | route=normal | reason={$fallbackGuardReason}");
                 chatLogger("[PROJECT-MEMORY-AUTO] skipped=quality_guard | thread_id=" . ($this->threadId === null ? 'NULL' : (string)$this->threadId));
-            } elseif (ProjectMemoryAutoUpdater::shouldRefreshFromEvaluation($this->evalResult, $this->fullResponse)) {
+                ProjectMemoryAutoUpdater::logAutoMemoryDecision(
+                    fn(string $message) => chatLogger($message),
+                    [
+                        'project_id' => $this->projectId,
+                        'thread_id' => $this->threadId,
+                        'route_detail' => (string)$this->routeDetail,
+                        'conversation_intent_profile' => $this->conversationIntentProfile,
+                    ],
+                    [
+                        'action' => 'skip',
+                        'guard' => 'quality_guard',
+                        'reason' => (string)$fallbackGuardReason,
+                    ],
+                    $this->evalResult
+                );
+            } elseif (ProjectMemoryAutoUpdater::shouldRefreshFromEvaluation($this->evalResult, $this->fullResponse, fn(string $message) => chatLogger($message), [
+                'project_id' => $this->projectId,
+                'thread_id' => $this->threadId,
+                'route_detail' => (string)$this->routeDetail,
+                'conversation_intent_profile' => $this->conversationIntentProfile,
+            ])) {
                 ProjectMemoryAutoUpdater::refresh(
                     $this->pdo,
                     (int)$this->projectId,

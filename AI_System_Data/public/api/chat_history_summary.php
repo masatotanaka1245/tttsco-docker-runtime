@@ -269,7 +269,12 @@ class HistorySummaryRouteProcessor {
             chatLogger("[HISTORY-SUMMARY] 会話履歴成果品の保存成功。ID: {$historyId}");
             if ($this->projectId !== null) {
                 $memoryRefreshEvalResult = $this->buildProjectMemoryRefreshEvalResult();
-                if (ProjectMemoryAutoUpdater::shouldRefreshFromEvaluation($memoryRefreshEvalResult, $this->finalResponse)) {
+                if (ProjectMemoryAutoUpdater::shouldRefreshFromEvaluation($memoryRefreshEvalResult, $this->finalResponse, fn(string $message) => chatLogger($message), [
+                    'project_id' => $this->projectId,
+                    'thread_id' => $this->threadId,
+                    'route_detail' => 'history_summary',
+                    'conversation_intent_profile' => $this->conversationIntentProfile,
+                ])) {
                     ProjectMemoryAutoUpdater::refresh(
                         $this->pdo,
                         (int)$this->projectId,

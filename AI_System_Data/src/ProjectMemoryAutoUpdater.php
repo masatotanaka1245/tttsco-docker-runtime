@@ -5,11 +5,21 @@ require_once __DIR__ . '/ProjectTaskStateReducer.php';
 
 final class ProjectMemoryAutoUpdater
 {
-    public static function shouldRefreshFromEvaluation(?array $evalResult, string $finalResponse = ''): bool
+    public static function shouldRefreshFromEvaluation(?array $evalResult, string $finalResponse = '', ?callable $logger = null, array $context = []): bool
     {
         $skipReason = self::detectAutoRefreshSkipReason($evalResult, $finalResponse);
         if ($skipReason !== null) {
             self::logAutoRefreshSkip($skipReason, $evalResult, $finalResponse);
+            self::logAutoMemoryDecision(
+                $logger,
+                $context,
+                [
+                    'action' => 'skip',
+                    'guard' => 'quality_guard',
+                    'reason' => $skipReason,
+                ],
+                $evalResult
+            );
             return false;
         }
 
@@ -21,12 +31,32 @@ final class ProjectMemoryAutoUpdater
             $allowed = (bool)$evalResult['allow_memory_refresh'];
             if (!$allowed) {
                 self::logAutoRefreshSkip('allow_memory_refresh_false', $evalResult, $finalResponse);
+                self::logAutoMemoryDecision(
+                    $logger,
+                    $context,
+                    [
+                        'action' => 'skip',
+                        'guard' => 'quality_guard',
+                        'reason' => 'allow_memory_refresh_false',
+                    ],
+                    $evalResult
+                );
             }
             return $allowed;
         }
 
         if ((int)($evalResult['total_score'] ?? 0) < 85) {
             self::logAutoRefreshSkip('score_below_threshold', $evalResult, $finalResponse);
+            self::logAutoMemoryDecision(
+                $logger,
+                $context,
+                [
+                    'action' => 'skip',
+                    'guard' => 'quality_guard',
+                    'reason' => 'score_below_threshold',
+                ],
+                $evalResult
+            );
             return false;
         }
 
@@ -43,6 +73,18 @@ final class ProjectMemoryAutoUpdater
         $intentSkipMeta = self::resolveConversationIntentSkipMeta((array)($context['conversation_intent_profile'] ?? []));
         if ($intentSkipMeta !== null) {
             self::logConversationIntentSkip($logger, $intentSkipMeta, $threadId, (string)($context['route_detail'] ?? ''));
+            self::logAutoMemoryDecision(
+                $logger,
+                self::mergeDecisionContext($context, [
+                    'project_id' => $projectId,
+                    'thread_id' => $threadId,
+                ]),
+                [
+                    'action' => 'skip',
+                    'guard' => 'conversation_intent',
+                    'reason' => (string)($intentSkipMeta['reason'] ?? 'conversation_intent_skip'),
+                ]
+            );
             return $beforeDocs;
         }
 
@@ -59,6 +101,19 @@ final class ProjectMemoryAutoUpdater
 
         if ($logger !== null) {
             $loaded = ProjectContextMemory::loadedTypes($loadedDocs);
+            self::logAutoMemoryDecision(
+                $logger,
+                self::mergeDecisionContext($context, [
+                    'project_id' => $projectId,
+                    'thread_id' => $threadId,
+                    'todo_source' => (string)($todoState['meta']['source'] ?? 'history_snapshot'),
+                ]),
+                [
+                    'action' => 'refresh',
+                    'guard' => 'none',
+                    'reason' => 'refresh_executed',
+                ]
+            );
             $logger(
                 '[PROJECT-MEMORY-AUTO] refreshed='
                 . (empty($loaded) ? 'none' : implode(',', $loaded))
@@ -269,6 +324,50 @@ final class ProjectMemoryAutoUpdater
         return preg_replace('/\s+/u', ' ', $text) ?? $text;
     }
 
+    /**
+     * @param array<string, mixed> $context
+     * @param array<string, mixed> $decision
+     * @param array<string, mixed>|null $evalResult
+     */
+    public static function logAutoMemoryDecision(?callable $logger, array $context, array $decision, ?array $evalResult = null): void
+    {
+        $profile = (array)($context['conversation_intent_profile'] ?? []);
+        $fields = [
+            'action' => (string)($decision['action'] ?? 'unknown'),
+            'guard' => (string)($decision['guard'] ?? 'unknown'),
+            'reason' => (string)($decision['reason'] ?? 'none'),
+            'project_id' => array_key_exists('project_id', $context) ? self::stringifyDecisionScalar($context['project_id']) : null,
+            'thread_id' => array_key_exists('thread_id', $context) ? self::stringifyDecisionScalar($context['thread_id']) : null,
+            'route_detail' => self::normalizeDecisionText((string)($context['route_detail'] ?? '')),
+            'conversation_relation' => self::normalizeDecisionText((string)($profile['conversation_relation'] ?? '')),
+            'request_type' => self::normalizeDecisionText((string)($profile['request_type'] ?? '')),
+            'user_intent' => self::normalizeDecisionText((string)($profile['user_intent'] ?? '')),
+            'expected_response' => self::normalizeDecisionText((string)($profile['expected_response'] ?? '')),
+            'todo_policy_hint' => self::normalizeDecisionText((string)($profile['todo_policy_hint'] ?? '')),
+            'needs_todo' => array_key_exists('needs_todo', $profile) ? (((bool)$profile['needs_todo']) ? '1' : '0') : null,
+            'evaluation_verdict' => self::normalizeDecisionText((string)($evalResult['verdict'] ?? '')),
+            'quality_score' => isset($evalResult['total_score']) ? (string)((int)$evalResult['total_score']) : null,
+            'has_decomposition_tasks' => array_key_exists('decomposed_tasks', $context) ? (((array)($context['decomposed_tasks'] ?? [])) !== [] ? '1' : '0') : null,
+            'todo_source' => self::normalizeDecisionText((string)($context['todo_source'] ?? '')),
+        ];
+
+        $parts = ['[PROJECT-MEMORY-AUTO-DECISION]'];
+        foreach ($fields as $key => $value) {
+            if ($value === null || $value === '') {
+                continue;
+            }
+            $parts[] = $key . '=' . $value;
+        }
+
+        $message = implode(' | ', $parts);
+        if ($logger !== null) {
+            $logger($message);
+            return;
+        }
+
+        error_log($message);
+    }
+
     private static function logAutoRefreshSkip(string $reason, ?array $evalResult, string $finalResponse): void
     {
         $verdict = trim((string)($evalResult['verdict'] ?? ''));
@@ -286,6 +385,43 @@ final class ProjectMemoryAutoUpdater
             . ' | score=' . $score
             . ' | response=' . ($responsePreview !== '' ? $responsePreview : '(empty)')
         );
+    }
+
+    /**
+     * @param array<string, mixed> $base
+     * @param array<string, mixed> $extra
+     * @return array<string, mixed>
+     */
+    private static function mergeDecisionContext(array $base, array $extra): array
+    {
+        return array_merge($base, $extra);
+    }
+
+    private static function stringifyDecisionScalar($value): ?string
+    {
+        if ($value === null) {
+            return 'NULL';
+        }
+
+        if (is_bool($value)) {
+            return $value ? '1' : '0';
+        }
+
+        if (is_scalar($value)) {
+            return (string)$value;
+        }
+
+        return null;
+    }
+
+    private static function normalizeDecisionText(string $value): string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return '';
+        }
+
+        return self::compactLine($value, 80);
     }
 
     private static function buildAutoRefreshDiffSummary(array $beforeDocs, array $afterDocs): string

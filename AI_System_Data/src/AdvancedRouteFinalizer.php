@@ -163,7 +163,29 @@ final class AdvancedRouteFinalizer
             if ($fallbackGuardReason !== null) {
                 $this->log("[EVAL-FALLBACK-GUARD] blocked=project_memory_refresh | route=advanced | reason={$fallbackGuardReason}");
                 $this->log("[PROJECT-MEMORY-AUTO] skipped=quality_guard | thread_id=" . ($this->threadId === null ? 'NULL' : (string)$this->threadId));
-            } elseif (ProjectMemoryAutoUpdater::shouldRefreshFromEvaluation($this->evalResult, $this->finalResponse)) {
+                ProjectMemoryAutoUpdater::logAutoMemoryDecision(
+                    fn(string $message) => $this->log($message),
+                    [
+                        'project_id' => $this->projectId,
+                        'thread_id' => $this->threadId,
+                        'route_detail' => 'advanced_hybrid',
+                        'conversation_intent_profile' => $this->conversationIntentProfile,
+                        'decomposed_tasks' => $this->loadDecomposedTasksForMemoryRefresh(),
+                    ],
+                    [
+                        'action' => 'skip',
+                        'guard' => 'quality_guard',
+                        'reason' => (string)$fallbackGuardReason,
+                    ],
+                    $this->evalResult
+                );
+            } elseif (ProjectMemoryAutoUpdater::shouldRefreshFromEvaluation($this->evalResult, $this->finalResponse, fn(string $message) => $this->log($message), [
+                'project_id' => $this->projectId,
+                'thread_id' => $this->threadId,
+                'route_detail' => 'advanced_hybrid',
+                'conversation_intent_profile' => $this->conversationIntentProfile,
+                'decomposed_tasks' => $this->loadDecomposedTasksForMemoryRefresh(),
+            ])) {
                 ProjectMemoryAutoUpdater::refresh(
                     $this->pdo,
                     $this->projectId,
