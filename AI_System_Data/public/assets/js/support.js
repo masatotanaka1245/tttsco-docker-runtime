@@ -9,7 +9,7 @@
  * 6. 【完全閉塞】：生コード内からバッククォートのハードコードを100%排除。
  */
 
-import { openAppModal, closeProjectModal, closeEditModal, bindModalEvents, closeTab, scrollToBottom, initChatInput, injectPdfLoadingMask, switchTab, openSourceDocumentTab, openPdfTab, initResizer } from './modules/ui.js?v=10';
+import { openAppModal, closeProjectModal, closeEditModal, bindModalEvents, closeTab, scrollToBottom, initChatInput, injectPdfLoadingMask, switchTab, openSourceDocumentTab, openPdfTab, initResizer } from './modules/ui.js?v=11';
 import { handleCsvUpload, loadCsvData, handleDeleteCsv, handlePostgresImport, openCsvPreviewByDocId, handleCreateManualCsv, handleAppendCsvRow, openCsvCreateModal, closeCsvCreateModal, openCsvAppendModal, closeCsvAppendModal, openCsvColumnEditModal, closeCsvColumnEditModal, handleUpdateCsvColumns, handleAddCsvColumnDraft, handleRemoveCsvColumnDraft, handleStartCsvAiCategorizeJob, openCsvAiCategorizeModal, closeCsvAiCategorizeModal } from './modules/csv.js?v=9';
 import { handleChat, appendMsg, initExistingCharts, initMaterialMemoActions, initDebugLogViewer } from './modules/chat.js?v=21';
 import { checkUploadOnLoad as checkUploadOnLoadModule, handleUpload as handleUploadModule } from './modules/upload.js?v=7';

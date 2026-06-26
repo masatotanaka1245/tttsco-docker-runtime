@@ -3,11 +3,6 @@
  * ★無限ループ回避・リサイズ永続化・安全弁フック 統合版
  */
 
-// =========================================================================
-// ★モジュール実行の瞬間に、support.php(HTML側)の生関数を安全に別名退避（無限ループ回避）
-// =========================================================================
-const phpCanvasSwitchTab = typeof window.switchTab === 'function' ? window.switchTab : null;
-
 function getPublicBasePath() {
     const configEl = document.getElementById('support-config');
     return configEl?.dataset?.publicBase || '';
@@ -313,17 +308,13 @@ function injectPdfLoadingMask(container) {
 
 // メインワークスペースのタブ切り替え
 function switchTab(tabId) {
-    if (phpCanvasSwitchTab) {
-        phpCanvasSwitchTab(tabId);
-    } else {
-        document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-        document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
-        const tab = document.getElementById(tabId);
-        if(tab) tab.classList.add('active');
-        const btn = document.getElementById('btn-' + tabId.replace('tab-', ''));
-        if(btn) btn.classList.add('active');
-    }
-    
+    document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+    const tab = document.getElementById(tabId);
+    if (tab) tab.classList.add('active');
+    const btn = document.getElementById('btn-' + tabId.replace('tab-', ''));
+    if (btn) btn.classList.add('active');
+
     if (tabId === 'tab-pdf') {
         const targetContent = document.getElementById('tab-pdf');
         if (targetContent) {
