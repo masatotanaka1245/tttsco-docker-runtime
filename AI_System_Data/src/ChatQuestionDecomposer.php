@@ -8,6 +8,11 @@ final class ChatQuestionDecomposer
         'まとめ', '更新', '作成', '確認', '分析', '抽出', '比較', '追記',
     ];
 
+    /** @var string[] */
+    private const ACTION_ITEM_DELIVERABLE_KEYWORDS = [
+        'TODO', 'ToDo', 'todo', 'タスク', '次アクション', 'アクション', '対応事項',
+    ];
+
     private const SAVE_WORTHY_SHORT_TASK_PATTERN = '/(要約|集計|整理|更新|作成|確認|分析|抽出|比較|追記|報告書|レポート|グラフ)/u';
 
     public function decompose(string $question): array
@@ -82,7 +87,7 @@ final class ChatQuestionDecomposer
         $working = $question;
         $working = preg_replace('/(?:その後|続けて|次に|さらに|あわせて|合わせて)/u', '<<STEP>>', $working) ?? $working;
         $working = preg_replace('/(?:してから|したうえで)/u', '<<STEP>>', $working) ?? $working;
-        if ($this->countActionKeywords($working) >= 2) {
+        if ($this->countActionKeywords($working) >= 2 || $this->looksLikeActionItemCompound($working)) {
             $working = preg_replace('/、/u', '<<STEP>>', $working) ?? $working;
         }
 
@@ -104,7 +109,11 @@ final class ChatQuestionDecomposer
             return true;
         }
 
-        return mb_substr_count($question, '、') >= 1 && $this->countActionKeywords($question) >= 2;
+        if (mb_substr_count($question, '、') < 1) {
+            return false;
+        }
+
+        return $this->countActionKeywords($question) >= 2 || $this->looksLikeActionItemCompound($question);
     }
 
     private function countActionKeywords(string $text): int
@@ -119,6 +128,48 @@ final class ChatQuestionDecomposer
         return $count;
     }
 
+    private function looksLikeActionItemCompound(string $text): bool
+    {
+        $parts = preg_split('/、/u', $text, 2);
+        if (!is_array($parts) || count($parts) !== 2) {
+            return false;
+        }
+
+        $firstPart = trim((string)$parts[0]);
+        $secondPart = trim((string)$parts[1]);
+        if ($firstPart === '' || $secondPart === '') {
+            return false;
+        }
+
+        if (!$this->hasActionItemLeadClause($firstPart)) {
+            return false;
+        }
+
+        return $this->hasActionItemDeliverableClause($secondPart);
+    }
+
+    private function hasActionItemLeadClause(string $text): bool
+    {
+        return preg_match('/(要約|整理|分析|集計|比較|抽出|確認|更新|追記)/u', $text) === 1;
+    }
+
+    private function hasActionItemDeliverableClause(string $text): bool
+    {
+        $hasDeliverableKeyword = false;
+        foreach (self::ACTION_ITEM_DELIVERABLE_KEYWORDS as $keyword) {
+            if (mb_strpos($text, $keyword) !== false) {
+                $hasDeliverableKeyword = true;
+                break;
+            }
+        }
+
+        if (!$hasDeliverableKeyword) {
+            return false;
+        }
+
+        return preg_match('/(作ってください|作成してください|出してください|出す|まとめてください|まとめる)/u', $text) === 1;
+    }
+
     private function normalizeSubQuery(string $part): string
     {
         $part = $this->trimTaskText($this->normalizeWhitespace($part));
@@ -128,6 +179,7 @@ final class ChatQuestionDecomposer
 
         $replacements = [
             '/にしてください$/u' => 'にする',
+            '/作ってください$/u' => '作る',
             '/出してください$/u' => '出す',
             '/してください$/u' => 'する',
             '/グラフにして$/u' => 'グラフ化する',
