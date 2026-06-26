@@ -176,6 +176,10 @@ final class ConversationIntentInterpreter
             return 'create_artifact';
         }
 
+        if ($this->looksLikeCodeImprovementCommand($message)) {
+            return 'code_improvement';
+        }
+
         if ($this->matchesAny($message, [
             '/(会話履歴|これまでの会話|チャット履歴|履歴を要約)/u',
         ])) {
@@ -221,6 +225,10 @@ final class ConversationIntentInterpreter
 
         if ($requestType === 'artifact') {
             return 'artifact_plan';
+        }
+
+        if ($userIntent === 'code_improvement') {
+            return 'implementation_plan';
         }
 
         if ($requestType === 'answer_only') {
@@ -330,7 +338,7 @@ final class ConversationIntentInterpreter
             return 'read_only';
         }
 
-        if (in_array($requestType, ['artifact', 'command'], true) || in_array($userIntent, ['aggregate_data', 'create_artifact', 'execute_task'], true)) {
+        if (in_array($requestType, ['artifact', 'command'], true) || in_array($userIntent, ['aggregate_data', 'create_artifact', 'execute_task', 'code_improvement'], true)) {
             return 'allow';
         }
 
@@ -386,7 +394,7 @@ final class ConversationIntentInterpreter
     private function looksLikeConsultation(string $message): bool
     {
         return $this->matchesAny($message, [
-            '/(どう進めるのがよい|大丈夫でしょうか|この方針は自然|回答精度を上げたい|キャッチボールがうまくできていない|意図は常に解釈|ロジック改善に戻るのは良くない|どう思いますか|方針としてはどう思う|進めて大丈夫|問題はありますか)/u',
+            '/(どう進めるのがよい|大丈夫でしょうか|この方針は自然|この方針は改善した方がよい|回答精度を上げたい|キャッチボールがうまくできていない|意図は常に解釈|ロジック改善に戻るのは良くない|どう思いますか|方針としてはどう思う|進めて大丈夫|問題はありますか)/u',
             '/(どのように分析したら|どう分析すれば|どこから見れば|何から見れば|次はどうしましょうか)/u',
         ]);
     }
@@ -417,6 +425,16 @@ final class ConversationIntentInterpreter
     {
         return $this->matchesAny($message, [
             '/(質問分解ロジックを改善|CSVを集計|月別に集計|分析してください|原因を特定してください|要約してください|整理してください|追記ポイントを整理してください|確認してください)/u',
+            '/(回答生成ロジック|質問分解ロジック|route選択ロジック|ルート選択ロジック|ProjectMemoryAutoUpdater|ChatRouteSelector|ConversationIntentInterpreter|overcapture|ロジック).*(改善してください|修正してください|直してください)/u',
+            '/(改善してください|修正してください|直してください).*(回答生成ロジック|質問分解ロジック|route選択ロジック|ルート選択ロジック|ProjectMemoryAutoUpdater|ChatRouteSelector|ConversationIntentInterpreter|overcapture|ロジック)/u',
+        ]);
+    }
+
+    private function looksLikeCodeImprovementCommand(string $message): bool
+    {
+        return $this->matchesAny($message, [
+            '/(回答生成ロジック|質問分解ロジック|route選択ロジック|ルート選択ロジック|ProjectMemoryAutoUpdater|ChatRouteSelector|ConversationIntentInterpreter|overcapture|ロジック).*(改善してください|修正してください|直してください)/u',
+            '/(改善してください|修正してください|直してください).*(回答生成ロジック|質問分解ロジック|route選択ロジック|ルート選択ロジック|ProjectMemoryAutoUpdater|ChatRouteSelector|ConversationIntentInterpreter|overcapture|ロジック)/u',
         ]);
     }
 
