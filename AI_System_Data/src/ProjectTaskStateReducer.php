@@ -190,10 +190,30 @@ final class ProjectTaskStateReducer
             '/(どのCSV|どの列|対象列|対象CSV|追加情報|指定してください|教えてください|確認させてください|補足してください|もう少し詳しく)/u',
             $task
         ) === 1) {
+            if (self::looksLikeExplicitDetailWorkRequest($task)) {
+                return ['skip' => false, 'reason' => 'accepted'];
+            }
             return ['skip' => true, 'reason' => 'clarification_request'];
         }
 
         return ['skip' => false, 'reason' => 'accepted'];
+    }
+
+    private static function looksLikeExplicitDetailWorkRequest(string $task): bool
+    {
+        $hasConcreteTarget = preg_match(
+            '/(CSV|csv|資料|ログ|売上|出荷一覧表|一覧表|データ|件数|月別|日別|違い|問題点|結果)/u',
+            $task
+        ) === 1;
+
+        if (!$hasConcreteTarget) {
+            return false;
+        }
+
+        return preg_match(
+            '/(集計|分析|比較|要約|抽出|整理|作成|出力|確認|特定|まとめ)/u',
+            $task
+        ) === 1;
     }
 
     /**
