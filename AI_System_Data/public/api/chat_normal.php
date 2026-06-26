@@ -603,7 +603,11 @@ class NormalStreamingRouteProcessor {
 
         require_once __DIR__ . '/../../src/PromptManager.php';
         $projectMemoryDocs = ProjectContextMemory::load($this->pdo, (int)$this->projectId);
-        $this->projectOperatingMemoryPrompt = PromptManager::getProjectOperatingMemoryInstruction($projectMemoryDocs);
+        $projectMemoryPrompt = PromptManager::getProjectOperatingMemoryInstruction($projectMemoryDocs);
+        if ($this->shouldUseShortProjectMemoryForCodeImprovement()) {
+            $projectMemoryPrompt = $this->buildCodeImprovementProjectMemoryPrompt($projectMemoryPrompt);
+        }
+        $this->projectOperatingMemoryPrompt = $projectMemoryPrompt;
         chatLogger("[PROJECT-MEMORY] route=normal | loaded=" . (empty(ProjectContextMemory::loadedTypes($projectMemoryDocs)) ? 'none' : implode(',', ProjectContextMemory::loadedTypes($projectMemoryDocs))) . " | chars=" . ProjectContextMemory::totalChars($projectMemoryDocs));
     }
 
@@ -1223,6 +1227,11 @@ class NormalStreamingRouteProcessor {
             && $expectedResponse === 'implementation_plan';
     }
 
+    private function shouldUseShortProjectMemoryForCodeImprovement(): bool
+    {
+        return $this->shouldSkipDocumentRagForCodeImprovement();
+    }
+
     private function buildProjectContextPrompt(): string
     {
         if ($this->isProjectMemoryConsultationRoute()) {
@@ -1433,6 +1442,294 @@ class NormalStreamingRouteProcessor {
         );
 
         return implode("\n", $keptLines);
+    }
+
+    private function buildCodeImprovementProjectMemoryPrompt(string $projectOperatingMemoryPrompt): string
+    {
+        $text = trim($projectOperatingMemoryPrompt);
+        if ($text === '') {
+            return '';
+        }
+
+        $originalLines = $this->countNonEmptyLines($text);
+        $keptSections = [];
+
+        $agentsSection = $this->filterCodeImprovementProjectMemorySection(
+            $this->extractProjectMemorySectionBody($text, 'AIエージェント'),
+            'agents'
+        );
+        if ($agentsSection !== '') {
+            $keptSections[] = "### AIエージェント\n" . $agentsSection;
+        }
+
+        $readmeSection = $this->filterCodeImprovementProjectMemorySection(
+            $this->extractProjectMemorySectionBody($text, '案件内容'),
+            'readme'
+        );
+        if ($readmeSection !== '') {
+            $keptSections[] = "### 案件内容\n" . $readmeSection;
+        }
+
+        $todoSection = $this->filterCodeImprovementProjectMemorySection(
+            $this->extractProjectMemorySectionBody($text, 'タスク一覧'),
+            'todo'
+        );
+        if ($todoSection !== '') {
+            $keptSections[] = "### タスク一覧\n" . $todoSection;
+        }
+
+        $lines = [
+            '【案件運用メモ】',
+            '以下は、この案件の運用メモから、実装改善の相談に必要な部分だけを絞った要約です。',
+            '1. AGENTS は回答方針・禁止事項・優先ルールとして扱ってください。',
+            '2. README は案件やシステムの前提知識として扱ってください。',
+            '3. TODO は実装・検証・残課題の文脈として扱い、成果品レーンやデータ一覧は主軸にしないでください。',
+            '4. 自動生成メモは、現在スレッドと案件全体の最近会話から作られた補助要約として、回答方針に優先反映してよい情報です。',
+            '5. 改善ログに `改善策` や `次回ルール` がある場合は、route / intent / guard / logging の改善文脈として優先して参照してください。',
+            '6. 手動メモは補助的な補正情報として扱い、自動生成メモと矛盾する場合は自動生成メモを主仮説として扱ってください。',
+            '- 今回は成果品レーンやデータ一覧より、開発方針・改善ログ・実装上の残課題を優先してください。',
+            '- project memory 全体は消さず、案件方針・改善履歴・現在スレッドの開発文脈だけを優先して残しています。',
+            '- 回答では、資料説明よりも対象ファイル・変更方針・確認方法・残課題を先に整理してください。',
+            '- route 選択、prompt policy、project scope guard、auto TODO overcapture 抑止、history filter、RAG skip のような実装経路を優先して考えてください。',
+            '- 直近の改善依頼と矛盾しない範囲で、今の normal route に何を足すか・何を触らないかを明確に切り分けてください。',
+            '- CSV / PDF / 報告書の成果物そのものを育てる依頼ではなく、回答品質や実装挙動を改善する依頼として扱ってください。',
+            '- judge / rewrite / final guard / save / stream close のどこが重いかを見極め、必要なら generation と評価フェーズを分けて考えてください。',
+            '- client timeout、phase timing、project memory の文字数、response 長の関係を意識し、今回の改善がどの段で効くかを具体的に示してください。',
+        ];
+
+        $filteredText = implode("\n", $lines);
+        if (!empty($keptSections)) {
+            $filteredText .= "\n\n" . implode("\n\n", $keptSections);
+        }
+
+        $filteredText = $this->clipProjectMemoryTextByLines($filteredText, 2400);
+
+        $filteredLines = $this->countNonEmptyLines($filteredText);
+        $removedLines = max(0, $originalLines - $filteredLines);
+
+        chatLogger(
+            "[PROJECT-MEMORY-CONTEXT-POLICY] policy=code_improvement_short_memory"
+            . " | reason=code_improvement_implementation_plan"
+            . " | original_chars=" . mb_strlen($text)
+            . " | filtered_chars=" . mb_strlen($filteredText)
+            . " | removed_lines={$removedLines}"
+            . " | kept_lines={$filteredLines}"
+        );
+
+        return "\n" . trim($filteredText) . "\n";
+    }
+
+    private function extractProjectMemorySectionBody(string $text, string $label): string
+    {
+        if (preg_match('/### ' . preg_quote($label, '/') . '\n([\s\S]*?)(?=\n### |\z)/u', $text, $matches) !== 1) {
+            return '';
+        }
+
+        return trim((string)($matches[1] ?? ''));
+    }
+
+    private function filterCodeImprovementProjectMemorySection(string $sectionBody, string $sectionType): string
+    {
+        $sectionBody = trim($sectionBody);
+        if ($sectionBody === '') {
+            return '';
+        }
+
+        $lines = preg_split('/\R/u', $sectionBody) ?: [];
+        $keptLines = [];
+        $currentHeading = '';
+        $allowedHeadings = $sectionType === 'agents'
+            ? ['## 回答方針', '## 現在の重点', '## 運用メモ', '## 改善ログ']
+            : ($sectionType === 'readme'
+                ? ['## 案件概要', '## 直近スレッドの傾向', '## 使い方の前提']
+                : ['## 進行中', '## 検証中', '## 保留', '## 補足']);
+
+        foreach ($lines as $line) {
+            $trimmed = trim((string)$line);
+            if ($trimmed === '') {
+                continue;
+            }
+
+            if (mb_strpos($trimmed, '#### ') === 0) {
+                continue;
+            }
+
+            if (mb_strpos($trimmed, '## ') === 0) {
+                $currentHeading = $trimmed;
+                if (in_array($currentHeading, $allowedHeadings, true)) {
+                    $keptLines[] = $currentHeading;
+                }
+                continue;
+            }
+
+            if ($currentHeading === '' || !in_array($currentHeading, $allowedHeadings, true)) {
+                continue;
+            }
+
+            if ($this->looksLikeArtifactBiasedProjectMemoryLine($trimmed)) {
+                continue;
+            }
+
+            if ($sectionType === 'agents') {
+                if ($currentHeading === '## 回答方針' && !$this->looksLikeCodeImprovementUsefulPolicyLine($trimmed)) {
+                    continue;
+                }
+                if ($currentHeading === '## 現在の重点' && !$this->looksLikeCodeImprovementUsefulFocusLine($trimmed)) {
+                    continue;
+                }
+                if ($currentHeading === '## 運用メモ' && !$this->looksLikeCodeImprovementUsefulOpsLine($trimmed)) {
+                    continue;
+                }
+            } elseif ($sectionType === 'readme') {
+                if (!$this->looksLikeCodeImprovementUsefulReadmeLine($trimmed)) {
+                    continue;
+                }
+            } else {
+                if (!$this->looksLikeCodeImprovementUsefulTodoLine($trimmed)) {
+                    continue;
+                }
+            }
+
+            $keptLines[] = $trimmed;
+        }
+
+        return $this->cleanupProjectMemorySectionLines($keptLines);
+    }
+
+    private function cleanupProjectMemorySectionLines(array $lines): string
+    {
+        $cleaned = [];
+        $lastWasHeading = false;
+
+        foreach ($lines as $line) {
+            $trimmed = trim((string)$line);
+            if ($trimmed === '') {
+                continue;
+            }
+
+            $isHeading = mb_strpos($trimmed, '## ') === 0;
+            if ($isHeading && $lastWasHeading) {
+                array_pop($cleaned);
+            }
+
+            $cleaned[] = $trimmed;
+            $lastWasHeading = $isHeading;
+        }
+
+        $unique = [];
+        $seen = [];
+        foreach ($cleaned as $line) {
+            if (isset($seen[$line])) {
+                continue;
+            }
+            $seen[$line] = true;
+            $unique[] = $line;
+        }
+
+        while (!empty($cleaned) && mb_strpos((string)end($cleaned), '## ') === 0) {
+            array_pop($cleaned);
+        }
+
+        while (!empty($unique) && mb_strpos((string)end($unique), '## ') === 0) {
+            array_pop($unique);
+        }
+
+        return trim(implode("\n", $unique));
+    }
+
+    private function looksLikeArtifactBiasedProjectMemoryLine(string $line): bool
+    {
+        return preg_match(
+            '/(現在の主成果品|現在の主レーン|レーン:|主対象:|進行中タスク:|CSVファイル|PDF資料|FAQナレッジ|最近の情報源|保有データ|^-\s*CSV:|^-\s*PDF:|^-\s*FAQ:|^-\s*資料メモ:|^-\s*資料メモ候補:|language-locales\.csv|PDF図面2\.pdf|報告書\/PDF|CSV集計・概要確認|PDF抽出・RAG確認|履歴要約・報告書化|このCSVを集計して詳細を教えてください。|このPDFの図面内容を説明してください。|このPDFから報告書に使える材料を整理してください。|PDF図面2\.pdf の留意点を教えてください。|分析対象CSV|参照用PDF|グラフ要求|報告書要求|CSVを扱う場合|PDFを根拠に答える場合)/u',
+            $line
+        ) === 1;
+    }
+
+    private function looksLikeCodeImprovementUsefulPolicyLine(string $line): bool
+    {
+        return preg_match(
+            '/(情報源ごとの役割を固定しすぎず|現在スレッドの文脈を優先|プロジェクトの方針・次アクション・優先順位|改善ログ|次回ルール|実装|改善|修正|route|ルート|selector|prompt|history|memory|guard|logging|ログ|timeout|phase|judge|rewrite|RAG|vector|intent)/iu',
+            $line
+        ) === 1;
+    }
+
+    private function looksLikeCodeImprovementUsefulFocusLine(string $line): bool
+    {
+        return preg_match(
+            '/(ルーティング・ログ確認|実装|改善|修正|route|ルート|prompt|history|memory|guard|logging|ログ|timeout|phase|judge|rewrite|RAG|vector|intent)/iu',
+            $line
+        ) === 1;
+    }
+
+    private function looksLikeCodeImprovementUsefulOpsLine(string $line): bool
+    {
+        return preg_match(
+            '/(プロジェクトID|現在スレッド|直近依頼|実装|改善|修正|route|ルート|prompt|history|memory|guard|logging|ログ|timeout|phase|judge|rewrite|RAG|vector|intent)/iu',
+            $line
+        ) === 1;
+    }
+
+    private function looksLikeCodeImprovementUsefulReadmeLine(string $line): bool
+    {
+        return preg_match(
+            '/(案件名|ステータス|説明:|直近スレッド|使い方の前提|運用メモは|履歴要約や履歴報告書化は|成果品完成のための並列な情報源|現在スレッド基準)/u',
+            $line
+        ) === 1;
+    }
+
+    private function looksLikeCodeImprovementUsefulTodoLine(string $line): bool
+    {
+        return preg_match(
+            '/(実装|改善|修正|直す|見直し|補正|route|ルート|selector|prompt|history|memory|guard|logging|ログ|timeout|phase|judge|rewrite|RAG|vector|intent|質問分解|overcapture|ProjectMemoryAutoUpdater|normal_rag|consultation|analysis|advanced|残課題|検証|確認|差分修正)/iu',
+            $line
+        ) === 1;
+    }
+
+    private function clipProjectMemoryTextByLines(string $text, int $maxChars): string
+    {
+        $text = trim($text);
+        if ($text === '' || mb_strlen($text) <= $maxChars) {
+            return $text;
+        }
+
+        $lines = preg_split('/\R/u', $text) ?: [];
+        $kept = [];
+        $currentChars = 0;
+
+        foreach ($lines as $line) {
+            $line = rtrim((string)$line);
+            if ($line === '') {
+                continue;
+            }
+
+            $lineChars = mb_strlen($line) + 1;
+            if ($currentChars + $lineChars > $maxChars - 12) {
+                break;
+            }
+
+            $kept[] = $line;
+            $currentChars += $lineChars;
+        }
+
+        if (empty($kept)) {
+            return '';
+        }
+
+        $kept[] = '...[省略]';
+        return trim(implode("\n", $kept));
+    }
+
+    private function countNonEmptyLines(string $text): int
+    {
+        $lines = preg_split('/\R/u', trim($text)) ?: [];
+        $count = 0;
+        foreach ($lines as $line) {
+            if (trim((string)$line) !== '') {
+                $count++;
+            }
+        }
+
+        return $count;
     }
 
     private function looksLikeDocumentExtractionHistoryLine(string $line): bool
