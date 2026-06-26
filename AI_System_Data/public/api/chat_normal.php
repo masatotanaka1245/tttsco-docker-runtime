@@ -297,6 +297,17 @@ class NormalStreamingRouteProcessor {
         if ($this->projectId === null) {
             return;
         }
+        if ($this->shouldSkipDocumentRagForCodeImprovement()) {
+            $this->contextText = "【コード改善実装計画モード】\nこの質問は、実装依頼・コード改善依頼として扱います。PDF/資料ベクトル検索結果は今回の主根拠にしません。案件運用メモ、直近会話、回答優先ガイドを優先してください。";
+            chatLogger(
+                "[RAG-CONTEXT-POLICY] policy=skip_vector_rag"
+                . " | reason=code_improvement_implementation_plan"
+                . " | user_intent=" . (string)($this->conversationIntentProfile['user_intent'] ?? 'unknown')
+                . " | expected_response=" . (string)($this->conversationIntentProfile['expected_response'] ?? 'unknown')
+                . " | route_detail=" . ($this->routeDetail !== '' ? $this->routeDetail : 'normal_rag')
+            );
+            return;
+        }
         if ($this->isProjectMemoryConsultationRoute()) {
             $this->contextText = "【案件運用メモ優先モード】\nこの質問は、案件運用メモと直近会話の文脈を優先して検討する相談モードとして扱います。PDF/CSVのベクトル検索結果は今回の主根拠にしません。";
             chatLogger("[PROJECT-MEMORY] normal consultation route のため資料RAGをスキップします。route_detail={$this->routeDetail}");
@@ -1088,6 +1099,15 @@ class NormalStreamingRouteProcessor {
     private function isProjectMemoryConsultationRoute(): bool
     {
         return $this->routeDetail === 'normal_rag.project_memory_consultation';
+    }
+
+    private function shouldSkipDocumentRagForCodeImprovement(): bool
+    {
+        $userIntent = trim((string)($this->conversationIntentProfile['user_intent'] ?? ''));
+        $expectedResponse = trim((string)($this->conversationIntentProfile['expected_response'] ?? ''));
+
+        return $userIntent === 'code_improvement'
+            && $expectedResponse === 'implementation_plan';
     }
 
     private function buildProjectContextPrompt(): string
