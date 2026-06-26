@@ -311,10 +311,6 @@ final class ChatQuestionDecomposer
             return 'clarification';
         }
 
-        if (preg_match('/(現在の進行中タスク|(?:次に)?何をすべき|今のTODO|方針としてはどう思う|どう思いますか|進めて大丈夫|大丈夫ですか|どこから手を付けるべき|どこから着手|何から手を付ける|問題はありますか|問題ないですか|方針に問題|どう分析すれば|どう見れば|分析の進め方|進め方)/u', $subQuery) === 1) {
-            return 'consultation';
-        }
-
         if (preg_match('/(前提を確認する|関連資料を探す|回答を整える|根拠を確認する|一旦内容を整理|一度内容を整理|とりあえず整理)/u', $subQuery) === 1) {
             return 'ephemeral';
         }
@@ -323,11 +319,23 @@ final class ChatQuestionDecomposer
             return 'artifact';
         }
 
+        if ($this->looksLikeConsultationAdviceRequest($subQuery)) {
+            return 'consultation';
+        }
+
         if (preg_match('/(要約|集計|整理|更新|作成|確認|分析|抽出|比較|追記|まとめる|出す|確認する)/u', $subQuery) === 1) {
             return 'command';
         }
 
         return 'unknown';
+    }
+
+    private function looksLikeConsultationAdviceRequest(string $subQuery): bool
+    {
+        return preg_match(
+            '/(現在の進行中タスク|(?:次に)?何をすべき|今のTODO|方針としてはどう思う|どう思いますか|進めて大丈夫|大丈夫ですか|問題はありますか|問題ないですか|方針に問題|どこから手を付けるべき|どこから着手|何から手を付ける|この案件で、?まずどこから見れば|まずどこから見れば|どこから見れば|何から見れば|どこから分析すれば|まず何を確認すべき|分析の進め方を教えて|どのような観点で見れば|どう分析すれば|どのように分析したら|どう見れば)/u',
+            $subQuery
+        ) === 1;
     }
 
     private function looksLikeClarificationRequest(string $subQuery): bool
