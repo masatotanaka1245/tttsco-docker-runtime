@@ -2,6 +2,7 @@
 
 require_once __DIR__ . '/EmbeddingEngine.php';
 require_once __DIR__ . '/ModelRoleResolver.php';
+require_once __DIR__ . '/AppLogger.php';
 
 class ReportGenerator
 {
@@ -55,12 +56,26 @@ class ReportGenerator
         $this->log('[REPORT] HTML生成完了: path=' . $this->relativePath($htmlPath)
             . ' | bytes=' . (is_file($htmlPath) ? filesize($htmlPath) : 0)
             . ' | chars=' . mb_strlen($html));
+        $this->logReportGeneratorState('html_saved', $projectId, $htmlPath, [
+            'title' => $title,
+            'chat_history_id' => $chatHistoryId,
+        ]);
 
         $converter = $this->renderPdf($htmlPath, $pdfPath);
         if (!is_file($pdfPath) || filesize($pdfPath) === 0) {
+            $this->logReportGeneratorState('pdf_missing_after_generation', $projectId, $pdfPath, [
+                'title' => $title,
+                'converter' => $converter,
+                'chat_history_id' => $chatHistoryId,
+            ]);
             throw new RuntimeException('報告書PDFの生成に失敗しました。PDF変換コマンドを確認してください。');
         }
         $this->log('[REPORT] PDF生成後チェック: path=' . $this->relativePath($pdfPath) . ' | bytes=' . filesize($pdfPath));
+        $this->logReportGeneratorState('pdf_saved', $projectId, $pdfPath, [
+            'title' => $title,
+            'converter' => $converter,
+            'chat_history_id' => $chatHistoryId,
+        ]);
 
         $plainText = $this->buildSearchText($project, $question, $answer, $evaluation, $evidence);
         $chunks = $this->splitTextIntoChunks($plainText, 300);
@@ -106,6 +121,17 @@ class ReportGenerator
             $stmtDoc = $this->pdo->prepare('INSERT INTO documents (project_id, title, file_path, created_at) VALUES (?, ?, ?, NOW())');
             $stmtDoc->execute([$projectId, $title, $dbPath]);
             $docId = (int)$this->pdo->lastInsertId();
+            $this->logReportGeneratorEvent('document_registered', [
+                'project_id' => $projectId,
+                'document_id' => $docId,
+                'title' => $title,
+                'file_path' => $dbPath,
+                'converter' => $converter,
+                'pdf_exists' => is_file($pdfPath) ? 1 : 0,
+                'pdf_size' => is_file($pdfPath) ? filesize($pdfPath) : 0,
+                'html_exists' => is_file($htmlPath) ? 1 : 0,
+                'html_size' => is_file($htmlPath) ? filesize($htmlPath) : 0,
+            ]);
 
             $stmtChunk = $this->pdo->prepare('INSERT INTO doc_chunks (doc_id, page_number, chunk_text, embedding, image_description, created_at) VALUES (?, ?, ?, ?, ?, NOW())');
             foreach ($searchChunks as $idx => $chunkData) {
@@ -118,6 +144,11 @@ class ReportGenerator
                 ]);
                 $this->log("[REPORT] doc_chunks登録: doc_id={$docId} chunk=" . ($idx + 1) . '/' . count($searchChunks));
             }
+            $this->logReportGeneratorEvent('chunks_registered', [
+                'project_id' => $projectId,
+                'document_id' => $docId,
+                'count' => count($searchChunks),
+            ]);
 
             $this->pdo->commit();
         } catch (Throwable $e) {
@@ -832,5 +863,32 @@ class ReportGenerator
         if ($this->logger) {
             ($this->logger)($message);
         }
+    }
+
+    private function logReportGeneratorState(string $event, int $projectId, string $path, array $context = []): void
+    {
+        $exists = is_file($path);
+        $payload = array_merge([
+            'project_id' => $projectId,
+            'path' => $this->relativePath($path),
+            'exists' => $exists ? 1 : 0,
+            'size' => $exists ? filesize($path) : 0,
+        ], $context);
+        $this->logReportGeneratorEvent($event, $payload);
+    }
+
+    private function logReportGeneratorEvent(string $event, array $context = []): void
+    {
+        $parts = ["[REPORT-GENERATOR] {$event}"];
+        foreach ($context as $key => $value) {
+            if ($value === null || is_array($value) || is_object($value)) {
+                continue;
+            }
+            $parts[] = $key . '=' . $value;
+        }
+
+        $message = implode(' ', $parts);
+        $this->log($message);
+        appLog('chat_debug.log', $message, $context);
     }
 }
