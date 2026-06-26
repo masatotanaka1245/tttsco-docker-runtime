@@ -472,10 +472,21 @@ class NormalStreamingRouteProcessor {
 
     private function buildSystemPrompt(): string {
         $this->loadProjectOperatingMemoryPrompt();
+        $projectScopeInstruction = PromptManager::getProjectScopeInstruction(
+            $this->projectId !== null ? (int)$this->projectId : null
+        );
         $system_prompt = PromptManager::getBasePrompt($this->promptKey) . "\n"
                        . $this->projectOperatingMemoryPrompt . "\n"
+                       . $projectScopeInstruction . "\n"
                        . PromptManager::getCommonInstructions() . "\n"
                        . PromptManager::getDashboardLinkInstruction($this->projectId ?? 0);
+        chatLogger(
+            "[PROJECT-SCOPE] current_project_id=" . (($this->projectId === null || (int)$this->projectId <= 0) ? 'NULL' : (string)(int)$this->projectId)
+            . " | thread_id=" . ($this->threadId === null ? 'NULL' : (string)$this->threadId)
+            . " | source=prompt_scope_instruction"
+            . " | mode=" . (($this->projectId === null || (int)$this->projectId <= 0) ? 'global' : 'project')
+            . " | ok=1"
+        );
         if ($this->targetPage !== null) {
             $system_prompt .= "\n【超重要】ユーザーは明示的に「{$this->targetPage}ページ」を指定して質問しています。必ず提供された参考資料のうち「P.{$this->targetPage}」と書かれたブロックの情報のみを根拠として回答してください。関係のない他のページの情報を混ぜて答えてはなりません。";
         } elseif ($this->referAllMode) {

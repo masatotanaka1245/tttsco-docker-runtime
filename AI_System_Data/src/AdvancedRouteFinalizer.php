@@ -116,8 +116,9 @@ final class AdvancedRouteFinalizer
             );
 
             if ($this->reasoningId !== '') {
-                $updHist = $this->pdo->prepare("UPDATE chat_reasoning_steps SET chat_history_id = ? WHERE session_id = ?");
-                $updHist->execute([$historyId, $this->reasoningId]);
+                $updHist = $this->pdo->prepare("UPDATE chat_reasoning_steps SET chat_history_id = ? WHERE session_id = ? AND project_id = ?");
+                $updHist->execute([$historyId, $this->reasoningId, $this->projectId]);
+                $this->log("[PROJECT-SCOPE] current_project_id={$this->projectId} | thread_id=" . ($this->threadId === null ? 'NULL' : (string)$this->threadId) . " | source=chat_reasoning_steps_bind | source_project_ids=[{$this->projectId}] | ok=1 | affected_rows=" . $updHist->rowCount());
             }
 
             if ($this->evalResult) {
@@ -190,9 +191,10 @@ final class AdvancedRouteFinalizer
 
     public function sendFinalResult($reportDocument, $csvExport = null): void
     {
-        $stmtSteps = $this->pdo->prepare("SELECT step_number, sub_query, sub_answer FROM chat_reasoning_steps WHERE session_id = ? AND step_number < 99 ORDER BY step_number ASC");
-        $stmtSteps->execute([$this->reasoningId]);
+        $stmtSteps = $this->pdo->prepare("SELECT step_number, sub_query, sub_answer FROM chat_reasoning_steps WHERE session_id = ? AND project_id = ? AND step_number < 99 ORDER BY step_number ASC");
+        $stmtSteps->execute([$this->reasoningId, $this->projectId]);
         $reasoningSteps = $stmtSteps->fetchAll(PDO::FETCH_ASSOC);
+        $this->log("[PROJECT-SCOPE] current_project_id={$this->projectId} | thread_id=" . ($this->threadId === null ? 'NULL' : (string)$this->threadId) . " | source=chat_reasoning_steps | source_project_ids=[{$this->projectId}] | ok=1 | rows=" . count($reasoningSteps));
         $sourceDocs = array_values($this->uniqueSources);
 
         $this->logFinalResponseSnapshot('advanced_hybrid', $this->finalResponse);

@@ -772,11 +772,18 @@ class ReportGenerator
 
         $steps = [];
         if ($reasoningSessionId) {
-            $stmtSteps = $this->pdo->prepare('SELECT step_number, sub_query, sub_answer FROM chat_reasoning_steps WHERE session_id = ? ORDER BY step_number ASC LIMIT 20');
-            $stmtSteps->execute([$reasoningSessionId]);
+            $stmtSteps = $this->pdo->prepare('SELECT step_number, sub_query, sub_answer FROM chat_reasoning_steps WHERE session_id = ? AND project_id = ? ORDER BY step_number ASC LIMIT 20');
+            $stmtSteps->execute([$reasoningSessionId, $projectId]);
             foreach ($stmtSteps->fetchAll(PDO::FETCH_ASSOC) as $row) {
                 $steps[] = 'Step ' . $row['step_number'] . ': ' . $row['sub_query'] . "\n" . $this->compactReasoningExcerpt((string)$row['sub_answer']);
             }
+            $this->logReportGeneratorEvent('project_scope_reasoning_context', [
+                'project_id' => $projectId,
+                'session_id' => $reasoningSessionId,
+                'source_project_ids' => [$projectId],
+                'ok' => 1,
+                'rows' => count($steps),
+            ]);
         }
 
         return [

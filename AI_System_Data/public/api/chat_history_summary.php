@@ -299,8 +299,9 @@ class HistorySummaryRouteProcessor {
         }
 
         try {
-            $stmt = $this->pdo->prepare("UPDATE chat_reasoning_steps SET chat_history_id = ? WHERE session_id = ?");
-            $stmt->execute([$historyId, $this->sessionId]);
+            $stmt = $this->pdo->prepare("UPDATE chat_reasoning_steps SET chat_history_id = ? WHERE session_id = ? AND project_id = ?");
+            $stmt->execute([$historyId, $this->sessionId, $this->projectId]);
+            chatLogger("[PROJECT-SCOPE] current_project_id={$this->projectId} | thread_id=" . ($this->threadId === null ? 'NULL' : (string)$this->threadId) . " | source=chat_reasoning_steps_bind | source_project_ids=[{$this->projectId}] | ok=1 | affected_rows=" . $stmt->rowCount());
         } catch (Throwable $e) {
             chatLogger("[HISTORY-SUMMARY] reasoning step紐づけ失敗: " . $e->getMessage());
         }
@@ -315,11 +316,12 @@ class HistorySummaryRouteProcessor {
         $stmt = $this->pdo->prepare("
             SELECT step_number, sub_query, sub_answer
             FROM chat_reasoning_steps
-            WHERE session_id = ? AND step_number < 99
+            WHERE session_id = ? AND project_id = ? AND step_number < 99
             ORDER BY step_number ASC
         ");
-        $stmt->execute([$this->sessionId]);
+        $stmt->execute([$this->sessionId, $this->projectId]);
         $this->reasoningSteps = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        chatLogger("[PROJECT-SCOPE] current_project_id={$this->projectId} | thread_id=" . ($this->threadId === null ? 'NULL' : (string)$this->threadId) . " | source=chat_reasoning_steps | source_project_ids=[{$this->projectId}] | ok=1 | rows=" . count($this->reasoningSteps));
     }
 
     private function sendFinalResult(): void {

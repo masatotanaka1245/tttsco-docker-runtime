@@ -57,7 +57,25 @@ class PromptManager {
              . "5. 【引用の絶対義務】 回答の事実を述べる各文、または段落の末尾には、必ず根拠となった引用元を指定フォーマットで明記してください。\n"
              . "   フォーマット例: 「〜ということが確認できます。（資料名 P.XX）」\n"
              . "6. 【図表の出力】 ユーザーから「グラフ」「チャート」「分布」「推移」と要求された場合は、Chart.js用の ```json:chart ... ``` ブロックを優先してください。業務フローなど図解が必要な場合のみMermaid.jsを使用してください。\n"
-             . "7. 【論理的な構成】 「資料全体の構成・要約（目次情報）」が提供されている場合はそれを全体像として把握し、結論から先に述べる構造的で読みやすい回答を作成してください。";
+	             . "7. 【論理的な構成】 「資料全体の構成・要約（目次情報）」が提供されている場合はそれを全体像として把握し、結論から先に述べる構造的で読みやすい回答を作成してください。";
+    }
+
+    public static function getProjectScopeInstruction(?int $projectId, string $projectName = ''): string
+    {
+        if ($projectId === null || $projectId <= 0) {
+            return "\n【プロジェクトスコープ】\n"
+                 . "現在は特定の案件が指定されていないグローバルモードです。"
+                 . " 与えられたコンテキスト範囲のみを使い、別案件の資料や履歴があると仮定して補完しないでください。";
+        }
+
+        $projectName = self::clipText(trim($projectName), 120);
+        $nameLine = $projectName !== '' ? "\n対象案件名: {$projectName}" : '';
+
+        return "\n【プロジェクトスコープ】\n"
+             . "現在の対象プロジェクトID: {$projectId}{$nameLine}\n"
+             . "回答は、このプロジェクトに紐づく CSV / PDF / documents / project_meta / chat_history / reasoning steps のみを根拠にしてください。\n"
+             . "別プロジェクトの資料・CSV・会話履歴・reasoning steps は参照しないでください。\n"
+             . "取得済みコンテキストに別プロジェクトの情報が混ざっている疑いがある場合は、その情報を根拠に使わないでください。";
     }
 
     /**

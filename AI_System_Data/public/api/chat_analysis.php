@@ -199,7 +199,17 @@ class AdvancedReasoningRouteProcessor {
 
     private function composeMemoryAwarePrompt(string $prompt): string
     {
-        return trim($this->projectOperatingMemoryPrompt . "\n" . $this->databaseMemoryPrompt . "\n" . $prompt);
+        $projectScopeInstruction = PromptManager::getProjectScopeInstruction(
+            $this->projectId !== null ? (int)$this->projectId : null
+        );
+        chatLogger(
+            "[PROJECT-SCOPE] current_project_id=" . (($this->projectId === null || (int)$this->projectId <= 0) ? 'NULL' : (string)(int)$this->projectId)
+            . " | thread_id=" . ($this->threadId === null ? 'NULL' : (string)$this->threadId)
+            . " | source=prompt_scope_instruction"
+            . " | mode=" . (($this->projectId === null || (int)$this->projectId <= 0) ? 'global' : 'project')
+            . " | ok=1"
+        );
+        return trim($this->projectOperatingMemoryPrompt . "\n" . $projectScopeInstruction . "\n" . $this->databaseMemoryPrompt . "\n" . $prompt);
     }
 
     private function maxSqlRepairRetries(): int {
@@ -1998,7 +2008,7 @@ class AdvancedReasoningRouteProcessor {
         }
 
         // ✨【フェーズ4】最終マージプロンプトのベースプロンプト直後に記憶プロンプトをインジェクト
-        $system_prompt = PromptManager::getBasePrompt($this->promptKey) . "\n" . $this->projectOperatingMemoryPrompt . "\n" . $this->databaseMemoryPrompt . "\n" . PromptManager::getCommonInstructions() . "\n" . PromptManager::getDashboardLinkInstruction($this->projectId) . $this->getOutputModeInstructions();
+        $system_prompt = PromptManager::getBasePrompt($this->promptKey) . "\n" . $this->projectOperatingMemoryPrompt . "\n" . PromptManager::getProjectScopeInstruction($this->projectId !== null ? (int)$this->projectId : null) . "\n" . $this->databaseMemoryPrompt . "\n" . PromptManager::getCommonInstructions() . "\n" . PromptManager::getDashboardLinkInstruction($this->projectId) . $this->getOutputModeInstructions();
         
         // 生コード内のバッククォート3連記号のハードコードを完全排除
         $fence = str_repeat("\x60", 3);
@@ -2141,7 +2151,7 @@ class AdvancedReasoningRouteProcessor {
         }
 
         require_once __DIR__ . '/../../src/PromptManager.php';
-        $system_prompt = PromptManager::getBasePrompt($this->promptKey) . "\n" . $this->projectOperatingMemoryPrompt . "\n" . $this->databaseMemoryPrompt . "\n" . PromptManager::getCommonInstructions() . "\n" . PromptManager::getDashboardLinkInstruction($this->projectId) . $this->getOutputModeInstructions();
+        $system_prompt = PromptManager::getBasePrompt($this->promptKey) . "\n" . $this->projectOperatingMemoryPrompt . "\n" . PromptManager::getProjectScopeInstruction($this->projectId !== null ? (int)$this->projectId : null) . "\n" . $this->databaseMemoryPrompt . "\n" . PromptManager::getCommonInstructions() . "\n" . PromptManager::getDashboardLinkInstruction($this->projectId) . $this->getOutputModeInstructions();
         
         $fence = str_repeat("\x60", 3);
         $system_prompt .= "\n\n// ── UIモジュールから仕入れた関数群を support.php へ正確に再出荷 ──【データ分析・報告指示（Chart.js完全準拠版）】\n"

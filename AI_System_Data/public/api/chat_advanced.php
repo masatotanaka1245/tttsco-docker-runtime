@@ -155,7 +155,17 @@ class AdvancedReasoningRouteProcessor {
 
     private function composeMemoryAwarePrompt(string $prompt): string
     {
-        return trim($this->projectOperatingMemoryPrompt . "\n" . $this->databaseMemoryPrompt . "\n" . $prompt);
+        $projectScopeInstruction = PromptManager::getProjectScopeInstruction(
+            $this->projectId !== null ? (int)$this->projectId : null
+        );
+        chatLogger(
+            "[PROJECT-SCOPE] current_project_id=" . (($this->projectId === null || (int)$this->projectId <= 0) ? 'NULL' : (string)(int)$this->projectId)
+            . " | thread_id=" . ($this->threadId === null ? 'NULL' : (string)$this->threadId)
+            . " | source=prompt_scope_instruction"
+            . " | mode=" . (($this->projectId === null || (int)$this->projectId <= 0) ? 'global' : 'project')
+            . " | ok=1"
+        );
+        return trim($this->projectOperatingMemoryPrompt . "\n" . $projectScopeInstruction . "\n" . $this->databaseMemoryPrompt . "\n" . $prompt);
     }
 
     private function compactHistorySummary(string $historySummaryText): string

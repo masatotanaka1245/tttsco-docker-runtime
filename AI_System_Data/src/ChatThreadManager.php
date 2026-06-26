@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/AppLogger.php';
+
 final class ChatThreadManager
 {
     private static bool $schemaEnsured = false;
@@ -75,6 +77,14 @@ final class ChatThreadManager
             return $requestedThreadId;
         }
 
+        if ($requestedThreadId !== null) {
+            appLog('chat_debug.log', '[CHAT_STREAM] [PROJECT-SCOPE-WARN] current_project_id=' . $projectId
+                . ' | requested_thread_id=' . $requestedThreadId
+                . ' | reason=thread_project_mismatch'
+                . ' | ok=0'
+                . ' | fallback=1');
+        }
+
         $stmt = $pdo->prepare("
             SELECT id
             FROM chat_threads
@@ -85,10 +95,26 @@ final class ChatThreadManager
         $stmt->execute([$projectId]);
         $threadId = $stmt->fetchColumn();
         if ($threadId !== false) {
+            if ($requestedThreadId !== null) {
+                appLog('chat_debug.log', '[CHAT_STREAM] [PROJECT-SCOPE-WARN] current_project_id=' . $projectId
+                    . ' | requested_thread_id=' . $requestedThreadId
+                    . ' | resolved_thread_id=' . (int)$threadId
+                    . ' | reason=thread_project_mismatch'
+                    . ' | ok=0'
+                    . ' | fallback=1');
+            }
             return (int)$threadId;
         }
 
         $thread = self::createThread($pdo, $projectId, $userId);
+        if ($requestedThreadId !== null) {
+            appLog('chat_debug.log', '[CHAT_STREAM] [PROJECT-SCOPE-WARN] current_project_id=' . $projectId
+                . ' | requested_thread_id=' . $requestedThreadId
+                . ' | resolved_thread_id=' . (int)$thread['id']
+                . ' | reason=thread_project_mismatch_new_thread'
+                . ' | ok=0'
+                . ' | fallback=1');
+        }
         return (int)$thread['id'];
     }
 
