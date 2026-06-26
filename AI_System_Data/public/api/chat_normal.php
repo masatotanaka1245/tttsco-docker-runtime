@@ -1108,7 +1108,8 @@ class NormalStreamingRouteProcessor {
             (string)$this->routeDetail,
             $this->inferPriorityOperation(),
             (string)$this->projectOperatingMemoryPrompt,
-            $this->detectPrimaryEvidenceType()
+            $this->detectPrimaryEvidenceType(),
+            $this->conversationIntentProfile
         );
     }
 

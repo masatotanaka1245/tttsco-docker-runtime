@@ -233,7 +233,8 @@ class PromptManager {
         string $routeDetail = '',
         string $operation = '',
         string $projectMemoryText = '',
-        string $primaryEvidenceType = ''
+        string $primaryEvidenceType = '',
+        array $conversationIntentProfile = []
     ): string {
         $artifact = self::extractActiveArtifactFields($projectMemoryText);
         $lines = ['【回答優先ガイド】'];
@@ -273,11 +274,78 @@ class PromptManager {
             $lines[] = '- 主根拠: ' . $primaryEvidenceType;
         }
 
+        foreach (self::buildConversationIntentGuideLines($conversationIntentProfile) as $intentLine) {
+            $lines[] = $intentLine;
+        }
+
         if (count($lines) <= 1) {
             return '';
         }
 
         return implode("\n", $lines) . "\n\n";
+    }
+
+    /**
+     * @param array<string, mixed> $conversationIntentProfile
+     * @return array<int, string>
+     */
+    private static function buildConversationIntentGuideLines(array $conversationIntentProfile): array
+    {
+        $requestType = trim((string)($conversationIntentProfile['request_type'] ?? ''));
+        $userIntent = trim((string)($conversationIntentProfile['user_intent'] ?? ''));
+        $expectedResponse = trim((string)($conversationIntentProfile['expected_response'] ?? ''));
+        $answerStrategy = trim((string)($conversationIntentProfile['answer_strategy'] ?? ''));
+
+        $intentParts = [];
+        if ($requestType !== '' && $requestType !== 'unknown') {
+            $intentParts[] = $requestType;
+        }
+        if ($userIntent !== '' && $userIntent !== 'unknown' && $userIntent !== $requestType) {
+            $intentParts[] = $userIntent;
+        }
+
+        $lines = [];
+        if (!empty($intentParts)) {
+            $lines[] = '- 発話意図: ' . self::clipText(implode(' / ', $intentParts), 120);
+        }
+
+        if ($expectedResponse !== '' && $expectedResponse !== 'unknown') {
+            $lines[] = '- 期待する返答: ' . self::clipText($expectedResponse, 80);
+        }
+
+        $strategyInstruction = self::mapAnswerStrategyToInstruction($answerStrategy);
+        if ($strategyInstruction !== '') {
+            $lines[] = '- 回答方針: ' . self::clipText($strategyInstruction, 140);
+        }
+
+        return $lines;
+    }
+
+    private static function mapAnswerStrategyToInstruction(string $answerStrategy): string
+    {
+        switch ($answerStrategy) {
+            case 'acknowledge_context_then_recommend_next_step':
+                return 'すぐ実装扱いにせず、方針確認・リスク・次の選択肢を示してください。';
+            case 'acknowledge_correction_then_realign':
+                return '指摘を受け止め、誤解を修正し、元の論点に戻してください。';
+            case 'continue_previous_execution_lane':
+                return '直前の実行レーンを引き継ぎ、不要な論点拡散を避けてください。';
+            case 'summarize_current_state_then_recommend_next_step':
+                return '現在地を簡潔に整理し、次の一手を優先順で示してください。';
+            case 'ask_targeted_clarification':
+                return '不足している対象・範囲・前提だけを短く確認してください。';
+            case 'confirm_inputs_then_prepare_artifact':
+                return '必要な入力と成果物形式を意識し、作成手順と次アクションを具体化してください。';
+            case 'execute_or_clarify_data_task':
+                return '対象データ・操作・確認事項を明確にし、集計または不足確認へ進んでください。';
+            case 'answer_from_retrieved_context':
+                return '取得済みの根拠を優先し、不要な一般論を足さずに要点を整理してください。';
+            case 'execute_requested_task':
+                return '現在の実装状況を踏まえ、対象ファイル・変更方針・確認方法・残課題を具体的に示してください。';
+            case 'respond_normally':
+            default:
+                return '';
+        }
     }
 
     private static function buildActiveArtifactHighlight(array $memoryDocs): string
