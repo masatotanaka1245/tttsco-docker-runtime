@@ -147,7 +147,13 @@ class ChatRouteSelector
                 $advancedReasoning = false;
                 $isAnalysisMode = false;
                 $routeDetailOverride = 'normal_rag.project_memory_consultation';
-                $appendUnique($selectorReasonCodes, 'selector_intent_read_only_consultation');
+                $isMultiSourceAdviceOverride = $factorizedRoute === 'advanced_hybrid.multi_source_advice';
+                $appendUnique(
+                    $selectorReasonCodes,
+                    $isMultiSourceAdviceOverride
+                        ? 'selector_intent_read_only_consultation_multi_source_advice_override'
+                        : 'selector_intent_read_only_consultation'
+                );
                 $appendUnique($selectorEvidence, 'intent_profile_read_only');
                 if ($intentRelation !== '') {
                     $appendUnique($selectorEvidence, 'intent_relation_' . $intentRelation);
@@ -158,10 +164,14 @@ class ChatRouteSelector
                 if ($intentTodoPolicyHint !== '') {
                     $appendUnique($selectorEvidence, 'intent_todo_policy_' . $intentTodoPolicyHint);
                 }
+                if ($isMultiSourceAdviceOverride) {
+                    $appendUnique($selectorEvidence, 'factorized_multi_source_advice');
+                }
                 $selectedRouteConfidence = $factorizedConfidence !== 'low' ? $factorizedConfidence : 'medium';
                 $this->log(
                     "[SMART-ROUTER] conversation_intent_profile により read-only 相談ルートを優先します。"
                     . " route=normal_rag.project_memory_consultation"
+                    . " | factorized_route=" . ($factorizedRoute !== '' ? $factorizedRoute : 'none')
                     . " | relation=" . ($intentRelation !== '' ? $intentRelation : 'unknown')
                     . " | request_type=" . ($intentRequestType !== '' ? $intentRequestType : 'unknown')
                     . " | todo_policy_hint=" . ($intentTodoPolicyHint !== '' ? $intentTodoPolicyHint : 'unknown')
@@ -472,7 +482,7 @@ class ChatRouteSelector
             return false;
         }
 
-        if (str_starts_with($factorizedRoute, 'advanced_hybrid.')) {
+        if (str_starts_with($factorizedRoute, 'advanced_hybrid.') && $factorizedRoute !== 'advanced_hybrid.multi_source_advice') {
             return false;
         }
 
