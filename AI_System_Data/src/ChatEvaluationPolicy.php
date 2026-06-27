@@ -8,7 +8,8 @@ class ChatEvaluationPolicy
         string $contextText,
         int $sourceCount,
         bool $reportMode,
-        bool $diagramMode
+        bool $diagramMode,
+        array $conversationIntentProfile = []
     ): array {
         if ($reportMode || $diagramMode) {
             return self::yes('output_mode_requires_quality_check');
@@ -17,6 +18,7 @@ class ChatEvaluationPolicy
         $normalized = mb_strtolower(trim($message), 'UTF-8');
         $responseLength = mb_strlen(trim($response));
         $contextLength = mb_strlen(trim($contextText));
+        $longAnswerThreshold = self::resolveLongAnswerThreshold($conversationIntentProfile);
 
         if ($sourceCount === 0 && $contextLength === 0 && $responseLength < 800) {
             return self::no('light_answer_without_rag_context');
@@ -30,8 +32,16 @@ class ChatEvaluationPolicy
             return self::yes('structured_aggregation_question');
         }
 
-        if ($responseLength >= 1200) {
-            return self::yes('long_answer');
+        if ($responseLength >= $longAnswerThreshold) {
+            return self::yes('long_answer', ['threshold' => $longAnswerThreshold]);
+        }
+
+        if (
+            $longAnswerThreshold > 1200
+            && $responseLength >= 1200
+            && $responseLength < $longAnswerThreshold
+        ) {
+            return self::no('code_improvement_long_answer_threshold', ['threshold' => $longAnswerThreshold]);
         }
 
         if ($sourceCount > 0 && self::isEvidenceSensitive($normalized)) {
@@ -45,14 +55,26 @@ class ChatEvaluationPolicy
         return self::no('normal_rag_low_risk');
     }
 
-    private static function yes(string $reason): array
+    private static function yes(string $reason, array $extra = []): array
     {
-        return ['evaluate' => true, 'reason' => $reason];
+        return array_merge(['evaluate' => true, 'reason' => $reason], $extra);
     }
 
-    private static function no(string $reason): array
+    private static function no(string $reason, array $extra = []): array
     {
-        return ['evaluate' => false, 'reason' => $reason];
+        return array_merge(['evaluate' => false, 'reason' => $reason], $extra);
+    }
+
+    private static function resolveLongAnswerThreshold(array $conversationIntentProfile): int
+    {
+        $userIntent = trim((string)($conversationIntentProfile['user_intent'] ?? ''));
+        $expectedResponse = trim((string)($conversationIntentProfile['expected_response'] ?? ''));
+
+        if ($userIntent === 'code_improvement' && $expectedResponse === 'implementation_plan') {
+            return 3000;
+        }
+
+        return 1200;
     }
 
     private static function isSimpleConversational(string $message): bool

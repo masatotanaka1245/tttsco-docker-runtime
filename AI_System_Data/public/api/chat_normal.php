@@ -221,16 +221,19 @@ class NormalStreamingRouteProcessor {
             $this->contextText,
             count($this->sourceDocs),
             $this->reportMode,
-            $this->diagramMode
+            $this->diagramMode,
+            $this->conversationIntentProfile
         );
 
         if (($policy['evaluate'] ?? false) !== true) {
-            chatLogger("[JUDGE-NORMAL-SKIP] 通常RAG品質評価をスキップしました。reason={$policy['reason']} | responseChars=" . mb_strlen($this->fullResponse) . " | contextChars=" . mb_strlen($this->contextText) . " | sources=" . count($this->sourceDocs));
+            $thresholdLog = isset($policy['threshold']) ? " | threshold=" . (int)$policy['threshold'] : '';
+            chatLogger("[JUDGE-NORMAL-SKIP] 通常RAG品質評価をスキップしました。reason={$policy['reason']} | responseChars=" . mb_strlen($this->fullResponse) . " | contextChars=" . mb_strlen($this->contextText) . " | sources=" . count($this->sourceDocs) . $thresholdLog);
             $this->logPhaseTiming('judge_skipped', [
                 'reason' => (string)($policy['reason'] ?? 'unknown'),
                 'response_chars' => mb_strlen($this->fullResponse),
                 'context_chars' => mb_strlen($this->contextText),
                 'sources' => count($this->sourceDocs),
+                'threshold' => isset($policy['threshold']) ? (int)$policy['threshold'] : null,
             ]);
             return;
         }
@@ -246,13 +249,15 @@ class NormalStreamingRouteProcessor {
             if ($contextForEval === '') {
                 $contextForEval = "通常RAG検索（中間ステップなし）";
             }
-            chatLogger("[JUDGE-NORMAL-START] 通常RAG品質評価を開始します。reason={$policy['reason']} | responseChars=" . mb_strlen($this->fullResponse) . " | contextChars=" . mb_strlen($contextForEval) . " | sources=" . count($this->sourceDocs));
+            $thresholdLog = isset($policy['threshold']) ? " | threshold=" . (int)$policy['threshold'] : '';
+            chatLogger("[JUDGE-NORMAL-START] 通常RAG品質評価を開始します。reason={$policy['reason']} | responseChars=" . mb_strlen($this->fullResponse) . " | contextChars=" . mb_strlen($contextForEval) . " | sources=" . count($this->sourceDocs) . $thresholdLog);
             $this->logPhaseTiming('judge_start', [
                 'reason' => (string)($policy['reason'] ?? 'unknown'),
                 'response_chars' => mb_strlen($this->fullResponse),
                 'context_chars' => mb_strlen($contextForEval),
                 'sources' => count($this->sourceDocs),
                 'timeout' => 90,
+                'threshold' => isset($policy['threshold']) ? (int)$policy['threshold'] : null,
             ]);
             $this->evalResult = $evaluator->evaluateDraft($this->originalMessage, $contextForEval, $this->fullResponse, $this->model);
             $evaluationMode = (string)($this->evalResult['evaluation_mode'] ?? 'unknown');
