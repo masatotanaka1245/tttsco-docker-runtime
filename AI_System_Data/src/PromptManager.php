@@ -295,6 +295,8 @@ class PromptManager {
         $userIntent = trim((string)($conversationIntentProfile['user_intent'] ?? ''));
         $expectedResponse = trim((string)($conversationIntentProfile['expected_response'] ?? ''));
         $answerStrategy = trim((string)($conversationIntentProfile['answer_strategy'] ?? ''));
+        $isCodeImprovementPlan = $userIntent === 'code_improvement'
+            && $expectedResponse === 'implementation_plan';
 
         $intentParts = [];
         if ($requestType !== '' && $requestType !== 'unknown') {
@@ -313,9 +315,15 @@ class PromptManager {
             $lines[] = '- 期待する返答: ' . self::clipText($expectedResponse, 80);
         }
 
-        $strategyInstruction = self::mapAnswerStrategyToInstruction($answerStrategy);
-        if ($strategyInstruction !== '') {
-            $lines[] = '- 回答方針: ' . self::clipText($strategyInstruction, 140);
+        if ($isCodeImprovementPlan) {
+            $lines[] = '- 回答方針: ' . self::clipText('実装しやすい最小指示に絞り、変更対象・最小差分・確認方法・残課題だけを短く整理してください。', 140);
+            $lines[] = '- 出力制約: ' . self::clipText('1800〜2400文字目安、見出しは「方針/最小変更/確認/残課題」の最大4つ、各見出し2〜4項目にしてください。', 140);
+            $lines[] = '- 冗長化防止: ' . self::clipText('長い背景説明、コード全文、最終報告テンプレ、過度な一般論は出さないでください。', 140);
+        } else {
+            $strategyInstruction = self::mapAnswerStrategyToInstruction($answerStrategy);
+            if ($strategyInstruction !== '') {
+                $lines[] = '- 回答方針: ' . self::clipText($strategyInstruction, 140);
+            }
         }
 
         return $lines;
