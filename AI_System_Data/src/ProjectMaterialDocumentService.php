@@ -6,6 +6,9 @@ require_once __DIR__ . '/ModelRoleResolver.php';
 
 class ProjectMaterialDocumentService
 {
+    private const MATERIAL_EMBEDDING_TITLE_MAX_CHARS = 60;
+    private const MATERIAL_EMBEDDING_BODY_MAX_CHARS = 420;
+
     private PDO $pdo;
     private string $basePath;
 
@@ -155,14 +158,16 @@ class ProjectMaterialDocumentService
             return false;
         }
 
+        $hasNonEmptyEmbedding = false;
         foreach ($rows as $embeddingJson) {
             $embedding = json_decode((string)$embeddingJson, true);
-            if (is_array($embedding) && !empty($embedding)) {
-                return true;
+            if (!is_array($embedding) || empty($embedding)) {
+                return false;
             }
+            $hasNonEmptyEmbedding = true;
         }
 
-        return false;
+        return $hasNonEmptyEmbedding;
     }
 
     public function ensureRagIndexed(int $projectId, int $documentId): bool
@@ -595,16 +600,23 @@ class ProjectMaterialDocumentService
     private function buildEmbeddingPayload(string $title, string $chunk): string
     {
         $chunk = trim($chunk);
-        $headings = $this->extractMarkdownHeadings($chunk);
         if ($chunk === '') {
             return '案件資料メモ: ' . $title;
         }
 
-        $payload = "【案件資料メモ】\nタイトル: {$title}\n";
-        if ($headings !== []) {
-            $payload .= "見出し: " . implode(' / ', $headings) . "\n";
+        $safeTitle = trim(preg_replace('/\s+/u', ' ', $title));
+        if ($safeTitle !== '') {
+            $safeTitle = mb_substr($safeTitle, 0, self::MATERIAL_EMBEDDING_TITLE_MAX_CHARS);
         }
-        $payload .= "\n{$chunk}";
+
+        $safeChunk = trim(preg_replace('/\s+/u', ' ', $chunk));
+        $safeChunk = mb_substr($safeChunk, 0, self::MATERIAL_EMBEDDING_BODY_MAX_CHARS);
+
+        if ($safeTitle === '') {
+            return $safeChunk;
+        }
+
+        $payload = $safeTitle . "\n" . $safeChunk;
 
         return $payload;
     }

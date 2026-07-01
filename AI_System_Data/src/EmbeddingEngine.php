@@ -8,6 +8,8 @@
 require_once __DIR__ . '/ModelRoleResolver.php';
 
 class EmbeddingEngine {
+    private const MAX_EMBEDDING_INPUT_CHARS = 500;
+
     private $ollamaUrl;
     private $model;
     private int $timeoutSeconds;
@@ -40,14 +42,15 @@ class EmbeddingEngine {
      * @return array 数値配列（ベクトルデータ）
      */
     public function embed(string $text): array {
+        $inputText = $this->normalizeEmbeddingInput($text);
         $curl = curl_init($this->ollamaUrl);
         curl_setopt($curl, CURLOPT_POST, true);
         curl_setopt($curl, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
-        
+
         // ★VRAM保護・GPU最適化: options で num_gpu を明示的に指定
         curl_setopt($curl, CURLOPT_POSTFIELDS, json_encode([
             'model' => $this->model,
-            'prompt' => $text,
+            'prompt' => $inputText,
             'options' => [
                 'num_gpu' => 999 // 可能な限り全レイヤーをGPUにオフロードさせる
             ]
@@ -79,6 +82,32 @@ class EmbeddingEngine {
             throw new RuntimeException("Ollamaからベクトルデータが返却されませんでした。");
         }
 
-        return $data['embedding']; 
+        return $data['embedding'];
+    }
+
+    private function normalizeEmbeddingInput(string $text): string
+    {
+        $normalized = trim($text);
+        if ($normalized === '') {
+            return $normalized;
+        }
+
+        $inputChars = function_exists('mb_strlen') ? mb_strlen($normalized) : strlen($normalized);
+        if ($inputChars <= self::MAX_EMBEDDING_INPUT_CHARS) {
+            return $normalized;
+        }
+
+        $truncated = function_exists('mb_substr')
+            ? mb_substr($normalized, 0, self::MAX_EMBEDDING_INPUT_CHARS)
+            : substr($normalized, 0, self::MAX_EMBEDDING_INPUT_CHARS);
+
+        error_log(sprintf(
+            '[EMBEDDING-GUARD] truncated input for model=%s chars=%d limit=%d',
+            $this->model,
+            $inputChars,
+            self::MAX_EMBEDDING_INPUT_CHARS
+        ));
+
+        return rtrim($truncated);
     }
 }
