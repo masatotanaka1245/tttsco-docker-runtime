@@ -84,6 +84,10 @@ function printProjectSummary(array $summary): void
     echo "already_indexed: " . (int)($summary['already_indexed'] ?? 0) . PHP_EOL;
     echo "skipped_empty: " . (int)($summary['skipped_empty'] ?? 0) . PHP_EOL;
     echo "skipped_scope: " . (int)($summary['skipped_scope'] ?? 0) . PHP_EOL;
+    echo "embedded_chunks: " . (int)($summary['embedded_chunks'] ?? 0) . PHP_EOL;
+    echo "failed_chunks: " . (int)($summary['failed_chunks'] ?? 0) . PHP_EOL;
+    echo "partial_success: " . (int)($summary['partial_success'] ?? 0) . PHP_EOL;
+    echo "full_success: " . (int)($summary['full_success'] ?? 0) . PHP_EOL;
 }
 
 try {

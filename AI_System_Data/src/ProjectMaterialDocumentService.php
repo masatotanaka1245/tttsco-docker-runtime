@@ -218,6 +218,10 @@ class ProjectMaterialDocumentService
             'already_indexed' => 0,
             'skipped_empty' => 0,
             'skipped_scope' => 0,
+            'embedded_chunks' => 0,
+            'failed_chunks' => 0,
+            'partial_success' => 0,
+            'full_success' => 0,
         ];
 
         foreach ($documents as $document) {
@@ -235,6 +239,7 @@ class ProjectMaterialDocumentService
 
             if ($this->hasSearchableEmbeddings($documentId)) {
                 $summary['already_indexed']++;
+                $this->mergeChunkSummary($summary, $this->getDocumentEmbeddingChunkSummary($documentId));
                 continue;
             }
 
@@ -251,6 +256,7 @@ class ProjectMaterialDocumentService
 
             $this->save($projectId, (string)($document['title'] ?? ''), $content, $documentId);
             $summary['reindexed']++;
+            $this->mergeChunkSummary($summary, $this->getDocumentEmbeddingChunkSummary($documentId));
         }
 
         $this->logRag('project backfill completed', $summary);
@@ -271,6 +277,10 @@ class ProjectMaterialDocumentService
             'already_indexed' => 0,
             'skipped_empty' => 0,
             'skipped_scope' => 0,
+            'embedded_chunks' => 0,
+            'failed_chunks' => 0,
+            'partial_success' => 0,
+            'full_success' => 0,
             'project_summaries' => [],
         ];
 
@@ -287,6 +297,10 @@ class ProjectMaterialDocumentService
             $summary['already_indexed'] += (int)($projectSummary['already_indexed'] ?? 0);
             $summary['skipped_empty'] += (int)($projectSummary['skipped_empty'] ?? 0);
             $summary['skipped_scope'] += (int)($projectSummary['skipped_scope'] ?? 0);
+            $summary['embedded_chunks'] += (int)($projectSummary['embedded_chunks'] ?? 0);
+            $summary['failed_chunks'] += (int)($projectSummary['failed_chunks'] ?? 0);
+            $summary['partial_success'] += (int)($projectSummary['partial_success'] ?? 0);
+            $summary['full_success'] += (int)($projectSummary['full_success'] ?? 0);
         }
 
         $this->logRag('global backfill completed', [
@@ -297,6 +311,10 @@ class ProjectMaterialDocumentService
             'already_indexed' => $summary['already_indexed'],
             'skipped_empty' => $summary['skipped_empty'],
             'skipped_scope' => $summary['skipped_scope'],
+            'embedded_chunks' => $summary['embedded_chunks'],
+            'failed_chunks' => $summary['failed_chunks'],
+            'partial_success' => $summary['partial_success'],
+            'full_success' => $summary['full_success'],
         ]);
 
         return $summary;
@@ -651,6 +669,48 @@ class ProjectMaterialDocumentService
 
         $content = trim(implode("\n\n", array_map(static fn($chunk): string => trim((string)$chunk), $chunks)));
         return $content !== '' ? $content . "\n" : '';
+    }
+
+    private function getDocumentEmbeddingChunkSummary(int $documentId): array
+    {
+        if ($documentId <= 0) {
+            return [
+                'embedded_chunks' => 0,
+                'failed_chunks' => 0,
+                'partial_success' => 0,
+                'full_success' => 0,
+            ];
+        }
+
+        $stmt = $this->pdo->prepare(
+            'SELECT
+                COUNT(*) AS total_chunks,
+                SUM(CASE WHEN JSON_LENGTH(embedding) > 0 THEN 1 ELSE 0 END) AS embedded_chunks,
+                SUM(CASE WHEN JSON_LENGTH(embedding) = 0 OR embedding IS NULL THEN 1 ELSE 0 END) AS failed_chunks
+             FROM doc_chunks
+             WHERE doc_id = ?'
+        );
+        $stmt->execute([$documentId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+        $totalChunks = (int)($row['total_chunks'] ?? 0);
+        $embeddedChunks = (int)($row['embedded_chunks'] ?? 0);
+        $failedChunks = (int)($row['failed_chunks'] ?? 0);
+
+        return [
+            'embedded_chunks' => $embeddedChunks,
+            'failed_chunks' => $failedChunks,
+            'partial_success' => $embeddedChunks > 0 && $failedChunks > 0 ? 1 : 0,
+            'full_success' => $totalChunks > 0 && $embeddedChunks === $totalChunks && $failedChunks === 0 ? 1 : 0,
+        ];
+    }
+
+    private function mergeChunkSummary(array &$summary, array $chunkSummary): void
+    {
+        $summary['embedded_chunks'] += (int)($chunkSummary['embedded_chunks'] ?? 0);
+        $summary['failed_chunks'] += (int)($chunkSummary['failed_chunks'] ?? 0);
+        $summary['partial_success'] += (int)($chunkSummary['partial_success'] ?? 0);
+        $summary['full_success'] += (int)($chunkSummary['full_success'] ?? 0);
     }
 
     private function matchesBackfillScope(array $document, string $scope): bool
