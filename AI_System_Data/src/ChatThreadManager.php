@@ -74,6 +74,16 @@ final class ChatThreadManager
         self::backfillLegacyHistory($pdo, $projectId, $userId);
 
         if ($requestedThreadId !== null && self::threadBelongsToProject($pdo, $requestedThreadId, $projectId)) {
+            self::logThreadResolve(
+                'use_requested',
+                'valid_thread_id',
+                $projectId,
+                $requestedThreadId,
+                $requestedThreadId,
+                $userId,
+                false,
+                false
+            );
             return $requestedThreadId;
         }
 
@@ -95,27 +105,49 @@ final class ChatThreadManager
         $stmt->execute([$projectId]);
         $threadId = $stmt->fetchColumn();
         if ($threadId !== false) {
+            $resolvedThreadId = (int)$threadId;
+            self::logThreadResolve(
+                'fallback_latest',
+                $requestedThreadId === null ? 'missing_thread_id' : 'invalid_or_mismatch_thread_id',
+                $projectId,
+                $requestedThreadId,
+                $resolvedThreadId,
+                $userId,
+                false,
+                true
+            );
             if ($requestedThreadId !== null) {
                 appLog('chat_debug.log', '[CHAT_STREAM] [PROJECT-SCOPE-WARN] current_project_id=' . $projectId
                     . ' | requested_thread_id=' . $requestedThreadId
-                    . ' | resolved_thread_id=' . (int)$threadId
+                    . ' | resolved_thread_id=' . $resolvedThreadId
                     . ' | reason=thread_project_mismatch'
                     . ' | ok=0'
                     . ' | fallback=1');
             }
-            return (int)$threadId;
+            return $resolvedThreadId;
         }
 
         $thread = self::createThread($pdo, $projectId, $userId);
+        $resolvedThreadId = (int)$thread['id'];
+        self::logThreadResolve(
+            'create_new',
+            'no_existing_thread',
+            $projectId,
+            $requestedThreadId,
+            $resolvedThreadId,
+            $userId,
+            true,
+            $requestedThreadId !== null
+        );
         if ($requestedThreadId !== null) {
             appLog('chat_debug.log', '[CHAT_STREAM] [PROJECT-SCOPE-WARN] current_project_id=' . $projectId
                 . ' | requested_thread_id=' . $requestedThreadId
-                . ' | resolved_thread_id=' . (int)$thread['id']
+                . ' | resolved_thread_id=' . $resolvedThreadId
                 . ' | reason=thread_project_mismatch_new_thread'
                 . ' | ok=0'
                 . ' | fallback=1');
         }
-        return (int)$thread['id'];
+        return $resolvedThreadId;
     }
 
     public static function createThread(PDO $pdo, int $projectId, int $userId, ?string $title = null): array
@@ -351,5 +383,28 @@ final class ChatThreadManager
         ");
         $stmt->execute([$tableName, $columnName]);
         return (int)$stmt->fetchColumn() > 0;
+    }
+
+    private static function logThreadResolve(
+        string $action,
+        string $reason,
+        int $projectId,
+        ?int $requestedThreadId,
+        int $resolvedThreadId,
+        int $userId,
+        bool $createdNew,
+        bool $fallbackUsed
+    ): void {
+        appLog(
+            'chat_debug.log',
+            '[THREAD-RESOLVE] action=' . $action
+            . ' | reason=' . $reason
+            . ' | project_id=' . $projectId
+            . ' | requested_thread_id=' . ($requestedThreadId === null ? 'null' : (string)$requestedThreadId)
+            . ' | resolved_thread_id=' . $resolvedThreadId
+            . ' | user_id=' . $userId
+            . ' | created_new=' . ($createdNew ? '1' : '0')
+            . ' | fallback_used=' . ($fallbackUsed ? '1' : '0')
+        );
     }
 }
