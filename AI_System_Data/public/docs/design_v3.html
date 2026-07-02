@@ -213,7 +213,7 @@
             </tr>
             <tr class="hover:bg-slate-50 transition">
               <td class="px-6 py-4 font-bold text-slate-700">AI 推論 / 解析</td>
-              <td class="px-6 py-4 text-slate-600">Ollama API。実効既定値は <code>ModelRoleResolver.php</code> を正とし、<code>default_model=gemma4:e4b</code>、<code>sub_model=gpt-oss:20b</code>、<code>sql_model=codellama:7b</code>、<code>embedding_model=mxbai-embed-large</code>、<code>vision_model=gemma4:e4b</code> を採用する。チャットの最終統合は主に default/main model、中間処理は sub_model、SQL生成とSQL自己修復は sql_model、ベクトル化は embedding_model、PDFページ全体要約・スライス読解・タイル読解などのVLM/PDF解析は vision_model を優先使用する。PDF解析には本番Windows上のPoppler系ツール（pdfinfo / pdftotext / pdftoppm相当）を使用する。報告書PDFの生成はComposerで導入した mPDF を優先し、mPDFが利用できない検証環境では wkhtmltopdf またはChrome/EdgeのヘッドレスPDF出力へフォールバックする。</td>
+              <td class="px-6 py-4 text-slate-600">Ollama API。実効既定値は <code>ModelRoleResolver.php</code> を正とし、<code>default_model=gemma4:e4b</code>、<code>sub_model=gemma4:e4b</code>、<code>sql_model=codellama:7b</code>、<code>embedding_model=mxbai-embed-large</code>、<code>vision_model=gemma4:e4b</code> を採用する。チャットの最終統合は主に default/main model、中間処理は sub_model、SQL生成とSQL自己修復は sql_model、ベクトル化は embedding_model、PDFページ全体要約・スライス読解・タイル読解などのVLM/PDF解析は vision_model を優先使用する。PDF解析には本番Windows上のPoppler系ツール（pdfinfo / pdftotext / pdftoppm相当）を使用する。報告書PDFの生成はComposerで導入した mPDF を優先し、mPDFが利用できない検証環境では wkhtmltopdf またはChrome/EdgeのヘッドレスPDF出力へフォールバックする。</td>
             </tr>
             <tr class="hover:bg-slate-50 transition">
               <td class="px-6 py-4 font-bold text-slate-700">フロントエンド</td>

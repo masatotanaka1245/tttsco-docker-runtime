@@ -64,19 +64,15 @@ PowerShellで実行:
 
 ```powershell
 ollama pull mxbai-embed-large
-ollama pull llama3
+ollama pull gemma4:e4b
+ollama pull codellama:7b
 ```
 
-70Bを使う場合:
+デバッグ用の補助モデルを入れる場合は任意で:
 
 ```powershell
-ollama pull llama3:70b
-```
-
-その場合は `AI_System_Data/.env` の `OLLAMA_CHAT_MODEL` を変更します。
-
-```env
-OLLAMA_CHAT_MODEL=llama3:70b
+ollama pull qwen2.5-coder:7b
+ollama pull gpt-oss:20b
 ```
 
 ### 4. Docker起動
@@ -144,10 +140,11 @@ OLLAMA_CHAT_MODEL=gemma4:e4b
 補足:
 - 現行実装の実効既定値は `ModelRoleResolver.php` に従います。
 - `default_model=gemma4:e4b`
-- `sub_model=gpt-oss:20b`
+- `sub_model=gemma4:e4b`
 - `sql_model=codellama:7b`
 - `embedding_model=mxbai-embed-large`
 - `vision_model=gemma4:e4b`
+- `qwen2.5-coder:7b` や `gpt-oss:20b` は、Codex / VSCode での開発・デバッグ用途として任意に追加してよく、アプリ runtime の既定 role とは分けて扱います。
 
 ## よくあるエラー
 

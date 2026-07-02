@@ -234,7 +234,7 @@ expected_defaults AS (
     UNION ALL SELECT 'users', 'default_lang', 'ja'
     UNION ALL SELECT 'users', 'default_model', 'gemma4:e4b'
     UNION ALL SELECT 'users', 'ollama_host', 'http://127.0.0.1:11434'
-    UNION ALL SELECT 'users', 'sub_model', 'gpt-oss:20b'
+    UNION ALL SELECT 'users', 'sub_model', 'gemma4:e4b'
     UNION ALL SELECT 'users', 'sql_model', 'codellama:7b'
     UNION ALL SELECT 'users', 'embedding_model', 'mxbai-embed-large'
     UNION ALL SELECT 'users', 'vision_model', 'gemma4:e4b'

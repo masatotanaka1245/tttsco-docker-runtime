@@ -4,7 +4,7 @@ class ModelRoleResolver
 {
     public const DEFAULT_OLLAMA_HOST = 'http://127.0.0.1:11434';
     public const DEFAULT_MAIN_MODEL = 'gemma4:e4b';
-    public const DEFAULT_SUB_MODEL = 'gpt-oss:20b';
+    public const DEFAULT_SUB_MODEL = 'gemma4:e4b';
     public const DEFAULT_SQL_MODEL = 'codellama:7b';
     public const DEFAULT_EMBEDDING_MODEL = 'mxbai-embed-large';
     public const DEFAULT_VISION_MODEL = self::DEFAULT_MAIN_MODEL;

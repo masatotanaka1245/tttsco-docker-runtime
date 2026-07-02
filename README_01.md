@@ -597,7 +597,6 @@ Bash
 Run
 ollama pull mxbai-embed-large
 ollama pull gemma4:e4b
-ollama pull gpt-oss:20b
 ollama pull codellama:7b
 MySQL テーブル作成
 Sql
@@ -606,8 +605,9 @@ Apply
 mysql -u newuser -p tepscoapp < config/db.sql
 補足:
 - `config/db.sql` には `chat_threads` と `chat_history.thread_id` を含む現行スキーマを定義している
-- `users` の既定モデルは `ModelRoleResolver.php` を正とし、`default_model=gemma4:e4b`、`sub_model=gpt-oss:20b`、`sql_model=codellama:7b`、`embedding_model=mxbai-embed-large`、`vision_model=gemma4:e4b` を採用する
+- `users` の既定モデルは `ModelRoleResolver.php` を正とし、`default_model=gemma4:e4b`、`sub_model=gemma4:e4b`、`sql_model=codellama:7b`、`embedding_model=mxbai-embed-large`、`vision_model=gemma4:e4b` を採用する
 - `config/schema_check.sql` は主にテーブル / カラム / INDEX / DB既定値の整合を確認する。実行時の実効既定値は `ModelRoleResolver.php` を正本とし、`OLLAMA_EMBED_MODEL` などの環境変数上書きは schema check の対象外とする
+- アプリ runtime の既定モデルと、Codex / VSCode で使う開発・デバッグ用 LLM は分けてよい。runtime は上記 role 構成を正とし、デバッグ用モデルは用途別に任意で追加する
 - `watchdog` は現行構成では未実装扱いであり、常駐監視の再導入は将来検討とする
 
 1.7 運用・監視
@@ -981,7 +981,7 @@ users	8	default_prompt	varchar(50)	YES		construction_consultant	デフォルト�
 users	9	default_lang	varchar(10)	YES		ja	表示言語設定
 users	10	default_model	varchar(50)	YES		gemma4:e4b	優先使用モデル
 users	11	ollama_host	varchar(255)	YES		http://127.0.0.1:11434	Ollama接続先URL
-users	12	sub_model	varchar(100)	YES		gpt-oss:20b	中間処理・補助分析用サブモデル
+users	12	sub_model	varchar(100)	YES		gemma4:e4b	中間処理・補助分析用サブモデル
 users	13	sql_model	varchar(100)	YES		codellama:7b	Text-to-SQL・SQL自己修復用モデル
 users	14	embedding_model	varchar(100)	YES		mxbai-embed-large	ベクトル化専用モデル
 users	15	vision_model	varchar(100)	YES		gemma4:e4b	PDF・画像解析用ビジョンモデル
