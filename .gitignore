@@ -7,3 +7,6 @@
 # Generated runtime report artifacts
 /AI_System_Data/public/01_RAG_Documents/*/report_*.html
 /AI_System_Data/public/01_RAG_Documents/*/report_*.pdf
+
+# Database backup dumps
+/AI_System_Data/backups/
