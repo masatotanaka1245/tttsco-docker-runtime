@@ -68,9 +68,6 @@ if (!function_exists('isActive')) {
 <header class="bg-[#4F5D95] text-white p-4 shadow-lg z-30">
     <div class="max-w-[1600px] mx-auto flex items-center justify-between">
         <div class="flex items-center gap-6">
-            <a href="index.php" class="font-black tracking-widest text-xl hover:opacity-80 transition">TEPSCO Routines</a>
-            <div class="h-8 w-px bg-white/20"></div>
-            
             <nav class="flex gap-8 text-sm font-medium items-center">
                 <a href="index.php" class="<?= isActive('index.php', $current_page) ?>">ダッシュボード</a>
                 <a href="support.php" class="<?= isActive('support.php', $current_page) ?>">業務支援</a>
