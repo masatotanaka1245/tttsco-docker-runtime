@@ -1,4 +1,4 @@
-# TEPSCO Docker Runtime
+# Docker Runtime
 
 このZIPは、README_01.md のシステムを Docker で起動するための最小構成です。
 
