@@ -1,4 +1,4 @@
-TEPSCOルーティンズ (AI System for Civil Engineering)
+ルーティンズアプリ (AI System for Civil Engineering)
 建設コンサルタント実務特化型 AI 支援プラットフォーム
 建設コンサルタントの全11分野における業務高度化を目的とし、情報の高密度化とオンプレミス環境での安全性を両立させた統合システム。
 
