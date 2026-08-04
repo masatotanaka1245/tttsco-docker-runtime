@@ -513,7 +513,7 @@ try {
         . " | project=" . ($project_id !== null ? 'yes' : 'no')
     );
     if ($project_id !== null && !empty($decompositionSteps)) {
-        $decompositionReasoningId = $reasoning_id ?: ('decomp-' . uniqid('', true));
+        $decompositionReasoningId = 'decomp-' . uniqid('', true);
         $normalizeUtf8 = static function (string $text): string {
             $text = trim((string)$text);
             if ($text === '') {
@@ -704,6 +704,31 @@ try {
         $routeDetailSuffix = " | detail=" . $routeDetail;
     }
     chatLogger("[SMART-ROUTER] ルート処理完了: {$routeName}{$routeDetailSuffix} | elapsed: " . number_format(microtime(true) - $routeStart, 2) . "秒");
+
+    if ($project_id !== null && !empty($decompositionReasoningId) && $thread_id !== null) {
+        $stmtUserHistory = $pdo->prepare(
+            "SELECT id FROM chat_history
+             WHERE project_id = ? AND thread_id = ? AND user_id = ? AND role = 'user' AND message = ?
+             ORDER BY id DESC LIMIT 1"
+        );
+        $stmtUserHistory->execute([(int)$project_id, (int)$thread_id, (int)$user_id, $message]);
+        $userHistoryId = (int)($stmtUserHistory->fetchColumn() ?: 0);
+        if ($userHistoryId > 0) {
+            $stmtBindDecomposition = $pdo->prepare(
+                'UPDATE chat_reasoning_steps
+                 SET chat_history_id = ?
+                 WHERE project_id = ? AND session_id = ? AND chat_history_id IS NULL'
+            );
+            $stmtBindDecomposition->execute([$userHistoryId, (int)$project_id, $decompositionReasoningId]);
+            chatLogger(
+                '[QUESTION-DECOMPOSE-SAVE] project_id=' . (int)$project_id
+                . ' | thread_id=' . (int)$thread_id
+                . ' | user_chat_history_id=' . $userHistoryId
+                . ' | session_id=' . $decompositionReasoningId
+                . ' | bound_steps=' . $stmtBindDecomposition->rowCount()
+            );
+        }
+    }
 
     if ($dedupeLocked && $dedupeLockFile !== null && is_file($dedupeLockFile)) {
         @unlink($dedupeLockFile);

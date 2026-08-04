@@ -119,7 +119,7 @@ final class AdvancedRouteFinalizer
             );
 
             if ($this->reasoningId !== '') {
-                $updHist = $this->pdo->prepare("UPDATE chat_reasoning_steps SET chat_history_id = ? WHERE session_id = ? AND project_id = ?");
+                $updHist = $this->pdo->prepare("UPDATE chat_reasoning_steps SET chat_history_id = ? WHERE session_id = ? AND project_id = ? AND chat_history_id IS NULL");
                 $updHist->execute([$historyId, $this->reasoningId, $this->projectId]);
                 $this->log("[PROJECT-SCOPE] current_project_id={$this->projectId} | thread_id=" . ($this->threadId === null ? 'NULL' : (string)$this->threadId) . " | source=chat_reasoning_steps_bind | source_project_ids=[{$this->projectId}] | ok=1 | affected_rows=" . $updHist->rowCount());
             }

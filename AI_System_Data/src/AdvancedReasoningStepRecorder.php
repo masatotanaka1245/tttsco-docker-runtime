@@ -91,7 +91,11 @@ final class AdvancedReasoningStepRecorder
     /**
      * @param array<int, array{sub_query?: string, step_number?: int}> $steps
      */
-    public function recordDecomposedSteps(array $steps, string $initialAnswer = '[DECOMPOSED-PENDING]'): int
+    public function recordDecomposedSteps(
+        array $steps,
+        string $initialAnswer = '[DECOMPOSED-PENDING]',
+        ?int $chatHistoryId = null
+    ): int
     {
         $savedCount = 0;
 
@@ -102,20 +106,35 @@ final class AdvancedReasoningStepRecorder
             }
 
             $stepNumber = (int)($step['step_number'] ?? ($index + 1));
+            $packetJson = $this->encodeDecompositionPacket($step);
             try {
                 $stmt = $this->pdo->prepare("
                     INSERT INTO chat_reasoning_steps
-                        (project_id, session_id, original_question, step_number, sub_query, sub_answer, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, NOW())
+                        (chat_history_id, project_id, session_id, original_question, step_number, sub_query, search_context, sub_answer, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
                 ");
                 $stmt->execute([
+                    $chatHistoryId,
                     $this->projectId,
                     $this->reasoningId,
                     $this->normalize($this->originalMessage),
                     $stepNumber,
                     $this->normalize($subQuery),
+                    $packetJson,
                     $this->normalize($initialAnswer),
                 ]);
+                $stepId = (int)$this->pdo->lastInsertId();
+                $this->log(
+                    '[QUESTION-DECOMPOSE-SAVE] project_id=' . $this->projectId
+                    . ' | user_chat_history_id=' . ($chatHistoryId === null ? 'pending' : (string)$chatHistoryId)
+                    . ' | reasoning_step_id=' . $stepId
+                    . ' | session_id=' . $this->reasoningId
+                    . ' | step_number=' . $stepNumber
+                    . ' | sub_question_count=' . count($steps)
+                    . ' | save_worthy=' . (!empty($step['save_worthy']) ? 'true' : 'false')
+                    . ' | request_mode=' . (string)($step['request_mode'] ?? 'none')
+                    . ' | update_policy=' . (string)($step['update_policy'] ?? 'none')
+                );
                 $savedCount++;
             } catch (Exception $e) {
                 $this->log("[QUESTION-DECOMPOSE-SAVE] reasoning step 保存失敗: " . $e->getMessage());
@@ -128,6 +147,23 @@ final class AdvancedReasoningStepRecorder
     private function normalize(string $value): string
     {
         return (string)call_user_func($this->normalizeUtf8, $value);
+    }
+
+    /** @param array<string, mixed> $step */
+    private function encodeDecompositionPacket(array $step): ?string
+    {
+        $packet = [
+            'type' => 'question_decomposition',
+            'schema_version' => 1,
+            'packet' => $step,
+        ];
+        $json = json_encode($packet, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+        if ($json === false) {
+            $this->log('[QUESTION-DECOMPOSE-SAVE] packet_json=failed | reason=' . json_last_error_msg());
+            return null;
+        }
+
+        return $json;
     }
 
     private function log(string $message): void

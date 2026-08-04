@@ -193,3 +193,27 @@ Compose 起動時に `chat_debug.log` の所有者・権限を初期化する。
 
 - `docker-compose.yml`
 - `AI_System_Data/src/AppLogger.php`
+
+## 2026-08-04: entry質問分解stepが履歴に紐付かない
+
+### 症状
+
+entry質問分解stepの `chat_history_id` が `NULL` のままとなり、質問・案件・スレッド単位で追跡できない。
+
+### 原因
+
+user履歴IDをentry recorderへ渡せず、entry sessionと後段reasoning sessionの紐付け規則が分かれていた。
+
+### 対処
+
+新規entry stepは専用sessionで保存し、ルート完了後に対応user履歴へ `chat_history_id IS NULL` 条件でbindする。packetは `search_context` のJSONから確認する。
+
+### 再発防止
+
+既存の未紐付けstepを自動修復せず、新規stepだけを対象にする。確認時は `chat_reasoning_steps` から `chat_history` をJOINしてproject/threadを照合する。
+
+### 関連ファイル
+
+- `AI_System_Data/public/api/chat.php`
+- `AI_System_Data/src/AdvancedReasoningStepRecorder.php`
+- `AI_System_Data/src/AdvancedRouteFinalizer.php`

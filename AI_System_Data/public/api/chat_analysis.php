@@ -2234,8 +2234,8 @@ class AdvancedReasoningRouteProcessor {
                 $this->originalMessage
             );
 
-            $updHist = $this->pdo->prepare("UPDATE chat_reasoning_steps SET chat_history_id = ? WHERE session_id = ?");
-            $updHist->execute([$historyId, $this->reasoningId]);
+            $updHist = $this->pdo->prepare("UPDATE chat_reasoning_steps SET chat_history_id = ? WHERE session_id = ? AND project_id = ? AND chat_history_id IS NULL");
+            $updHist->execute([$historyId, $this->reasoningId, $this->projectId]);
             chatLogger("[DEBUG] chat_reasoning_steps のセッションを chat_history_id: {$historyId} にバインド完了。");
 
             if (isset($this->evalResult) && $this->evalResult) {
