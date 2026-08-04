@@ -24,7 +24,7 @@
 
 | 優先度 | 状態 | タスク | 対象ファイル | 確認方法 |
 | --- | --- | --- | --- | --- |
-| P1 | 進行中 | 質問分解 packet / `chat_reasoning_steps` 保存 / `project_meta` 自動 TODO 反映 / 圧縮 thread context の実運用データ確認と `save_worthy`・履歴圧縮ルールの微調整 | `AI_System_Data/public/api/chat.php`, `AI_System_Data/src/ChatQuestionDecomposer.php`, `AI_System_Data/src/AdvancedReasoningStepRecorder.php`, `AI_System_Data/src/ProjectMemoryAutoUpdater.php`, `AI_System_Data/src/ProjectTaskStateReducer.php`, `AI_System_Data/src/PromptManager.php`, `AI_System_Data/public/api/chat_normal.php`, `AI_System_Data/src/AdvancedRouteFinalizer.php`, `AI_System_Data/logs/chat_debug.log` | 実運用データを使った複合依頼で、`[QUESTION-DECOMPOSE]` / `chat_reasoning_steps` 保存 / `todo_source=decomposition` / `ai_project_todo_auto_md` の `進行中` / `未着手` が自然に維持されること、`status_alignment` 相談で `[PROJECT-MEMORY-AUTO] skipped=route_guard` が出て既存 TODO を潰さないこと、`[PROMPT-HISTORY]` / `[PROMPT-CONTEXT]` が route と最終回答を壊さないことを確認する |
+| P1 | 進行中 | 案件4・スレッド57の `chat_history`、reasoning step、`project_meta` 自動TODO、`save_worthy`、圧縮履歴を実データで確認し、必要な微調整を1件に絞る | `AI_System_Data/public/api/chat.php`, `AI_System_Data/src/ChatQuestionDecomposer.php`, `AI_System_Data/src/AdvancedReasoningStepRecorder.php`, `AI_System_Data/src/ProjectMemoryAutoUpdater.php`, `AI_System_Data/src/ProjectTaskStateReducer.php`, `AI_System_Data/src/PromptManager.php`, `AI_System_Data/public/api/chat_normal.php`, `AI_System_Data/src/AdvancedRouteFinalizer.php`, `AI_System_Data/logs/chat_debug.log` | 案件4・スレッド57を対象に、`chat_history`、`chat_reasoning_steps`、`project_meta`の自動TODO、`save_worthy`判定、圧縮履歴を突き合わせ、実データに基づく微調整候補を1件だけ決める |
 
 ## 未着手タスク
 
