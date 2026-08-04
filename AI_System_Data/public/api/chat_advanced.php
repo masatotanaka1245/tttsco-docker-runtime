@@ -173,7 +173,7 @@ class AdvancedReasoningRouteProcessor {
     private function compactHistorySummary(string $historySummaryText): string
     {
         $normalized = $this->normalizeUtf8($historySummaryText);
-        $compacted = PromptManager::compactHistorySummaryText($normalized, 3, 180, 700);
+        $compacted = PromptManager::compactHistorySummaryText($normalized, 4, 180, 700);
         if ($compacted !== '' && $compacted !== trim($normalized)) {
             chatLogger("[PROMPT-HISTORY] route=advanced_hybrid | rawChars=" . mb_strlen(trim($normalized)) . " | compactChars=" . mb_strlen($compacted));
         }

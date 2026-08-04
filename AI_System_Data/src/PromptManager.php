@@ -457,7 +457,7 @@ class PromptManager {
 
     /**
      * @param array<int, array{role?: string, message?: string}> $historyRows
-     * @return array{summary: string, raw_turns: int, retained_turns: int, raw_chars: int, compact_chars: int, retained_roles: array<string,int>}
+     * @return array{summary: string, raw_turns: int, retained_turns: int, raw_chars: int, compact_chars: int, retained_roles: array<string,int>, complete_pair_count:int, unanswered_user_count:int, selected_pair_count:int, selected_message_count:int, pair_integrity:string}
      */
     public static function compactHistoryRows(
         array $historyRows,
@@ -472,7 +472,10 @@ class PromptManager {
         $rows = array_slice($historyRows, -1 * max(1, $maxSourceTurns));
         $normalizedRows = [];
         foreach ($rows as $row) {
-            $role = ($row['role'] ?? '') === 'assistant' ? 'assistant' : 'user';
+            $role = (string)($row['role'] ?? '');
+            if (!in_array($role, ['user', 'assistant'], true)) {
+                continue;
+            }
             $message = trim((string)($row['message'] ?? ''));
             if ($message === '') {
                 continue;
@@ -492,6 +495,11 @@ class PromptManager {
                 'raw_chars' => 0,
                 'compact_chars' => 0,
                 'retained_roles' => ['user' => 0, 'assistant' => 0],
+                'complete_pair_count' => 0,
+                'unanswered_user_count' => 0,
+                'selected_pair_count' => 0,
+                'selected_message_count' => 0,
+                'pair_integrity' => 'ok',
             ];
         }
 
@@ -502,40 +510,49 @@ class PromptManager {
         }
         $rawText = implode("\n", $rawLines);
 
-        $selected = [];
-        $userCount = 0;
-        $assistantCount = 0;
-        foreach (array_reverse($normalizedRows) as $row) {
-            $role = $row['role'];
-            if ($role === 'assistant') {
-                if ($assistantCount >= $maxAssistantTurns) {
-                    continue;
-                }
-                $assistantCount++;
-            } else {
-                if ($userCount >= $maxUserTurns) {
-                    continue;
-                }
-                $userCount++;
+        $units = self::buildConversationUnits($normalizedRows);
+        $completePairCount = count(array_filter($units, static fn(array $unit): bool => $unit['type'] === 'pair'));
+        $unansweredUserCount = count(array_filter($units, static fn(array $unit): bool => $unit['type'] === 'unanswered_user'));
+        $selectedUnits = [];
+        $selectedMessageCount = 0;
+        foreach (array_reverse($units) as $unit) {
+            $unitMessageCount = count($unit['rows']);
+            if ($selectedMessageCount + $unitMessageCount > max(1, $maxRetainedTurns)) {
+                continue;
             }
-            $selected[] = $row;
-            if (count($selected) >= $maxRetainedTurns) {
-                break;
+            $selectedUnits[] = $unit;
+            $selectedMessageCount += $unitMessageCount;
+        }
+        $selectedUnits = array_reverse($selectedUnits);
+
+        $selected = [];
+        foreach ($selectedUnits as $unit) {
+            foreach ($unit['rows'] as $row) {
+                $selected[] = $row;
             }
         }
-
-        $selected = array_reverse($selected);
         $retainedRoles = ['user' => 0, 'assistant' => 0];
-        $summaryLines = [];
         foreach ($selected as $row) {
             $role = $row['role'];
             $retainedRoles[$role]++;
-            $lineLimit = $role === 'assistant' ? $assistantLineChars : $userLineChars;
-            $roleLabel = $role === 'assistant' ? 'AI' : 'ユーザー';
-            $summaryLines[] = $roleLabel . ': ' . self::clipText($row['message'], $lineLimit);
         }
 
-        $summary = self::clipText(implode("\n", $summaryLines), $maxTotalChars);
+        $summary = '';
+        foreach ($selectedUnits as $unit) {
+            $unitLines = [];
+            foreach ($unit['rows'] as $row) {
+                $lineLimit = $row['role'] === 'assistant' ? $assistantLineChars : $userLineChars;
+                $roleLabel = $row['role'] === 'assistant' ? 'AI' : 'ユーザー';
+                $unitLines[] = $roleLabel . ': ' . self::clipText($row['message'], $lineLimit);
+            }
+            $candidate = $summary === '' ? implode("\n", $unitLines) : $summary . "\n" . implode("\n", $unitLines);
+            if (mb_strlen($candidate) > $maxTotalChars && $summary !== '') {
+                break;
+            }
+            $summary = self::clipText($candidate, $maxTotalChars);
+        }
+
+        $selectedPairCount = count(array_filter($selectedUnits, static fn(array $unit): bool => $unit['type'] === 'pair'));
 
         return [
             'summary' => $summary,
@@ -544,7 +561,39 @@ class PromptManager {
             'raw_chars' => mb_strlen($rawText),
             'compact_chars' => mb_strlen($summary),
             'retained_roles' => $retainedRoles,
+            'complete_pair_count' => $completePairCount,
+            'unanswered_user_count' => $unansweredUserCount,
+            'selected_pair_count' => $selectedPairCount,
+            'selected_message_count' => count($selected),
+            'pair_integrity' => 'ok',
         ];
+    }
+
+    /** @param array<int, array{role:string, message:string}> $rows @return array<int, array{type:string, rows:array<int, array{role:string, message:string}>}> */
+    private static function buildConversationUnits(array $rows): array
+    {
+        $units = [];
+        $pendingUser = null;
+        foreach ($rows as $row) {
+            if ($row['role'] === 'user') {
+                if ($pendingUser !== null) {
+                    $units[] = ['type' => 'unanswered_user', 'rows' => [$pendingUser]];
+                }
+                $pendingUser = $row;
+                continue;
+            }
+            if ($pendingUser !== null) {
+                $units[] = ['type' => 'pair', 'rows' => [$pendingUser, $row]];
+                $pendingUser = null;
+            } else {
+                $units[] = ['type' => 'isolated_assistant', 'rows' => [$row]];
+            }
+        }
+        if ($pendingUser !== null) {
+            $units[] = ['type' => 'unanswered_user', 'rows' => [$pendingUser]];
+        }
+
+        return $units;
     }
 
     private static function clipText(string $text, int $maxChars): string

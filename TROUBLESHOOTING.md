@@ -217,3 +217,26 @@ user履歴IDをentry recorderへ渡せず、entry sessionと後段reasoning sess
 - `AI_System_Data/public/api/chat.php`
 - `AI_System_Data/src/AdvancedReasoningStepRecorder.php`
 - `AI_System_Data/src/AdvancedRouteFinalizer.php`
+
+## 2026-08-04: 圧縮履歴で質問または回答だけが残る
+
+### 症状
+
+圧縮thread contextに、完了済み会話の質問または回答だけが残る。
+
+### 原因
+
+userとassistantを独立した件数上限で選択していた。
+
+### 対処
+
+`[PROMPT-HISTORY]` のpair数とselected message数を確認し、完了済み会話はペアで保持する。
+
+### 再発防止
+
+未回答userだけは単独保持を許可し、完了済みペアを片方だけ選択しない。
+
+### 関連ファイル
+
+- `AI_System_Data/src/PromptManager.php`
+- `AI_System_Data/public/api/chat.php`

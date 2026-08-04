@@ -493,6 +493,11 @@ try {
                     . " | compactChars=" . (int)($historyPacket['compact_chars'] ?? 0)
                     . " | retained=user:" . (int)(($historyPacket['retained_roles']['user'] ?? 0))
                     . ",assistant:" . (int)(($historyPacket['retained_roles']['assistant'] ?? 0))
+                    . " | completePairs=" . (int)($historyPacket['complete_pair_count'] ?? 0)
+                    . " | unansweredUsers=" . (int)($historyPacket['unanswered_user_count'] ?? 0)
+                    . " | selectedPairs=" . (int)($historyPacket['selected_pair_count'] ?? 0)
+                    . " | selectedMessages=" . (int)($historyPacket['selected_message_count'] ?? 0)
+                    . " | pairIntegrity=" . (string)($historyPacket['pair_integrity'] ?? 'unknown')
                 );
             }
         }
