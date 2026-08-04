@@ -24,12 +24,14 @@
 
 | 優先度 | 状態 | タスク | 対象ファイル | 確認方法 |
 | --- | --- | --- | --- | --- |
-| P1 | 進行中 | 入口で保存する質問分解stepを、対応するuser `chat_history`へ確実に紐付け、案件・スレッド単位で質問分解packetと`save_worthy`判定を追跡可能にする | `AI_System_Data/public/api/chat.php`, `AI_System_Data/src/AdvancedReasoningStepRecorder.php`, `AI_System_Data/src/AdvancedRouteFinalizer.php` | 案件4では、同時刻・同内容のuser履歴と一致する未紐付けdecomposition stepを解消し、通常・analysis・advanced各経路で`chat_history_id`、`project_id`、`thread_id`の対応を確認する |
+| P1 | 進行中 | 圧縮thread contextを会話ペア優先にし、user発話と対応assistant回答の分離を防ぐ | `AI_System_Data/src/PromptManager.php`, `AI_System_Data/public/api/chat.php` | 直近履歴に重複または連続した会話があっても、保持するuser発話とassistant回答が対になり、follow-up判断に必要な直前文脈を失わないことを確認する |
 
 ## 未着手タスク
 
 | 優先度 | 状態 | タスク | 対象ファイル | 確認方法 |
 | --- | --- | --- | --- | --- |
+| P2 | 未着手 | 既存の未紐付けreasoning stepについて、安全なbackfill判定条件を設計する | `AI_System_Data/src/AdvancedReasoningStepRecorder.php`, `AI_System_Data/src/ChatHistoryMaintenance.php` | 同時刻・同一質問だけで自動更新せず、project / thread / user / sessionの一致条件、誤紐付け時の影響、dry-run出力を整理する |
+| P2 | 未着手 | 重複チャット送信の抑止または表示整理を実装する | `AI_System_Data/public/api/chat.php`, `AI_System_Data/public/assets/js/` | 同一質問の短時間再送で二重のuser / assistant履歴が増えず、正常なfollow-upは妨げないことを確認する |
 | P2 | 未着手 | `資料` タブまわりのフロント実装を `support.js` から段階的に分離し、`materials.js` 相当の専用モジュールへ整理する | `AI_System_Data/public/assets/js/support.js`, `AI_System_Data/public/assets/js/modules/`, `AI_System_Data/public/support.php`, `AI_System_Data/public/templates/modals.php` | 資料一覧、編集、保存後即時更新、削除後更新、AI回答からの追記が従来どおり動くことを確認する |
 | P2 | 未着手 | `Datetime` / `時間帯` 系の質問を日別・月別ではなく時間帯別の粒度として解釈し、follow-up でも列・粒度継承を安定化する | `AI_System_Data/src/CsvAggregationPlanner.php`, `AI_System_Data/src/CsvDateAggregationRunner.php`, `AI_System_Data/src/ChatHistoryContextResolver.php` | `Datetimeから多い時間帯を教えて` と `時間帯ごとにグラフ化してください。` が時間帯粒度で返ることを確認する |
 | P3 | 未着手 | headless browser による報告書 PDF 変換ログの文字化けを抑え、Chrome / Edge 実行可否が読み取れる形に整える | `AI_System_Data/src/ReportGenerator.php`, `AI_System_Data/logs/chat_debug.log` | `[REPORT] headless browser version:` 周辺のログが文字化けせず読めることを確認する |
