@@ -16,6 +16,15 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    command:
+      - /bin/sh
+      - -c
+      - |
+        mkdir -p /var/www/html/logs
+        touch /var/www/html/logs/chat_debug.log
+        chown www-data:www-data /var/www/html/logs/chat_debug.log
+        chmod 664 /var/www/html/logs/chat_debug.log
+        exec apache2-foreground
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped

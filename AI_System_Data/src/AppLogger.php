@@ -28,7 +28,10 @@ function appLog(string $fileName, string $message, array $context = []): void
         $line .= ' ' . json_encode($context, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     }
 
-    @file_put_contents($path, $line . PHP_EOL, FILE_APPEND | LOCK_EX);
+    $written = @file_put_contents($path, $line . PHP_EOL, FILE_APPEND | LOCK_EX);
+    if ($written === false) {
+        error_log(sprintf('appLog write failed: %s', $path));
+    }
 }
 
 function appDebugEnabled(): bool

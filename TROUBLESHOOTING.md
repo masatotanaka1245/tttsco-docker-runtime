@@ -170,3 +170,26 @@ DB dump にはユーザー情報や履歴が含まれる可能性があるため
 
 - `.gitignore`
 - `AI_System_Data/backups/`
+
+## 2026-08-04: chat_debug.log が0行のままになる
+
+### 症状
+
+`chat_debug.log` が0行のままとなり、アプリケーションログを追記できない。
+
+### 原因
+
+bind mount 上のログファイルが `root:root 644` になると、Apache/PHP 実行ユーザー `www-data` が追記できない。
+
+### 対処
+
+`stat` と `www-data` での `test -w` を確認し、app サービスだけを再作成する。
+
+### 再発防止
+
+Compose 起動時に `chat_debug.log` の所有者・権限を初期化する。
+
+### 関連ファイル
+
+- `docker-compose.yml`
+- `AI_System_Data/src/AppLogger.php`
