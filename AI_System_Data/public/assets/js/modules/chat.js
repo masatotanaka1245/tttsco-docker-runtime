@@ -9,11 +9,14 @@
 import { secureFetch, getConfig } from './api.js?v=4';
 import { scrollToBottom } from './ui.js?v=4';
 import { AiRenderer } from './aiRenderer.js?v=6';
+import { createChatSubmissionGate } from './chatSubmissionGate.js?v=1';
+import { createChatResponseHandler } from './chatResponseHandler.js?v=1';
 
 // 生成された Chart.js のインスタンスを保持し、メモリリークや二重描画を防ぐグローバル管理マップ
 window.chartInstances = window.chartInstances || {};
 
 let chatBusy = false;
+const chatSubmissionGate = createChatSubmissionGate(generateUUID);
 let chatStatusTimer = null;
 let chatStatusStartedAt = null;
 let currentChatStatusMessage = '';
@@ -1182,6 +1185,14 @@ function handleChat(e) {
     const msg = input.value.trim();
     if (!msg) return;
 
+    // The form submit event is the single frontend entrance.  The gate makes
+    // click, submit, and repeated Enter events share one request operation.
+    const requestId = chatSubmissionGate.begin();
+    if (!requestId) {
+        setChatProcessingStatus('現在の回答を品質確認・保存中です。入力内容はそのまま残ります。');
+        return;
+    }
+
     const modelSelect = document.getElementById('support-model-select');
     const model = modelSelect ? modelSelect.value : 'gemma4:e4b';
     const promptModeSelect = document.getElementById('support-prompt-select');
@@ -1221,6 +1232,7 @@ function handleChat(e) {
     const chatBox = document.getElementById('chat-box');
     if (!chatBox) {
         setFormBusy(false);
+        chatSubmissionGate.finish();
         finishChatProcessingStatus('チャット画面を取得できませんでした。', 'error');
         return;
     }
@@ -1262,6 +1274,15 @@ function handleChat(e) {
     streamState.ollamaErrorMsg = "";
 
     (async () => {
+        const responseHandler = createChatResponseHandler({
+            onDuplicateNotice: () => {
+                terminalStatus = 'error';
+                document.getElementById(tempId)?.remove();
+                finishChatProcessingStatus('同じ送信操作はすでに処理中です。', 'error');
+            },
+            onGateRelease: () => chatSubmissionGate.finish()
+        });
+
         try {
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
             const response = await fetch('api/chat.php', {
@@ -1280,10 +1301,14 @@ function handleChat(e) {
                     advanced_reasoning_id: reasoningId,
                     report_mode: reportMode,
                     diagram_mode: diagramMode,
-                    csv_mode: csvMode
+                    csv_mode: csvMode,
+                    request_id: requestId
                 })
             });
 
+            if (responseHandler.handleHttpResponse(response)) {
+                return;
+            }
             if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
 
             const reader = response.body.getReader();
@@ -1368,6 +1393,9 @@ function handleChat(e) {
 
                         } else if (sseData.type === 'result') {
                             document.getElementById(tempId)?.remove();
+                            if (responseHandler.handleSsePayload(sseData)) {
+                                continue;
+                            }
                             
                             if (sseData.status === 'success') {
                                 setChatProcessingStatus('回答生成は完了しました。履歴保存・品質確認結果を反映しています...');
@@ -1496,7 +1524,8 @@ function handleChat(e) {
             finishChatProcessingStatus('通信エラーが発生しました。', 'error');
         } finally {
             setFormBusy(false);
-            if (currentChatStatusMessage) {
+            responseHandler.releaseGate();
+            if (currentChatStatusMessage && !responseHandler.isDuplicateHandled()) {
                 if (terminalStatus === 'error') {
                     finishChatProcessingStatus('エラーのため処理を終了しました。次の質問を送信できます。', 'error');
                 } else {

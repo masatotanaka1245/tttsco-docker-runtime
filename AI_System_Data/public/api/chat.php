@@ -45,6 +45,7 @@ require_once __DIR__ . '/../../src/ProjectContextMemory.php';
 require_once __DIR__ . '/../../src/ProjectMemoryAutoUpdater.php';
 require_once __DIR__ . '/../../src/UserSettingsSessionSynchronizer.php';
 require_once __DIR__ . '/../../src/ConversationIntentInterpreter.php';
+require_once __DIR__ . '/../../src/ChatRequestDuplicateGuard.php';
 
 // =========================================================================
 // 1. 共通ヘルパー関数・出力制御 の 定義
@@ -322,6 +323,10 @@ try {
     $message    = trim($input['message'] ?? '');
     $project_id = (isset($input['project_id']) && $input['project_id'] !== '') ? filter_var($input['project_id'], FILTER_VALIDATE_INT) : null;
     $thread_id  = (isset($input['thread_id']) && $input['thread_id'] !== '') ? filter_var($input['thread_id'], FILTER_VALIDATE_INT) : null;
+    $requestId = isset($input['request_id']) && is_string($input['request_id']) ? trim($input['request_id']) : '';
+    if (!ChatRequestDuplicateGuard::isValidRequestId($requestId)) {
+        throw new Exception('Bad Request: request_id が不正です。');
+    }
 
     if (empty($message)) {
         throw new Exception('Bad Request: メッセージが空です。');
@@ -386,45 +391,34 @@ try {
     $prefer_normal_rag = false;
     $explicit_advanced = $input_advanced_reasoning;
 
-    $dedupeLockFile = null;
+    $dedupeLock = null;
     $dedupeLocked = false;
-    $dedupeWindowSeconds = 45;
-    $dedupeHash = hash('sha256', implode('|', [
-        (string)$user_id,
-        (string)($project_id ?? 'NULL'),
-        mb_strtolower($message, 'UTF-8'),
-        (string)$selected_model
-    ]));
-    $dedupeLockFile = __DIR__ . '/../../logs/chat_request_' . $dedupeHash . '.lock';
-    if (is_file($dedupeLockFile)) {
-        $lockAge = time() - (int)filemtime($dedupeLockFile);
-        if ($lockAge >= 0 && $lockAge < $dedupeWindowSeconds) {
-            chatLogger("[SMART-ROUTER] 重複リクエストを抑止しました。hash: {$dedupeHash} | age: {$lockAge}s");
-            sendSSE('result', [
-                'status' => 'success',
-                'response' => '同じ内容のリクエストが直前に送信され、現在処理中です。完了を待ってから再実行してください。',
-                'sources' => [],
-                'mode_used' => 'duplicate_guard',
-                'detected_page' => null,
-                'hit_count' => 0,
-                'reasoning_steps' => [],
-                'applied_model' => $selected_model,
-                'model_roles' => ChatModelRolePayload::build($main_model, $sub_model, $embedding_model, 'main', $sql_model, $vision_model),
-                'created_at' => date('Y/m/d H:i'),
-                'report_document' => null,
-                'csv_export' => null
-            ]);
-            exit;
-        }
+    $dedupeLock = ChatRequestDuplicateGuard::acquire(
+        __DIR__ . '/../../logs',
+        (int)$user_id,
+        $project_id !== null ? (int)$project_id : null,
+        $thread_id !== null ? (int)$thread_id : null,
+        $requestId
+    );
+    if ($dedupeLock === null) {
+        chatLogger('[CHAT-DUPLICATE-GUARD] project_id=' . ($project_id ?? 'NULL') . ' | thread_id=' . ($thread_id ?? 'NULL') . ' | user_id=' . $user_id . ' | duplicate=in_progress');
+        http_response_code(409);
+        sendSSE('result', [
+            'status' => 'error',
+            'error_code' => 'CHAT_REQUEST_DUPLICATE',
+            'error' => '同じ送信操作のリクエストを処理中です。完了を待ってから再実行してください。',
+            'mode_used' => 'duplicate_guard'
+        ]);
+        exit;
     }
-    @file_put_contents($dedupeLockFile, json_encode([
-        'started_at' => date('c'),
-        'user_id' => $user_id,
-        'project_id' => $project_id,
-        'model' => $main_model,
-        'message_preview' => mb_substr($message, 0, 120)
-    ], JSON_UNESCAPED_UNICODE));
     $dedupeLocked = true;
+    chatLogger('[CHAT-REQUEST] project_id=' . ($project_id ?? 'NULL') . ' | thread_id=' . ($thread_id ?? 'NULL') . ' | user_id=' . $user_id . ' | request_hash=' . substr($dedupeLock['hash'], 0, 12) . ' | lock_acquired=1');
+    register_shutdown_function(static function () use (&$dedupeLock, &$dedupeLocked): void {
+        if ($dedupeLocked) {
+            ChatRequestDuplicateGuard::release($dedupeLock);
+            $dedupeLocked = false;
+        }
+    });
 
     $reasoning_model = $resolvedModels['reasoning_model'];
     $synthesis_model = $resolvedModels['synthesis_model'];
@@ -735,8 +729,9 @@ try {
         }
     }
 
-    if ($dedupeLocked && $dedupeLockFile !== null && is_file($dedupeLockFile)) {
-        @unlink($dedupeLockFile);
+    if ($dedupeLocked) {
+        ChatRequestDuplicateGuard::release($dedupeLock);
+        $dedupeLocked = false;
     }
 
 } catch (Throwable $e) {
@@ -744,8 +739,9 @@ try {
         chatLogger("[SMART-ROUTER] ルート処理中断: {$routeName} | elapsed: " . number_format(microtime(true) - $routeStart, 2) . "秒");
     }
 
-    if (!empty($dedupeLocked) && !empty($dedupeLockFile) && is_file($dedupeLockFile)) {
-        @unlink($dedupeLockFile);
+    if (!empty($dedupeLocked)) {
+        ChatRequestDuplicateGuard::release($dedupeLock ?? null);
+        $dedupeLocked = false;
     }
 
     chatLogger("CRITICAL TRACE: [File] " . $e->getFile() . " [Line] " . $e->getLine() . "行目 [Error] " . $e->getMessage());
