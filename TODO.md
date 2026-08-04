@@ -24,7 +24,7 @@
 
 | 優先度 | 状態 | タスク | 対象ファイル | 確認方法 |
 | --- | --- | --- | --- | --- |
-| P1 | 進行中 | 案件4・スレッド57の `chat_history`、reasoning step、`project_meta` 自動TODO、`save_worthy`、圧縮履歴を実データで確認し、必要な微調整を1件に絞る | `AI_System_Data/public/api/chat.php`, `AI_System_Data/src/ChatQuestionDecomposer.php`, `AI_System_Data/src/AdvancedReasoningStepRecorder.php`, `AI_System_Data/src/ProjectMemoryAutoUpdater.php`, `AI_System_Data/src/ProjectTaskStateReducer.php`, `AI_System_Data/src/PromptManager.php`, `AI_System_Data/public/api/chat_normal.php`, `AI_System_Data/src/AdvancedRouteFinalizer.php`, `AI_System_Data/logs/chat_debug.log` | 案件4・スレッド57を対象に、`chat_history`、`chat_reasoning_steps`、`project_meta`の自動TODO、`save_worthy`判定、圧縮履歴を突き合わせ、実データに基づく微調整候補を1件だけ決める |
+| P1 | 進行中 | 入口で保存する質問分解stepを、対応するuser `chat_history`へ確実に紐付け、案件・スレッド単位で質問分解packetと`save_worthy`判定を追跡可能にする | `AI_System_Data/public/api/chat.php`, `AI_System_Data/src/AdvancedReasoningStepRecorder.php`, `AI_System_Data/src/AdvancedRouteFinalizer.php` | 案件4では、同時刻・同内容のuser履歴と一致する未紐付けdecomposition stepを解消し、通常・analysis・advanced各経路で`chat_history_id`、`project_id`、`thread_id`の対応を確認する |
 
 ## 未着手タスク
 
