@@ -24,14 +24,14 @@
 
 | 優先度 | 状態 | タスク | 対象ファイル | 確認方法 |
 | --- | --- | --- | --- | --- |
-| P1 | 進行中 | 圧縮thread contextを会話ペア優先にし、user発話と対応assistant回答の分離を防ぐ | `AI_System_Data/src/PromptManager.php`, `AI_System_Data/public/api/chat.php` | 直近履歴に重複または連続した会話があっても、保持するuser発話とassistant回答が対になり、follow-up判断に必要な直前文脈を失わないことを確認する |
+| P1 | 進行中 | 重複チャット送信を抑止し、同一質問・同一回答が連続保存される問題を防ぐ | `AI_System_Data/public/api/chat.php`, `AI_System_Data/public/assets/js/` | 同一質問の短時間再送で二重のuser / assistant履歴が増えず、正常なfollow-upは妨げないことを確認する |
 
 ## 未着手タスク
 
 | 優先度 | 状態 | タスク | 対象ファイル | 確認方法 |
 | --- | --- | --- | --- | --- |
 | P2 | 未着手 | 既存の未紐付けreasoning stepについて、安全なbackfill判定条件を設計する | `AI_System_Data/src/AdvancedReasoningStepRecorder.php`, `AI_System_Data/src/ChatHistoryMaintenance.php` | 同時刻・同一質問だけで自動更新せず、project / thread / user / sessionの一致条件、誤紐付け時の影響、dry-run出力を整理する |
-| P2 | 未着手 | 重複チャット送信の抑止または表示整理を実装する | `AI_System_Data/public/api/chat.php`, `AI_System_Data/public/assets/js/` | 同一質問の短時間再送で二重のuser / assistant履歴が増えず、正常なfollow-upは妨げないことを確認する |
+| P2 | 未着手 | entry stepのuser履歴紐付けを実際の新規チャットで運用確認する | `AI_System_Data/public/api/chat.php`, `AI_System_Data/src/AdvancedReasoningStepRecorder.php` | 新規entry stepが対応するuser `chat_history`へ保存され、packet JSONとproject / thread JOINで追跡できることを確認する |
 | P2 | 未着手 | `資料` タブまわりのフロント実装を `support.js` から段階的に分離し、`materials.js` 相当の専用モジュールへ整理する | `AI_System_Data/public/assets/js/support.js`, `AI_System_Data/public/assets/js/modules/`, `AI_System_Data/public/support.php`, `AI_System_Data/public/templates/modals.php` | 資料一覧、編集、保存後即時更新、削除後更新、AI回答からの追記が従来どおり動くことを確認する |
 | P2 | 未着手 | `Datetime` / `時間帯` 系の質問を日別・月別ではなく時間帯別の粒度として解釈し、follow-up でも列・粒度継承を安定化する | `AI_System_Data/src/CsvAggregationPlanner.php`, `AI_System_Data/src/CsvDateAggregationRunner.php`, `AI_System_Data/src/ChatHistoryContextResolver.php` | `Datetimeから多い時間帯を教えて` と `時間帯ごとにグラフ化してください。` が時間帯粒度で返ることを確認する |
 | P3 | 未着手 | headless browser による報告書 PDF 変換ログの文字化けを抑え、Chrome / Edge 実行可否が読み取れる形に整える | `AI_System_Data/src/ReportGenerator.php`, `AI_System_Data/logs/chat_debug.log` | `[REPORT] headless browser version:` 周辺のログが文字化けせず読めることを確認する |
