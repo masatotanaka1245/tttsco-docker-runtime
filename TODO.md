@@ -24,13 +24,14 @@
 
 | 優先度 | 状態 | タスク | 対象ファイル | 確認方法 |
 | --- | --- | --- | --- | --- |
-| P1 | 進行中 | 既存の未紐付けreasoning stepについて、安全なbackfill判定条件を設計する | `AI_System_Data/src/AdvancedReasoningStepRecorder.php`, `AI_System_Data/src/ChatHistoryMaintenance.php` | 同時刻・同一質問だけで自動更新せず、project / thread / user / sessionの一致条件、誤紐付け時の影響、dry-run出力を整理する |
+| P1 | 進行中 | entry reasoning stepのuser履歴紐付けを実際の新規チャットで運用確認する | `AI_System_Data/public/api/chat.php`, `AI_System_Data/src/AdvancedReasoningStepRecorder.php` | 新規entry stepが対応するuser `chat_history`へ保存され、packet JSONとproject / thread JOINで追跡できることを確認する |
 
 ## 未着手タスク
 
 | 優先度 | 状態 | タスク | 対象ファイル | 確認方法 |
 | --- | --- | --- | --- | --- |
-| P2 | 未着手 | entry stepのuser履歴紐付けを実際の新規チャットで運用確認する | `AI_System_Data/public/api/chat.php`, `AI_System_Data/src/AdvancedReasoningStepRecorder.php` | 新規entry stepが対応するuser `chat_history`へ保存され、packet JSONとproject / thread JOINで追跡できることを確認する |
+| P2 | 未着手 | 手動確認候補37件のreasoning stepについて、誤紐付けを防ぐ確認手順と処理方針を設計する | `AI_System_Data/src/ChatHistoryMaintenance.php`, `chat_reasoning_steps` | 候補ごとにproject・thread・user・session・history順を確認し、承認済み以外は更新しない手順を定める |
+| P2 | 未着手 | legacy SQL reasoning step 521の扱いを決定する | `AI_System_Data/src/AdvancedReasoningStepRecorder.php`, `AI_System_Data/src/ChatHistoryMaintenance.php` | legacy SQL sessionをuser/assistant link対象にするか、trace残骸として保全するかを決める |
 | P2 | 未着手 | `資料` タブまわりのフロント実装を `support.js` から段階的に分離し、`materials.js` 相当の専用モジュールへ整理する | `AI_System_Data/public/assets/js/support.js`, `AI_System_Data/public/assets/js/modules/`, `AI_System_Data/public/support.php`, `AI_System_Data/public/templates/modals.php` | 資料一覧、編集、保存後即時更新、削除後更新、AI回答からの追記が従来どおり動くことを確認する |
 | P2 | 未着手 | `Datetime` / `時間帯` 系の質問を日別・月別ではなく時間帯別の粒度として解釈し、follow-up でも列・粒度継承を安定化する | `AI_System_Data/src/CsvAggregationPlanner.php`, `AI_System_Data/src/CsvDateAggregationRunner.php`, `AI_System_Data/src/ChatHistoryContextResolver.php` | `Datetimeから多い時間帯を教えて` と `時間帯ごとにグラフ化してください。` が時間帯粒度で返ることを確認する |
 | P3 | 未着手 | headless browser による報告書 PDF 変換ログの文字化けを抑え、Chrome / Edge 実行可否が読み取れる形に整える | `AI_System_Data/src/ReportGenerator.php`, `AI_System_Data/logs/chat_debug.log` | `[REPORT] headless browser version:` 周辺のログが文字化けせず読めることを確認する |
@@ -98,4 +99,5 @@
 
 | 優先度 | 状態 | タスク | 対象ファイル | 確認方法 |
 | --- | --- | --- | --- | --- |
+| P1 | 完了 | 既存の未紐付けreasoning stepの安全な判定・自動候補50件のbackfillを完了する | `AI_System_Data/src/AdvancedReasoningStepRecorder.php`, `AI_System_Data/src/ChatHistoryMaintenance.php` | Phase 1で50組を固定し、Phase 2のROLLBACK試験とPhase 3の個別UPDATE・全件監査を完了。88件中50件をuser `chat_history`へ紐付け、手動確認37件とlegacy step 521は未変更で保留した |
 | P1 | 完了 | `chat_threads` と `chat_history.thread_id` を正式スキーマへ反映し、README / 設計書の説明も現行実装へ追従させる | `AI_System_Data/config/db.sql`, `AI_System_Data/config/schema_check.sql`, `README_01.md`, `README_DOCKER.md`, `AI_System_Data/public/docs/design_v3.html` | `db.sql` / `schema_check.sql` / README / 設計書で thread 構成、`view_pdf.php`、モデル既定値、watchdog 現状が整合していることを確認した |
