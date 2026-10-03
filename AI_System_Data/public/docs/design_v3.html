@@ -334,7 +334,7 @@
             <tr><td class="font-bold">project_csv_files / project_csv_rows</td><td>CSVメタデータと行データ。行データはJSONで保存し、表示とText-to-SQL分析に使用</td><td>upload_csv.php、get_csv_data.php、SqlExecutionEngine.php</td></tr>
             <tr><td class="font-bold">project_comments / project_faqs</td><td>案件メモ、申し送り、手動登録ナレッジ</td><td>add_comment.php、add_faq.php、support.php</td></tr>
             <tr><td class="font-bold">chat_threads</td><td>案件内の会話スレッド。タイトル、自動採番、最終更新時刻を保持し、履歴要約と follow-up 継続の単位になる</td><td>ChatThreadManager.php、SupportController.php、chat.php、delete_chat_thread.php</td></tr>
-            <tr><td class="font-bold">chat_history / chat_reasoning_steps / chat_evaluations</td><td>対話履歴、推論ステップ、回答品質評価。<code>chat_history.thread_id</code> により現在スレッドへ紐づけ、ブラウザ更新後も推論プロセスを再表示するため、最終回答と中間ステップを保存する</td><td>chat_normal.php、chat_advanced.php、chat_analysis.php、SupportController.php、ChatEvaluator.php</td></tr>
+            <tr><td class="font-bold">chat_history / chat_reasoning_steps / chat_evaluations</td><td>対話履歴、推論ステップ、回答品質評価。<code>chat_history.thread_id</code> により現在スレッドへ紐づけ、最終回答と中間ステップを保存する。入口質問分解の <code>chat_history_id</code> はuser履歴、後段推論はassistant履歴へ紐づける。入口の <code>search_context</code> は分解packet JSONを保持する</td><td>chat.php、AdvancedReasoningStepRecorder.php、chat_normal.php、chat_advanced.php、chat_analysis.php、SupportController.php、ChatEvaluator.php</td></tr>
             <tr><td class="font-bold">project_meta</td><td>案件ごとの可変メタ情報。AI用DBメモリも格納可能</td><td>SqlExecutionEngine.php</td></tr>
           </tbody>
         </table>
@@ -400,6 +400,16 @@
         <code>chat.php</code> はSSE形式のチャットエントリーポイントで、まず質問を粗く因数分解し、通常RAG、<code>advanced_hybrid.doc_extract</code>、CSV証拠読解、CSV構造化集計（<code>CSV-AGG</code>）、CSV要約、admin専用全社横断調査の各ルートへ分岐する。ルーティング前に <code>ChatRequestGuard.php</code> が空入力、挨拶、誤送信に近い短文、報告書モードに不十分な指示を判定し、重い推論へ入る前に確認応答へ切り替える。通常RAGは <code>chat_normal.php</code>、多段階推論は <code>chat_advanced.php</code>、CSV証拠読解・CSV要約・構造化集計は <code>chat_analysis.php</code>、admin専用の全社横断調査は <code>chat_global.php</code> が担当する。案件チャットは <code>ChatThreadManager.php</code> により <code>chat_threads</code> と <code>chat_history.thread_id</code> を単位に管理され、現在スレッドの直近履歴と成果品ステートを使って follow-up を継続する。回答と質問は <code>chat_history</code> に保存され、推論過程は <code>chat_reasoning_steps</code>、品質評価は <code>chat_evaluations</code> に保存される。高評価の回答は要点化され、FAQ候補として <code>project_faqs</code> に自動登録される。<code>SupportController.php</code> は保存済み推論ステップを再取得し、ブラウザ更新後もプロセス表示を復元する。
       </p>
 
+      <p class="text-sm md:text-base text-slate-700">
+        送信には1〜128文字の英数字・<code>_</code>・<code>-</code>からなる <code>request_id</code> が必須である。<code>chatSubmissionGate.js</code> が送信ごとにIDを発行し、送信処理中の再操作を抑止する。サーバーの <code>ChatRequestDuplicateGuard.php</code> は、ユーザー・入力案件ID・入力スレッドID・<code>request_id</code> が同じ処理中リクエストを <code>flock</code> で抑止し、競合時はHTTP 409とSSE <code>result</code> の <code>status=error</code> / <code>error_code=CHAT_REQUEST_DUPLICATE</code> を返す。UIは重複通知を表示し、ロックは通常終了・例外・shutdownで解放する。同じ本文でも別IDの送信やロック解放後の再送は許可し、時間間隔による制限は設けない。
+      </p>
+      <p class="text-sm md:text-base text-slate-700">
+        案件付きチャットの入口質問分解は、route共通の <code>decomp-...</code> sessionで <code>chat_reasoning_steps</code> に保存し、<code>search_context</code> に <code>question_decomposition</code> 型のpacket JSONを保持する。route処理が戻ったあと、同一案件・スレッド・ユーザー・質問本文のuser <code>chat_history</code> を検索し、その入口sessionの未紐付けstepへ <code>chat_history_id</code> を設定する。既存の別sessionはこの処理の更新対象にしない。
+      </p>
+      <p class="text-sm md:text-base text-slate-700">
+        入口の履歴コンテキストは、因数分解用の直近3メッセージと、<code>PromptManager::compactHistoryRows()</code> による圧縮履歴を使い分ける。圧縮は直近8メッセージから質問・回答の完了ペアを分割せず新しい単位から最大5メッセージを選び、時系列順に並べる。未回答のuser発話も保持対象に含め、本文は役割別・全体の文字数上限で短縮する。案件運用メモや資料・CSV・PDFの根拠より履歴を優先しない。
+      </p>
+
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm mt-4">
         <div class="bg-indigo-50 border border-indigo-100 rounded-xl p-5">
           <h3 class="font-bold text-indigo-800 mb-2">チャットUI描画</h3>
@@ -436,6 +446,9 @@
       <h2 class="text-xl font-semibold sub-section text-slate-800">4.6 ログ・運用設定</h2>
       <p class="text-sm md:text-base text-slate-700">
         ログは <code>logs/</code> 配下に出力する。<code>upload_debug.log</code> はアップロードやCSV/PG取込の進捗、<code>chat_debug.log</code> はチャットのルート判定、粗い質問因数分解、入力ガード、DB収集、SQL生成・監査、Ollama送受信、評価、履歴保存、最終回答本文までの詳細ログ、<code>app_error.log</code> はAPI内部エラーを記録する。support.phpにはadmin向けのリアルタイムログビューアがあり、<code>chat_debug_tail.php</code> で追記分をtail表示できる。<code>[INPUT-GUARD]</code>、<code>[SMART-ROUTER]</code>、<code>[CSV-AGG]</code>、<code>[SQL-REPAIR-POLICY]</code>、<code>[EVAL-POLICY]</code>、<code>[FINAL-ANSWER]</code> により、誤送信抑止、因数分解結果、構造化集計、SQL修復上限、品質評価上限、最終回答本文を確認できる。本番では詳細例外を画面に出さず、ログ肥大化に注意して運用する。
+      </p>
+      <p class="text-sm md:text-base text-slate-700">
+        <code>[CHAT-REQUEST]</code> / <code>[CHAT-DUPLICATE-GUARD]</code> は送信ロックの取得と競合、<code>[QUESTION-DECOMPOSE-SAVE]</code> の <code>user_chat_history_id</code> / <code>bound_steps</code> は入口stepのuser履歴紐付けを記録する。<code>[PROMPT-HISTORY]</code> の <code>completePairs</code> / <code>unansweredUsers</code> / <code>selectedPairs</code> / <code>selectedMessages</code> / <code>pairIntegrity</code> で圧縮履歴の選択状況を追跡する。
       </p>
     </section>
 

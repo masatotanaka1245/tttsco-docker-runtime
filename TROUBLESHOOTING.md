@@ -91,8 +91,7 @@ Codex 実行環境から Docker socket にアクセスできない。
 
 ### 対処
 
-Codex 側では Docker の起動状態確認を無理に続けない。
-ユーザーの手元ターミナルで確認する。
+2026-10-03の確認では、実行環境の承認付き権限昇格で読み取り専用の `docker compose ps` が成功した。承認可能な環境では、この方法で原因を切り分ける。権限昇格が拒否された場合は無理に再試行せず、ユーザーの手元ターミナルで確認する。
 
 ```bash
 docker compose ps
@@ -101,7 +100,7 @@ docker ps
 
 ### 再発防止
 
-Codex 依頼文では、Docker 操作が必要な場合に「権限エラーなら停止して報告」と明記する。
+socketの権限エラーとDocker未起動を区別する。承認された読み取り確認を優先し、ポリシー拒否の場合はその理由を報告する。
 
 ### 関連ファイル
 
@@ -240,3 +239,26 @@ userとassistantを独立した件数上限で選択していた。
 
 - `AI_System_Data/src/PromptManager.php`
 - `AI_System_Data/public/api/chat.php`
+
+## 2026-10-03: Git fetch が FETCH_HEAD の書き込み権限で失敗する
+
+### 症状
+
+`git fetch origin` が `cannot open '.git/FETCH_HEAD': Operation not permitted` で失敗する。
+
+### 原因
+
+実行環境のsandboxでは `.git` が読み取り専用であり、ネットワーク接続前にGit管理ファイルの更新が拒否される。
+
+### 対処
+
+ユーザーが依頼したリポジトリ同期の範囲で、承認付き権限昇格による `git fetch origin` を実行し、成功を確認した。
+
+### 再発防止
+
+Git管理領域の権限拒否をDNS・認証・remote rejectionと混同しない。権限昇格が拒否された場合は理由を報告し、同じ操作を繰り返さない。
+
+### 関連ファイル
+
+- `.git/FETCH_HEAD`
+- `.git/config`

@@ -113,7 +113,7 @@ Tailwind CSS	3.x
 
 ## 質問分解と継続タスク方針（2026-06-25）
 
-今後のチャット入口では、route 判定の前に全質問共通の `質問分解 packet` を作り、複合質問を軽量な `sub_question` 単位で扱う方針とする。第1段では deterministic / lightweight な分解を優先し、LLM による分解は必須にしない。
+現在のチャット入口では、route 判定の前に全質問共通の `質問分解 packet` を作り、複合質問を軽量な `sub_question` 単位で扱う。deterministic / lightweight な分解を優先し、LLM による分解は必須にしない。
 
 - 分解 packet の役割
   - 複合質問を `集計` / `グラフ化` / `要点整理` / `報告書化` のような粒度へ粗く分ける
@@ -122,7 +122,8 @@ Tailwind CSS	3.x
 - `chat_reasoning_steps` の役割
   - 各ターン内の分解結果、進捗、部分回答を残すトレース用途として扱う
   - durable な案件TODOそのものではなく、実行ログと途中経過の保存先として使う
-  - advanced 専用に閉じず、将来的には全質問共通の分解ログ基盤として使える余地を残す
+  - 案件付きチャットの入口分解は、route 共通の `decomp-...` session として保存し、`search_context` に `question_decomposition` 型の packet JSON を保持する
+  - route 処理が戻ったあと、同一案件・スレッド・ユーザー・質問本文の user `chat_history` を検索し、その入口 session の未紐付け step へ `chat_history_id` を設定する。`[QUESTION-DECOMPOSE-SAVE]` の `user_chat_history_id` / `bound_steps` で追跡する。既存の別 session はこの処理の更新対象にしない
 - `project_meta` の auto TODO の役割
   - `ai_project_todo_auto_md` は、次回以降の回答でも参照される持続タスク状態として扱う
   - 分解結果の全件ではなく、`save_worthy` な未完了タスクだけを反映する
@@ -153,7 +154,7 @@ Tailwind CSS	3.x
 - `project_comments` は案件コメントであり、運用メモとは別物として扱う
 - 会話履歴は長く抱え込まず、現在スレッドの直近2〜3件を主にインテント把握と follow-up 判定へ使う。2026-06-16 時点では、入口と `chat_analysis.php` の `recent_history` 取得は `3件` にそろえている
 - 一方で、運用メモ、資料、CSV、直前の集計ステートなどの「成果品スナップショット」は優先的にプロンプトへ載せる
-- 今後の履歴コンテキストは、`直近生履歴`、`圧縮済み thread summary`、`project_meta の AGENTS / README / TODO` の3層で扱う方針とし、長い履歴全文をそのまま積まない
+- 履歴コンテキストは、`直近生履歴`、`圧縮済み thread summary`、`project_meta の AGENTS / README / TODO` の3層で扱い、長い履歴全文をそのまま積まない。入口では直近8メッセージを圧縮候補とし、質問・回答の完了ペアを分割せず新しい単位から最大5メッセージを選び、時系列順に並べる。未回答の user 発話も保持対象に含め、本文は役割別・全体の文字数上限で短縮する。`[PROMPT-HISTORY]` の `completePairs` / `unansweredUsers` / `selectedPairs` / `selectedMessages` / `pairIntegrity` で選択状況を追跡する
 - 会話履歴は補助コンテキストであり、`project_meta`、資料、CSV、PDFの根拠より優先して事実断定に使わない
 - `ProjectMemoryAutoUpdater` の自動生成メモでも、`documents` 上の Markdown 資料メモを独立した成果品として収集し、`README / AGENTS / TODO` に反映する
 - FAQ / PDF / CSV は、ユーザーの意図が明確で route 条件が揃っていれば、AI が直接生成・登録してよい
@@ -368,13 +369,13 @@ Text-to-SQL分析	AI生成SQLを `SqlExecutionEngine` で監査し、実在テ�
 - `FaqAutoRegistrar.php` は、高評価回答のみをFAQ候補として扱い、`chat_history_id`・質問要約・回答要約の重複を避けながら保存する。現状の候補は `evaluation_mode=real` の本審査結果に限定し、`lightweight_rule_guard` や `fallback` 系は候補に含めない。保存されなかった場合も理由を `[FAQ-AUTO]` ログで追える。
 - `project_comments` / `project_faqs` は回答生成ルートの参照対象には入っているが、現状は PDF / CSV より前面には出にくい。FAQ は一部質問で明示的に参照しやすい一方、コメントは主にスキーマ文脈やSQL到達時の補助ソースとして使われる。コメント・FAQ 系の質問語を優先ルーティングする改善は将来候補として扱う。
 
-チャット受付・ルーティング現行メモ（2026/06/03整理）
+チャット受付・ルーティング現行メモ（2026/06/03整理・送信契約を現行実装へ追随）
 
 1. 入口と前処理
-- 入口は `public/api/chat.php`。ここで `project_id`、メッセージ本文、`advanced_reasoning`、`report_mode`、`diagram_mode` を受け取る。
+- 入口は `public/api/chat.php`。ここで `project_id`、`thread_id`、必須の `request_id`、メッセージ本文、`advanced_reasoning`、`report_mode`、`diagram_mode` を受け取る。`request_id` は1〜128文字の英数字・`_`・`-` とし、未指定または不正な値は受け付けない。
 - 受付直後に `[INPUT-MODE]` を `chat_debug.log` へ出力し、回答モードの実入力を追えるようにしている。
 - `ChatRequestGuard.php` が空入力、挨拶、誤送信に近い短文、報告書モードに不十分な依頼を先に弾く。
-- 現在スレッドの直近2〜3件相当の `chat_history` を主に使い、`history_summary_text` を下流へ渡す。案件内スレッド機能導入後は、案件単位ではなく現在の会話スレッド単位で直近履歴を見る。加えて、CSV追い質問の補完用に直近会話から対象CSV名・列名・直前の集計意図に加え、`aggregation_mode` / `sort_order` / `wants_chart` / `output_format` / `base_sql` などの成果品ステートも再利用する。
+- 現在スレッドの直近3メッセージを主にインテント把握と follow-up 判定へ使い、直近8メッセージから圧縮した `history_summary_text` を下流へ渡す。案件内スレッド機能導入後は、案件単位ではなく現在の会話スレッド単位で直近履歴を見る。加えて、CSV追い質問の補完用に直近会話から対象CSV名・列名・直前の集計意図に加え、`aggregation_mode` / `sort_order` / `wants_chart` / `output_format` / `base_sql` などの成果品ステートも再利用する。
 - `やっぱり表で` / `棒グラフで` のような follow-up では、今回の明示指示を優先しつつ、`route_lock` 中の成果品ステートを planner と answer formatter が引き継ぐ。
 
 2. ルーティングの大枠
@@ -614,8 +615,8 @@ mysql -u newuser -p tepscoapp < config/db.sql
 phpMyAdmin：データベース管理。
 定期バックアップ：mysqldump で自動ダンプ。
 ログ監視：logs/ 配下にアプリケーションログを出力。
-重複送信抑止・短時間再送ガード：
-`chat.php` は、同一ユーザー・同一案件・同一メッセージの短時間再送をロックファイルで抑止する。汎用的なAPIレート制限ではなく、誤連打や二重送信を防ぐためのガードとして扱う。
+重複送信抑止・処理中リクエストのガード：
+フロントエンドの `chatSubmissionGate.js` は送信処理中の再操作を抑止し、送信ごとに `request_id` を発行する。`chat.php` と `ChatRequestDuplicateGuard.php` は、同一ユーザー・入力案件ID・入力スレッドID・`request_id` の処理中リクエストを `flock` で抑止する。競合時は HTTP 409 と SSE `result` の `status=error` / `error_code=CHAT_REQUEST_DUPLICATE` を返し、UIは重複通知を表示する。ロックは通常終了・例外・shutdown で解放する。同じ本文でも別 `request_id` の送信やロック解放後の再送は許可し、時間間隔による制限は設けない。
 
 1.8 開発・拡張
 UI コンポーネント：Tailwind CSS をベースに分野別配色切替。
@@ -623,6 +624,8 @@ GIS 連携：Leaflet.js を拡張し、特定地点の地質断面図等のポ�
 RAG 改善：VectorSearch を MySQL の JSON カラムと GIST インデックスを併用して高速化。
 テスト：tests/ に PHPUnit テストを追加。
 CI/CD：GitHub Actions でコード品質チェック、デプロイを自動化。
+
+Open WebUI移行検討：[移行資料の入口](AI_System_Data/docs/open_webui_migration_00_readme.md) に、2026-07-12作成、2026-10-03再確認の棚卸しと新構成の設計提案をまとめている。移行実装や現行PHP構成の変更を示す資料ではない。
 
 2. UI/UX 仕様（抜粋）
 2.1 ダッシュボード画面
@@ -892,13 +895,13 @@ chat_threads	4	created_by	bigint unsigned	YES	MUL	NULL	スレッド作成ユー�
 chat_threads	5	created_at	datetime	YES		CURRENT_TIMESTAMP
 chat_threads	6	updated_at	datetime	YES		CURRENT_TIMESTAMP
 chat_reasoning_steps	1	id	bigint unsigned	NO	PRI	NULL
-chat_reasoning_steps	2	chat_history_id	bigint unsigned	YES		NULL	最終的なチャット履歴との紐づけ
+chat_reasoning_steps	2	chat_history_id	bigint unsigned	YES		NULL	チャット履歴との紐づけ。入口質問分解はuser履歴、後段推論はassistant履歴
 chat_reasoning_steps	3	project_id	bigint unsigned	NO	MUL	NULL
 chat_reasoning_steps	4	session_id	varchar(255)	NO		NULL	現在進行中のセッション識別
 chat_reasoning_steps	5	original_question	longtext	NO		NULL	ユーザーの元の質問
 chat_reasoning_steps	6	step_number	int	NO		NULL	因数分解されたクエリの連番 (1, 2, 3...)
 chat_reasoning_steps	7	sub_query	varchar(512)	NO		NULL	因数分解されたサブ質問テキスト
-chat_reasoning_steps	8	search_context	longtext	YES		NULL	このサブ質問でヒットしたRAG資料情報(JSON)
+chat_reasoning_steps	8	search_context	longtext	YES		NULL	RAG資料情報(JSON)、または入口質問分解のpacket JSON
 chat_reasoning_steps	9	sub_answer	longtext	YES		NULL	このサブ質問に対して生成された個別回答
 chat_reasoning_steps	10	created_at	datetime	YES		CURRENT_TIMESTAMP
 doc_chunks	1	id	bigint unsigned	NO	PRI	NULL
